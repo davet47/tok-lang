@@ -113,6 +113,20 @@ struct PendingLambda {
     body: Vec<HirStmt>,
     /// Variables captured from the enclosing scope.
     captures: Vec<CapturedVar>,
+    /// If set, this lambda is compiled with specialized (native-typed) calling convention.
+    /// Contains concrete types for each parameter, inferred from the call site.
+    specialized_param_types: Option<Vec<Type>>,
+}
+
+/// Info stored for known closures to enable direct and specialized calls.
+#[derive(Clone)]
+struct KnownClosure {
+    func_id: FuncId,
+    env_ptr: Value,
+    /// Index into pending_lambdas for the uniform version.
+    pending_idx: usize,
+    /// Specialized FuncId for a specific set of arg types + return type, if created.
+    specialized: Option<(FuncId, Vec<Type>, Type)>,
 }
 
 /// Top-level compiler that holds the Cranelift module and all metadata.
@@ -250,6 +264,7 @@ impl Compiler {
         self.declare_runtime_func("tok_array_min", &[PTR], &[PTR, types::I64]); // -> TokValue
         self.declare_runtime_func("tok_array_max", &[PTR], &[PTR, types::I64]);
         self.declare_runtime_func("tok_array_sum", &[PTR], &[PTR, types::I64]);
+        self.declare_runtime_func("tok_pmap", &[PTR, PTR], &[PTR]);
 
         // Map
         self.declare_runtime_func("tok_map_alloc", &[], &[PTR]);
@@ -307,6 +322,11 @@ impl Compiler {
         self.declare_runtime_func("tok_ceil", &[types::F64], &[types::I64]);
         self.declare_runtime_func("tok_value_ceil", &[PTR, types::I64], &[PTR, types::I64]);
         self.declare_runtime_func("tok_rand", &[], &[types::F64]);
+
+        // TokValue → concrete type extraction
+        self.declare_runtime_func("tok_value_to_int", &[PTR, types::I64], &[types::I64]);
+        self.declare_runtime_func("tok_value_to_float", &[PTR, types::I64], &[types::F64]);
+        self.declare_runtime_func("tok_value_to_bool", &[PTR, types::I64], &[types::I8]);
 
         // Value ops (for Any type dispatch)
         self.declare_runtime_func("tok_value_add", &[PTR, types::I64, PTR, types::I64], &[PTR, types::I64]);
@@ -402,6 +422,10 @@ struct FuncCtx<'a> {
     is_any_return: bool,
     /// The return type of the current function.
     ret_type: Type,
+    /// Closures assigned to local variables where we know the FuncId at compile time.
+    known_closures: HashMap<String, KnownClosure>,
+    /// Set by Lambda compilation so the enclosing Assign can record it in known_closures.
+    last_lambda_info: Option<(FuncId, Value, usize)>, // (func_id, env_ptr, pending_idx)
 }
 
 // We need a separate lifetime for the FunctionBuilderContext because
@@ -451,7 +475,11 @@ pub fn compile(program: &HirProgram) -> Vec<u8> {
     while !compiler.pending_lambdas.is_empty() {
         let pending = std::mem::take(&mut compiler.pending_lambdas);
         for lambda in pending {
-            compile_lambda_body(&mut compiler, &lambda);
+            if lambda.specialized_param_types.is_some() {
+                compile_specialized_lambda_body(&mut compiler, &lambda);
+            } else {
+                compile_lambda_body(&mut compiler, &lambda);
+            }
         }
     }
 
@@ -529,6 +557,8 @@ fn compile_function(
         block_terminated: false,
         is_any_return,
         ret_type: ret_type.clone(),
+        known_closures: HashMap::new(),
+        last_lambda_info: None,
     };
 
     // Define parameters as variables
@@ -654,6 +684,8 @@ fn compile_lambda_body(compiler: &mut Compiler, lambda: &PendingLambda) {
         block_terminated: false,
         is_any_return: true, // lambdas always return (tag, data)
         ret_type: lambda.ret_type.clone(),
+        known_closures: HashMap::new(),
+        last_lambda_info: None,
     };
 
     // Bind parameters: first block param is env_ptr, then (tag, data) pairs
@@ -719,6 +751,135 @@ fn compile_lambda_body(compiler: &mut Compiler, lambda: &PendingLambda) {
         .unwrap();
 }
 
+/// Compile a specialized lambda body with native-typed calling convention.
+///
+/// Specialized calling convention: (env_ptr: PTR, arg0: T0, arg1: T1, ...) -> RetT
+/// Params are native types, no boxing/unboxing.
+fn compile_specialized_lambda_body(compiler: &mut Compiler, lambda: &PendingLambda) {
+    let spec_types = lambda.specialized_param_types.as_ref().unwrap();
+    let sig = compiler.module.declarations().get_function_decl(lambda.func_id).signature.clone();
+
+    let mut func = Function::new();
+    func.signature = sig;
+    func.name = UserFuncName::user(0, lambda.func_id.as_u32());
+
+    let mut func_builder_ctx = FunctionBuilderContext::new();
+    let mut builder = FunctionBuilder::new(&mut func, &mut func_builder_ctx);
+
+    let entry_block = builder.create_block();
+    let return_block = builder.create_block();
+
+    builder.append_block_params_for_function_params(entry_block);
+    builder.switch_to_block(entry_block);
+    builder.seal_block(entry_block);
+
+    // Return block takes a single native-typed value
+    let cl_ret = cl_type_or_i64(&lambda.ret_type);
+    builder.append_block_param(return_block, cl_ret);
+
+    let rv = Variable::new(0);
+    builder.declare_var(rv, cl_ret);
+    let zero_val = builder.ins().iconst(types::I64, 0);
+    builder.def_var(rv, zero_val);
+
+    let compiler_ptr = compiler as *mut Compiler;
+    let mut func_ctx = FuncCtx {
+        compiler: unsafe { &mut *compiler_ptr },
+        builder,
+        vars: HashMap::new(),
+        next_var: 1,
+        return_block,
+        return_var: Some(rv),
+        loop_stack: Vec::new(),
+        block_terminated: false,
+        is_any_return: false, // specialized: single native return
+        ret_type: lambda.ret_type.clone(),
+        known_closures: HashMap::new(),
+        last_lambda_info: None,
+    };
+
+    // Bind parameters: first block param is env_ptr, then one native value per param
+    let env_ptr_val = func_ctx.builder.block_params(entry_block)[0];
+    for (i, (param, param_ty)) in lambda.params.iter().zip(spec_types.iter()).enumerate() {
+        let val = func_ctx.builder.block_params(entry_block)[1 + i];
+        let ct = cl_type_or_i64(param_ty);
+        let var = func_ctx.new_var(ct);
+        func_ctx.builder.def_var(var, val);
+        func_ctx.vars.insert(param.name.clone(), (var, param_ty.clone()));
+    }
+
+    // Load captured variables from env_ptr
+    for (i, cap) in lambda.captures.iter().enumerate() {
+        let offset = (i * 16) as i32;
+        match &cap.ty {
+            Type::Int => {
+                // Extract data field directly as i64 (skip tag)
+                let data = func_ctx.builder.ins().load(types::I64, MemFlags::trusted(), env_ptr_val, offset + 8);
+                let var = func_ctx.new_var(types::I64);
+                func_ctx.builder.def_var(var, data);
+                func_ctx.vars.insert(cap.name.clone(), (var, Type::Int));
+            }
+            Type::Float => {
+                let data = func_ctx.builder.ins().load(types::I64, MemFlags::trusted(), env_ptr_val, offset + 8);
+                let fval = func_ctx.builder.ins().bitcast(types::F64, MemFlags::new(), data);
+                let var = func_ctx.new_var(types::F64);
+                func_ctx.builder.def_var(var, fval);
+                func_ctx.vars.insert(cap.name.clone(), (var, Type::Float));
+            }
+            Type::Bool => {
+                let data = func_ctx.builder.ins().load(types::I64, MemFlags::trusted(), env_ptr_val, offset + 8);
+                let bval = func_ctx.builder.ins().ireduce(types::I8, data);
+                let var = func_ctx.new_var(types::I8);
+                func_ctx.builder.def_var(var, bval);
+                func_ctx.vars.insert(cap.name.clone(), (var, Type::Bool));
+            }
+            _ => {
+                // Unknown type — load as Any (TokValue on stack)
+                let tag = func_ctx.builder.ins().load(types::I64, MemFlags::trusted(), env_ptr_val, offset);
+                let data = func_ctx.builder.ins().load(types::I64, MemFlags::trusted(), env_ptr_val, offset + 8);
+                let addr = alloc_tokvalue_on_stack(&mut func_ctx, tag, data);
+                let var = func_ctx.new_var(PTR);
+                func_ctx.builder.def_var(var, addr);
+                func_ctx.vars.insert(cap.name.clone(), (var, Type::Any));
+            }
+        }
+    }
+
+    // Compile body
+    let last_val = compile_body(&mut func_ctx, &lambda.body, &lambda.ret_type);
+
+    // Jump to return block with native value
+    if !func_ctx.block_terminated {
+        if let Some(val) = last_val {
+            let last_expr_ty = lambda.body.last()
+                .and_then(|s| match s {
+                    HirStmt::Expr(e) => Some(e.ty.clone()),
+                    _ => None,
+                })
+                .unwrap_or_else(|| lambda.ret_type.clone());
+            let coerced = coerce_value(&mut func_ctx, val, &last_expr_ty, &lambda.ret_type);
+            func_ctx.builder.ins().jump(return_block, &[coerced]);
+        } else {
+            let zero = func_ctx.builder.ins().iconst(cl_ret, 0);
+            func_ctx.builder.ins().jump(return_block, &[zero]);
+        }
+    }
+
+    // Return block
+    func_ctx.builder.switch_to_block(return_block);
+    func_ctx.builder.seal_block(return_block);
+    let ret_val = func_ctx.builder.block_params(return_block)[0];
+    func_ctx.builder.ins().return_(&[ret_val]);
+
+    func_ctx.builder.finalize();
+
+    let mut ctx = Context::for_function(func);
+    compiler
+        .module
+        .define_function(lambda.func_id, &mut ctx)
+        .unwrap();
+}
+
 /// Compile top-level statements into `_tok_main`.
 fn compile_main(compiler: &mut Compiler, stmts: &[HirStmt]) {
     let sig = compiler.module.make_signature();
@@ -753,6 +914,8 @@ fn compile_main(compiler: &mut Compiler, stmts: &[HirStmt]) {
         block_terminated: false,
         is_any_return: false,
         ret_type: Type::Nil,
+        known_closures: HashMap::new(),
+        last_lambda_info: None,
     };
 
     compile_body(&mut func_ctx, stmts, &Type::Nil);
@@ -884,11 +1047,56 @@ fn compile_body(
 fn compile_stmt(ctx: &mut FuncCtx, stmt: &HirStmt) -> Option<Value> {
     match stmt {
         HirStmt::Assign { name, ty, value } => {
+            ctx.last_lambda_info = None;
             let val = compile_expr(ctx, value);
+            // If the RHS was a lambda, record it for direct-call optimization
+            if let Some((func_id, env_ptr, pending_idx)) = ctx.last_lambda_info.take() {
+                ctx.known_closures.insert(name.clone(), KnownClosure {
+                    func_id,
+                    env_ptr,
+                    pending_idx,
+                    specialized: None,
+                });
+            } else {
+                // Variable reassigned to non-lambda — invalidate
+                ctx.known_closures.remove(name.as_str());
+            }
             if let Some(v) = val {
-                if let Some((var, _)) = ctx.vars.get(name) {
-                    let var = *var;
-                    ctx.builder.def_var(var, v);
+                if let Some((var, existing_ty)) = ctx.vars.get(name).cloned() {
+                    // Coerce value to match the variable's existing type
+                    let coerced = match (&existing_ty, &value.ty) {
+                        // Value is Any but variable is concrete — extract via runtime
+                        (Type::Int, Type::Any) => {
+                            let func_ref = ctx.get_runtime_func_ref("tok_value_to_int");
+                            let (tag, data) = to_tokvalue(ctx, v, &Type::Any);
+                            let call = ctx.builder.ins().call(func_ref, &[tag, data]);
+                            ctx.builder.inst_results(call)[0]
+                        }
+                        (Type::Float, Type::Any) => {
+                            let func_ref = ctx.get_runtime_func_ref("tok_value_to_float");
+                            let (tag, data) = to_tokvalue(ctx, v, &Type::Any);
+                            let call = ctx.builder.ins().call(func_ref, &[tag, data]);
+                            ctx.builder.inst_results(call)[0]
+                        }
+                        (Type::Bool, Type::Any) => {
+                            let func_ref = ctx.get_runtime_func_ref("tok_value_to_bool");
+                            let (tag, data) = to_tokvalue(ctx, v, &Type::Any);
+                            let call = ctx.builder.ins().call(func_ref, &[tag, data]);
+                            ctx.builder.inst_results(call)[0]
+                        }
+                        (et, Type::Any) if !matches!(et, Type::Any) => {
+                            // For pointer types (Str, Array, Map, etc.), extract data field
+                            let (_, data) = to_tokvalue(ctx, v, &Type::Any);
+                            data
+                        }
+                        // Variable is Any but value is concrete — wrap into TokValue
+                        (Type::Any, vt) if !matches!(vt, Type::Any | Type::Nil | Type::Never) => {
+                            let (tag, data) = to_tokvalue(ctx, v, &value.ty);
+                            alloc_tokvalue_on_stack(ctx, tag, data)
+                        }
+                        _ => v,
+                    };
+                    ctx.builder.def_var(var, coerced);
                 } else {
                     let ct = cl_type_or_i64(ty);
                     let var = ctx.new_var(ct);
@@ -917,14 +1125,17 @@ fn compile_stmt(ctx: &mut FuncCtx, stmt: &HirStmt) -> Option<Value> {
             match &target.ty {
                 Type::Array(_) => {
                     // Pack value as TokValue for array_set
+                    let idx = unwrap_any_ptr(ctx, idx_val, &index.ty);
                     let (tag, data) = to_tokvalue(ctx, val, &value.ty);
                     let func_ref = ctx.get_runtime_func_ref("tok_array_set");
-                    ctx.builder.ins().call(func_ref, &[target_val, idx_val, tag, data]);
+                    ctx.builder.ins().call(func_ref, &[target_val, idx, tag, data]);
                 }
                 Type::Map(_) => {
+                    // Key must be a string pointer; unwrap from Any if needed
+                    let key = unwrap_any_ptr(ctx, idx_val, &index.ty);
                     let (tag, data) = to_tokvalue(ctx, val, &value.ty);
                     let func_ref = ctx.get_runtime_func_ref("tok_map_set");
-                    ctx.builder.ins().call(func_ref, &[target_val, idx_val, tag, data]);
+                    ctx.builder.ins().call(func_ref, &[target_val, key, tag, data]);
                 }
                 _ => {}
             }
@@ -1064,9 +1275,67 @@ fn compile_expr(ctx: &mut FuncCtx, expr: &HirExpr) -> Option<Value> {
                 // still has the original concrete type from type checking.
                 if matches!(var_ty, Type::Any) && !matches!(&expr.ty, Type::Any | Type::Nil | Type::Never) {
                     Some(coerce_value(ctx, raw, &Type::Any, &expr.ty))
+                } else if !matches!(var_ty, Type::Any) && matches!(&expr.ty, Type::Any) {
+                    // Variable stored as concrete (e.g., Int) but HIR thinks it's Any
+                    // (happens when variable was first assigned concrete, then reassigned
+                    // from an Any-typed expression — codegen keeps the original type).
+                    // Wrap the concrete value into a TokValue pointer.
+                    Some(coerce_value(ctx, raw, &var_ty, &Type::Any))
                 } else {
                     Some(raw)
                 }
+            } else if ctx.compiler.declared_funcs.contains_key(name.as_str()) {
+                // Declared function used as a value — create a trampoline wrapper
+                // with the closure calling convention, then wrap in a TokClosure.
+                let (param_types, ret_type) = ctx.compiler.func_sigs.get(name.as_str()).unwrap().clone();
+                let trampoline_name = format!("__tok_tramp_{}", name);
+
+                // Create trampoline as a PendingLambda that just calls the function
+                let tramp_params: Vec<HirParam> = param_types.iter().enumerate()
+                    .map(|(i, ty)| HirParam { name: format!("__p{}", i), ty: ty.clone() })
+                    .collect();
+                let call_args: Vec<HirExpr> = tramp_params.iter()
+                    .map(|p| HirExpr::new(HirExprKind::Ident(p.name.clone()), p.ty.clone()))
+                    .collect();
+                let call_expr = HirExpr::new(
+                    HirExprKind::Call {
+                        func: Box::new(HirExpr::new(HirExprKind::Ident(name.clone()), Type::Any)),
+                        args: call_args,
+                    },
+                    ret_type.clone(),
+                );
+
+                // Declare trampoline function signature: (env, tag0, data0, ...) -> (tag, data)
+                let mut sig = ctx.compiler.module.make_signature();
+                sig.params.push(AbiParam::new(PTR)); // env_ptr
+                for _ in &param_types {
+                    sig.params.push(AbiParam::new(types::I64)); // tag
+                    sig.params.push(AbiParam::new(types::I64)); // data
+                }
+                sig.returns.push(AbiParam::new(types::I64)); // result tag
+                sig.returns.push(AbiParam::new(types::I64)); // result data
+
+                let tramp_func_id = ctx.compiler.module
+                    .declare_function(&trampoline_name, Linkage::Local, &sig)
+                    .unwrap();
+
+                ctx.compiler.pending_lambdas.push(PendingLambda {
+                    name: trampoline_name,
+                    func_id: tramp_func_id,
+                    params: tramp_params,
+                    ret_type: ret_type.clone(),
+                    body: vec![HirStmt::Expr(call_expr)],
+                    captures: vec![],
+                    specialized_param_types: None,
+                });
+
+                let tramp_ref = ctx.compiler.module.declare_func_in_func(tramp_func_id, ctx.builder.func);
+                let fn_ptr = ctx.builder.ins().func_addr(PTR, tramp_ref);
+                let env_ptr = ctx.builder.ins().iconst(PTR, 0);
+                let arity_val = ctx.builder.ins().iconst(types::I32, param_types.len() as i64);
+                let alloc_ref = ctx.get_runtime_func_ref("tok_closure_alloc");
+                let call = ctx.builder.ins().call(alloc_ref, &[fn_ptr, env_ptr, arity_val]);
+                Some(ctx.builder.inst_results(call)[0])
             } else {
                 // Unknown variable — return 0 as fallback
                 Some(ctx.builder.ins().iconst(types::I64, 0))
@@ -1169,9 +1438,10 @@ fn compile_expr(ctx: &mut FuncCtx, expr: &HirExpr) -> Option<Value> {
                     Some(from_tokvalue(ctx, tag, data, &expr.ty))
                 }
                 Type::Map(_) => {
-                    // Index by string key
+                    // Index by string key — unwrap key from Any if needed
+                    let key = unwrap_any_ptr(ctx, idx_val, &index.ty);
                     let func_ref = ctx.get_runtime_func_ref("tok_map_get");
-                    let call = ctx.builder.ins().call(func_ref, &[target_val, idx_val]);
+                    let call = ctx.builder.ins().call(func_ref, &[target_val, key]);
                     let results = ctx.builder.inst_results(call);
                     let tag = results[0];
                     let data = results[1];
@@ -1371,6 +1641,7 @@ fn compile_expr(ctx: &mut FuncCtx, expr: &HirExpr) -> Option<Value> {
                 .unwrap();
 
             // Queue for later compilation (with captures info)
+            let pending_idx = ctx.compiler.pending_lambdas.len();
             ctx.compiler.pending_lambdas.push(PendingLambda {
                 name: lambda_name.clone(),
                 func_id,
@@ -1378,6 +1649,7 @@ fn compile_expr(ctx: &mut FuncCtx, expr: &HirExpr) -> Option<Value> {
                 ret_type: ret_type.clone(),
                 body: body.clone(),
                 captures: captures.clone(),
+                specialized_param_types: None,
             });
 
             // Get fn pointer
@@ -1406,6 +1678,9 @@ fn compile_expr(ctx: &mut FuncCtx, expr: &HirExpr) -> Option<Value> {
                 }
                 env
             };
+
+            // Record lambda info for direct-call optimization
+            ctx.last_lambda_info = Some((func_id, env_ptr, pending_idx));
 
             // Create closure: tok_closure_alloc(fn_ptr, env_ptr, arity)
             let arity = ctx.builder.ins().iconst(types::I32, params.len() as i64);
@@ -1482,18 +1757,99 @@ fn compile_expr(ctx: &mut FuncCtx, expr: &HirExpr) -> Option<Value> {
         }
 
         HirExprKind::Go(body_expr) => {
-            // Goroutine — for now, evaluate body synchronously and wrap
-            // as a handle. Full implementation needs thread spawning.
-            let val = compile_expr(ctx, body_expr);
-            val
+            // Goroutine — compile body as a thunk function and spawn via tok_go.
+            // The thunk signature is: extern "C" fn(env: *mut u8) -> TokValue
+            // which maps to Cranelift (PTR) -> (I64, I64)
+            let thunk_name = format!("__tok_goroutine_{}", ctx.compiler.lambda_counter);
+            ctx.compiler.lambda_counter += 1;
+
+            // Capture analysis: find free variables in body that need to be passed to the thunk
+            let empty_locals = HashSet::new();
+            let mut free_set = HashSet::new();
+            collect_free_vars_expr(body_expr, &empty_locals, &mut free_set);
+            let free_var_names = free_set;
+            let mut captures: Vec<CapturedVar> = Vec::new();
+            for name in &free_var_names {
+                if let Some((_var, var_ty)) = ctx.vars.get(name) {
+                    captures.push(CapturedVar {
+                        name: name.clone(),
+                        ty: var_ty.clone(),
+                    });
+                }
+            }
+            captures.sort_by(|a, b| a.name.cmp(&b.name));
+
+            // Declare thunk function: (env: PTR) -> (tag: I64, data: I64)
+            let mut sig = ctx.compiler.module.make_signature();
+            sig.params.push(AbiParam::new(PTR)); // env_ptr
+            sig.returns.push(AbiParam::new(types::I64)); // result tag
+            sig.returns.push(AbiParam::new(types::I64)); // result data
+
+            let func_id = ctx.compiler.module
+                .declare_function(&thunk_name, Linkage::Local, &sig)
+                .unwrap();
+
+            // Queue thunk for later compilation (reuse PendingLambda with 0 params)
+            ctx.compiler.pending_lambdas.push(PendingLambda {
+                name: thunk_name.clone(),
+                func_id,
+                params: vec![], // no params — it's a thunk
+                ret_type: body_expr.ty.clone(),
+                body: vec![HirStmt::Expr((**body_expr).clone())],
+                captures: captures.clone(),
+                specialized_param_types: None,
+            });
+
+            // Get thunk function pointer
+            let func_ref = ctx.compiler.module
+                .declare_func_in_func(func_id, ctx.builder.func);
+            let fn_ptr = ctx.builder.ins().func_addr(PTR, func_ref);
+
+            // Allocate environment for captures
+            let env_ptr = if captures.is_empty() {
+                ctx.builder.ins().iconst(PTR, 0)
+            } else {
+                let count = ctx.builder.ins().iconst(types::I64, captures.len() as i64);
+                let alloc_ref = ctx.get_runtime_func_ref("tok_env_alloc");
+                let alloc_call = ctx.builder.ins().call(alloc_ref, &[count]);
+                let env = ctx.builder.inst_results(alloc_call)[0];
+
+                for (i, cap) in captures.iter().enumerate() {
+                    let (var, var_ty) = ctx.vars.get(&cap.name).unwrap().clone();
+                    let val = ctx.builder.use_var(var);
+                    let (tag, data) = to_tokvalue(ctx, val, &var_ty);
+                    let offset = (i * 16) as i32;
+                    ctx.builder.ins().store(MemFlags::trusted(), tag, env, offset);
+                    ctx.builder.ins().store(MemFlags::trusted(), data, env, offset + 8);
+                }
+                env
+            };
+
+            // Call tok_go(fn_ptr, env_ptr) -> *mut TokHandle
+            let go_ref = ctx.get_runtime_func_ref("tok_go");
+            let call = ctx.builder.ins().call(go_ref, &[fn_ptr, env_ptr]);
+            Some(ctx.builder.inst_results(call)[0])
         }
 
         HirExprKind::Receive(chan_expr) => {
             let chan = compile_expr(ctx, chan_expr).unwrap();
-            let func_ref = ctx.get_runtime_func_ref("tok_channel_recv");
-            let call = ctx.builder.ins().call(func_ref, &[chan]);
-            let results = ctx.builder.inst_results(call);
-            Some(from_tokvalue(ctx, results[0], results[1], &expr.ty))
+            // Distinguish channel recv from handle join based on expression type
+            match &chan_expr.ty {
+                Type::Handle(_) => {
+                    // Join the goroutine handle
+                    let func_ref = ctx.get_runtime_func_ref("tok_handle_join");
+                    let call = ctx.builder.ins().call(func_ref, &[chan]);
+                    let results = ctx.builder.inst_results(call);
+                    Some(from_tokvalue(ctx, results[0], results[1], &expr.ty))
+                }
+                _ => {
+                    // Channel receive
+                    let func_ref = ctx.get_runtime_func_ref("tok_channel_recv");
+                    let call = ctx.builder.ins().call(func_ref, &[chan]);
+                    let results = ctx.builder.inst_results(call);
+                    Some(from_tokvalue(ctx, results[0], results[1], &expr.ty))
+                }
+            }
         }
 
         HirExprKind::Send { chan, value } => {
@@ -1914,7 +2270,8 @@ fn compile_call(
             }
             "push" => {
                 if args.len() >= 2 {
-                    let arr = compile_expr(ctx, &args[0]).unwrap();
+                    let arr_raw = compile_expr(ctx, &args[0]).unwrap();
+                    let arr = unwrap_any_ptr(ctx, arr_raw, &args[0].ty);
                     let val = compile_expr(ctx, &args[1]).unwrap();
                     let (tag, data) = to_tokvalue(ctx, val, &args[1].ty);
                     let func_ref = ctx.get_runtime_func_ref("tok_array_push");
@@ -1925,39 +2282,45 @@ fn compile_call(
             "sort" => {
                 if let Some(arg) = args.first() {
                     let val = compile_expr(ctx, arg).unwrap();
+                    let ptr = unwrap_any_ptr(ctx, val, &arg.ty);
                     let func_ref = ctx.get_runtime_func_ref("tok_array_sort");
-                    let call = ctx.builder.ins().call(func_ref, &[val]);
+                    let call = ctx.builder.ins().call(func_ref, &[ptr]);
                     return Some(ctx.builder.inst_results(call)[0]);
                 }
             }
             "rev" => {
                 if let Some(arg) = args.first() {
                     let val = compile_expr(ctx, arg).unwrap();
+                    let ptr = unwrap_any_ptr(ctx, val, &arg.ty);
                     let func_ref = ctx.get_runtime_func_ref("tok_array_rev");
-                    let call = ctx.builder.ins().call(func_ref, &[val]);
+                    let call = ctx.builder.ins().call(func_ref, &[ptr]);
                     return Some(ctx.builder.inst_results(call)[0]);
                 }
             }
             "flat" => {
                 if let Some(arg) = args.first() {
                     let val = compile_expr(ctx, arg).unwrap();
+                    let ptr = unwrap_any_ptr(ctx, val, &arg.ty);
                     let func_ref = ctx.get_runtime_func_ref("tok_array_flat");
-                    let call = ctx.builder.ins().call(func_ref, &[val]);
+                    let call = ctx.builder.ins().call(func_ref, &[ptr]);
                     return Some(ctx.builder.inst_results(call)[0]);
                 }
             }
             "uniq" => {
                 if let Some(arg) = args.first() {
                     let val = compile_expr(ctx, arg).unwrap();
+                    let ptr = unwrap_any_ptr(ctx, val, &arg.ty);
                     let func_ref = ctx.get_runtime_func_ref("tok_array_uniq");
-                    let call = ctx.builder.ins().call(func_ref, &[val]);
+                    let call = ctx.builder.ins().call(func_ref, &[ptr]);
                     return Some(ctx.builder.inst_results(call)[0]);
                 }
             }
             "join" => {
                 if args.len() >= 2 {
-                    let arr = compile_expr(ctx, &args[0]).unwrap();
-                    let sep = compile_expr(ctx, &args[1]).unwrap();
+                    let arr_raw = compile_expr(ctx, &args[0]).unwrap();
+                    let arr = unwrap_any_ptr(ctx, arr_raw, &args[0].ty);
+                    let sep_raw = compile_expr(ctx, &args[1]).unwrap();
+                    let sep = unwrap_any_ptr(ctx, sep_raw, &args[1].ty);
                     let func_ref = ctx.get_runtime_func_ref("tok_array_join");
                     let call = ctx.builder.ins().call(func_ref, &[arr, sep]);
                     return Some(ctx.builder.inst_results(call)[0]);
@@ -1965,8 +2328,10 @@ fn compile_call(
             }
             "split" => {
                 if args.len() >= 2 {
-                    let s = compile_expr(ctx, &args[0]).unwrap();
-                    let delim = compile_expr(ctx, &args[1]).unwrap();
+                    let s_raw = compile_expr(ctx, &args[0]).unwrap();
+                    let s = unwrap_any_ptr(ctx, s_raw, &args[0].ty);
+                    let delim_raw = compile_expr(ctx, &args[1]).unwrap();
+                    let delim = unwrap_any_ptr(ctx, delim_raw, &args[1].ty);
                     let func_ref = ctx.get_runtime_func_ref("tok_string_split");
                     let call = ctx.builder.ins().call(func_ref, &[s, delim]);
                     return Some(ctx.builder.inst_results(call)[0]);
@@ -1975,31 +2340,36 @@ fn compile_call(
             "trim" => {
                 if let Some(arg) = args.first() {
                     let val = compile_expr(ctx, arg).unwrap();
+                    let ptr = unwrap_any_ptr(ctx, val, &arg.ty);
                     let func_ref = ctx.get_runtime_func_ref("tok_string_trim");
-                    let call = ctx.builder.ins().call(func_ref, &[val]);
+                    let call = ctx.builder.ins().call(func_ref, &[ptr]);
                     return Some(ctx.builder.inst_results(call)[0]);
                 }
             }
             "keys" => {
                 if let Some(arg) = args.first() {
                     let val = compile_expr(ctx, arg).unwrap();
+                    let ptr = unwrap_any_ptr(ctx, val, &arg.ty);
                     let func_ref = ctx.get_runtime_func_ref("tok_map_keys");
-                    let call = ctx.builder.ins().call(func_ref, &[val]);
+                    let call = ctx.builder.ins().call(func_ref, &[ptr]);
                     return Some(ctx.builder.inst_results(call)[0]);
                 }
             }
             "vals" => {
                 if let Some(arg) = args.first() {
                     let val = compile_expr(ctx, arg).unwrap();
+                    let ptr = unwrap_any_ptr(ctx, val, &arg.ty);
                     let func_ref = ctx.get_runtime_func_ref("tok_map_vals");
-                    let call = ctx.builder.ins().call(func_ref, &[val]);
+                    let call = ctx.builder.ins().call(func_ref, &[ptr]);
                     return Some(ctx.builder.inst_results(call)[0]);
                 }
             }
             "has" => {
                 if args.len() >= 2 {
-                    let map = compile_expr(ctx, &args[0]).unwrap();
-                    let key = compile_expr(ctx, &args[1]).unwrap();
+                    let map_raw = compile_expr(ctx, &args[0]).unwrap();
+                    let map = unwrap_any_ptr(ctx, map_raw, &args[0].ty);
+                    let key_raw = compile_expr(ctx, &args[1]).unwrap();
+                    let key = unwrap_any_ptr(ctx, key_raw, &args[1].ty);
                     let func_ref = ctx.get_runtime_func_ref("tok_map_has");
                     let call = ctx.builder.ins().call(func_ref, &[map, key]);
                     return Some(ctx.builder.inst_results(call)[0]);
@@ -2007,8 +2377,10 @@ fn compile_call(
             }
             "del" => {
                 if args.len() >= 2 {
-                    let map = compile_expr(ctx, &args[0]).unwrap();
-                    let key = compile_expr(ctx, &args[1]).unwrap();
+                    let map_raw = compile_expr(ctx, &args[0]).unwrap();
+                    let map = unwrap_any_ptr(ctx, map_raw, &args[0].ty);
+                    let key_raw = compile_expr(ctx, &args[1]).unwrap();
+                    let key = unwrap_any_ptr(ctx, key_raw, &args[1].ty);
                     let func_ref = ctx.get_runtime_func_ref("tok_map_del");
                     let call = ctx.builder.ins().call(func_ref, &[map, key]);
                     return Some(ctx.builder.inst_results(call)[0]);
@@ -2181,8 +2553,9 @@ fn compile_call(
             "max" => {
                 if args.len() == 1 {
                     let val = compile_expr(ctx, &args[0]).unwrap();
+                    let ptr = unwrap_any_ptr(ctx, val, &args[0].ty);
                     let func_ref = ctx.get_runtime_func_ref("tok_array_max");
-                    let call = ctx.builder.ins().call(func_ref, &[val]);
+                    let call = ctx.builder.ins().call(func_ref, &[ptr]);
                     let results = ctx.builder.inst_results(call);
                     return Some(from_tokvalue(ctx, results[0], results[1], result_ty));
                 }
@@ -2190,8 +2563,9 @@ fn compile_call(
             "sum" => {
                 if args.len() == 1 {
                     let val = compile_expr(ctx, &args[0]).unwrap();
+                    let ptr = unwrap_any_ptr(ctx, val, &args[0].ty);
                     let func_ref = ctx.get_runtime_func_ref("tok_array_sum");
-                    let call = ctx.builder.ins().call(func_ref, &[val]);
+                    let call = ctx.builder.ins().call(func_ref, &[ptr]);
                     let results = ctx.builder.inst_results(call);
                     return Some(from_tokvalue(ctx, results[0], results[1], result_ty));
                 }
@@ -2211,11 +2585,38 @@ fn compile_call(
                     return Some(ctx.builder.inst_results(call)[0]);
                 }
             }
+            "pmap" => {
+                if args.len() >= 2 {
+                    let arr_raw = compile_expr(ctx, &args[0]).unwrap();
+                    let arr = unwrap_any_ptr(ctx, arr_raw, &args[0].ty);
+                    let closure = compile_expr(ctx, &args[1]).unwrap();
+                    let closure_ptr = unwrap_any_ptr(ctx, closure, &args[1].ty);
+                    let func_ref = ctx.get_runtime_func_ref("tok_pmap");
+                    let call = ctx.builder.ins().call(func_ref, &[arr, closure_ptr]);
+                    return Some(ctx.builder.inst_results(call)[0]);
+                }
+            }
             _ => {
+                // Direct call optimization: if we know the FuncId, skip indirect dispatch
+                if let Some(kc) = ctx.known_closures.get(name).cloned() {
+                    // Try specialized call if all arg types are concrete
+                    let arg_types: Vec<Type> = args.iter().map(|a| a.ty.clone()).collect();
+                    let all_concrete = arg_types.iter().all(|t| matches!(t, Type::Int | Type::Float | Type::Bool));
+                    if all_concrete {
+                        return compile_specialized_closure_call(ctx, name, &kc, args, &arg_types, result_ty);
+                    }
+                    return compile_direct_closure_call(ctx, kc.func_id, kc.env_ptr, args, result_ty);
+                }
                 // Check if it's a variable holding a closure
                 if let Some((var, var_ty)) = ctx.vars.get(name).cloned() {
                     if matches!(var_ty, Type::Func(_)) {
                         let closure_ptr = ctx.builder.use_var(var);
+                        return compile_closure_call(ctx, closure_ptr, args, result_ty);
+                    }
+                    if matches!(var_ty, Type::Any) {
+                        // Any-typed variable might hold a closure — extract ptr from TokValue data field
+                        let tokval_ptr = ctx.builder.use_var(var);
+                        let closure_ptr = ctx.builder.ins().load(types::I64, MemFlags::trusted(), tokval_ptr, 8);
                         return compile_closure_call(ctx, closure_ptr, args, result_ty);
                     }
                 }
@@ -2286,14 +2687,12 @@ fn compile_closure_call(
     args: &[HirExpr],
     result_ty: &Type,
 ) -> Option<Value> {
-    // Extract fn_ptr and env_ptr from TokClosure
-    let get_fn_ref = ctx.get_runtime_func_ref("tok_closure_get_fn");
-    let fn_call = ctx.builder.ins().call(get_fn_ref, &[closure_ptr]);
-    let fn_ptr = ctx.builder.inst_results(fn_call)[0];
-
-    let get_env_ref = ctx.get_runtime_func_ref("tok_closure_get_env");
-    let env_call = ctx.builder.ins().call(get_env_ref, &[closure_ptr]);
-    let env_ptr = ctx.builder.inst_results(env_call)[0];
+    // Extract fn_ptr and env_ptr directly from TokClosure struct (repr(C)):
+    //   +0: rc (AtomicU32, 4B) + padding (4B)
+    //   +8: fn_ptr (*const u8, 8B)
+    //   +16: env_ptr (*mut u8, 8B)
+    let fn_ptr = ctx.builder.ins().load(PTR, MemFlags::trusted(), closure_ptr, 8);
+    let env_ptr = ctx.builder.ins().load(PTR, MemFlags::trusted(), closure_ptr, 16);
 
     // Build signature for indirect call: (env: PTR, tag0: I64, data0: I64, ...) -> (I64, I64)
     let mut sig = ctx.compiler.module.make_signature();
@@ -2318,6 +2717,134 @@ fn compile_closure_call(
     let call = ctx.builder.ins().call_indirect(sig_ref, fn_ptr, &call_args);
     let results = ctx.builder.inst_results(call);
     Some(from_tokvalue(ctx, results[0], results[1], result_ty))
+}
+
+/// Call a closure directly when we know the FuncId at compile time.
+/// Still uses the uniform (tag, data) calling convention, but avoids call_indirect.
+fn compile_direct_closure_call(
+    ctx: &mut FuncCtx,
+    func_id: FuncId,
+    env_ptr: Value,
+    args: &[HirExpr],
+    result_ty: &Type,
+) -> Option<Value> {
+    let func_ref = ctx.compiler.module
+        .declare_func_in_func(func_id, ctx.builder.func);
+
+    // Build args: env, then (tag, data) pairs for each arg
+    let mut call_args = vec![env_ptr];
+    for arg in args {
+        let v = compile_expr(ctx, arg).unwrap_or_else(|| ctx.builder.ins().iconst(types::I64, 0));
+        let (tag, data) = to_tokvalue(ctx, v, &arg.ty);
+        call_args.push(tag);
+        call_args.push(data);
+    }
+
+    let call = ctx.builder.ins().call(func_ref, &call_args);
+    let results = ctx.builder.inst_results(call);
+    Some(from_tokvalue(ctx, results[0], results[1], result_ty))
+}
+
+/// Call a closure with a type-specialized calling convention (native types, no boxing).
+/// Lazily creates the specialized function on first call.
+fn compile_specialized_closure_call(
+    ctx: &mut FuncCtx,
+    name: &str,
+    kc: &KnownClosure,
+    args: &[HirExpr],
+    arg_types: &[Type],
+    result_ty: &Type,
+) -> Option<Value> {
+    // Check if we already have a specialized version for these arg types
+    let existing = if let Some((sid, ref stypes, ref sret)) = kc.specialized {
+        if stypes == arg_types { Some((sid, sret.clone())) } else { None }
+    } else {
+        None
+    };
+
+    let (spec_func_id, spec_ret_type) = if let Some(pair) = existing {
+        pair
+    } else {
+        // Create specialized function
+        let orig = &ctx.compiler.pending_lambdas[kc.pending_idx];
+        let spec_name = format!("{}_spec", orig.name);
+
+        // Build type map and retype body FIRST so we can get the accurate return type
+        let mut type_map = HashMap::new();
+        for (param, at) in orig.params.iter().zip(arg_types.iter()) {
+            type_map.insert(param.name.clone(), at.clone());
+        }
+        for cap in &orig.captures {
+            if matches!(cap.ty, Type::Int | Type::Float | Type::Bool) {
+                type_map.insert(cap.name.clone(), cap.ty.clone());
+            }
+        }
+        let retyped_body = retype_body(&orig.body, &type_map);
+
+        // Derive return type from the retyped body's last expression
+        let ret_type = retyped_body.last()
+            .and_then(|s| match s {
+                HirStmt::Expr(e) => if matches!(e.ty, Type::Any) { None } else { Some(e.ty.clone()) },
+                _ => None,
+            })
+            .unwrap_or(Type::Int); // fallback for simple arithmetic lambdas
+
+        // Build signature: (env: PTR, arg0: T0, ...) -> RetT
+        let mut sig = ctx.compiler.module.make_signature();
+        sig.params.push(AbiParam::new(PTR)); // env_ptr
+        for at in arg_types {
+            sig.params.push(AbiParam::new(cl_type_or_i64(at)));
+        }
+        sig.returns.push(AbiParam::new(cl_type_or_i64(&ret_type)));
+
+        let func_id = ctx.compiler.module
+            .declare_function(&spec_name, Linkage::Local, &sig)
+            .unwrap();
+
+        // Create specialized PendingLambda with retyped body
+        ctx.compiler.pending_lambdas.push(PendingLambda {
+            name: spec_name,
+            func_id,
+            params: orig.params.clone(),
+            ret_type: ret_type.clone(),
+            body: retyped_body,
+            captures: orig.captures.clone(),
+            specialized_param_types: Some(arg_types.to_vec()),
+        });
+
+        // Update known_closures with specialized info
+        if let Some(kc_mut) = ctx.known_closures.get_mut(name) {
+            kc_mut.specialized = Some((func_id, arg_types.to_vec(), ret_type.clone()));
+        }
+
+        (func_id, ret_type)
+    };
+
+    let env_ptr = kc.env_ptr;
+    let func_ref = ctx.compiler.module
+        .declare_func_in_func(spec_func_id, ctx.builder.func);
+
+    // Build args with native types (no boxing)
+    let mut call_args = vec![env_ptr];
+    for arg in args {
+        let v = compile_expr(ctx, arg).unwrap_or_else(|| ctx.builder.ins().iconst(types::I64, 0));
+        call_args.push(v);
+    }
+
+    let call = ctx.builder.ins().call(func_ref, &call_args);
+    let results = ctx.builder.inst_results(call);
+    if results.is_empty() {
+        return None;
+    }
+    let raw_val = results[0];
+
+    // If caller expects Any but we returned a concrete native type, wrap as TokValue
+    if matches!(result_ty, Type::Any) && !matches!(spec_ret_type, Type::Any) {
+        let (tag, data) = to_tokvalue(ctx, raw_val, &spec_ret_type);
+        Some(alloc_tokvalue_on_stack(ctx, tag, data))
+    } else {
+        Some(coerce_value(ctx, raw_val, &spec_ret_type, result_ty))
+    }
 }
 
 fn compile_print_call(ctx: &mut FuncCtx, args: &[HirExpr], newline: bool) -> Option<Value> {
@@ -2515,6 +3042,10 @@ fn compile_loop(
             ctx.builder.def_var(loop_var, start_val);
             ctx.vars.insert(var.clone(), (loop_var, Type::Int));
 
+            // Store end value in a Cranelift variable for proper SSA across blocks
+            let end_var = ctx.new_var(types::I64);
+            ctx.builder.def_var(end_var, end_val);
+
             let header_block = ctx.builder.create_block();
             let body_block = ctx.builder.create_block();
             let inc_block = ctx.builder.create_block();
@@ -2524,12 +3055,13 @@ fn compile_loop(
             ctx.builder.switch_to_block(header_block);
 
             let current = ctx.builder.use_var(loop_var);
+            let end_for_cmp = ctx.builder.use_var(end_var);
             let cc = if *inclusive {
                 cranelift_codegen::ir::condcodes::IntCC::SignedLessThanOrEqual
             } else {
                 cranelift_codegen::ir::condcodes::IntCC::SignedLessThan
             };
-            let cond = ctx.builder.ins().icmp(cc, current, end_val);
+            let cond = ctx.builder.ins().icmp(cc, current, end_for_cmp);
             ctx.builder.ins().brif(cond, body_block, &[], exit_block, &[]);
 
             ctx.builder.switch_to_block(body_block);
@@ -2800,6 +3332,18 @@ fn coerce_value(ctx: &mut FuncCtx, val: Value, from: &Type, to: &Type) -> Value 
     val
 }
 
+/// If the expr type is Any, extract the raw pointer (data field at offset 8) from the
+/// TokValue. Otherwise return the value as-is (it's already a raw pointer).
+/// Used for builtins that expect a concrete pointer (Array, Map, String, etc.)
+/// but may receive an Any-typed TokValue pointer.
+fn unwrap_any_ptr(ctx: &mut FuncCtx, val: Value, ty: &Type) -> Value {
+    if matches!(ty, Type::Any) {
+        ctx.builder.ins().load(types::I64, MemFlags::trusted(), val, 8)
+    } else {
+        val
+    }
+}
+
 // ─── TokValue packing/unpacking ───────────────────────────────────────
 
 /// TAG constants matching the runtime.
@@ -2989,6 +3533,90 @@ fn zero_value(builder: &mut FunctionBuilder, ty: types::Type) -> Value {
     }
 }
 
+// ─── HIR type rewriting for specialized lambda bodies ──────────────────
+
+/// Retype a lambda body by replacing `Any` types with concrete types from the given map.
+/// This enables specialized lambda bodies to compile with native arithmetic instead of
+/// going through the Any (TokValue) code paths.
+fn retype_body(body: &[HirStmt], type_map: &HashMap<String, Type>) -> Vec<HirStmt> {
+    body.iter().map(|s| retype_stmt(s, type_map)).collect()
+}
+
+fn retype_stmt(stmt: &HirStmt, type_map: &HashMap<String, Type>) -> HirStmt {
+    match stmt {
+        HirStmt::Expr(e) => HirStmt::Expr(retype_expr(e, type_map)),
+        HirStmt::Assign { name, ty, value } => {
+            let new_value = retype_expr(value, type_map);
+            HirStmt::Assign {
+                name: name.clone(),
+                ty: if matches!(ty, Type::Any) { new_value.ty.clone() } else { ty.clone() },
+                value: new_value,
+            }
+        }
+        HirStmt::Return(Some(e)) => HirStmt::Return(Some(retype_expr(e, type_map))),
+        other => other.clone(),
+    }
+}
+
+fn retype_expr(expr: &HirExpr, type_map: &HashMap<String, Type>) -> HirExpr {
+    let mut e = expr.clone();
+    match &mut e.kind {
+        HirExprKind::Ident(name) => {
+            if let Some(ty) = type_map.get(name.as_str()) {
+                e.ty = ty.clone();
+            }
+        }
+        HirExprKind::BinOp { left, right, op } => {
+            *left = Box::new(retype_expr(left, type_map));
+            *right = Box::new(retype_expr(right, type_map));
+            // Propagate: infer result type from children
+            e.ty = infer_binop_type(&left.ty, &right.ty, *op);
+        }
+        HirExprKind::UnaryOp { operand, op: _ } => {
+            *operand = Box::new(retype_expr(operand, type_map));
+            // Neg preserves type, Not → Bool
+            e.ty = match &operand.ty {
+                Type::Int => Type::Int,
+                Type::Float => Type::Float,
+                _ => e.ty.clone(),
+            };
+        }
+        HirExprKind::Call { func, args } => {
+            *func = Box::new(retype_expr(func, type_map));
+            for arg in args.iter_mut() {
+                *arg = retype_expr(arg, type_map);
+            }
+            // Don't change the call's result type — it depends on the callee
+        }
+        // Literals keep their types — no rewriting needed
+        HirExprKind::Int(_) | HirExprKind::Float(_) | HirExprKind::Bool(_)
+        | HirExprKind::Str(_) | HirExprKind::Nil => {}
+        // For other complex nodes, just leave as-is
+        _ => {}
+    }
+    e
+}
+
+/// Infer the result type of a binary operation given the types of both operands.
+fn infer_binop_type(left: &Type, right: &Type, op: HirBinOp) -> Type {
+    use HirBinOp::*;
+    match op {
+        // Comparison ops always return Bool
+        Eq | Neq | Lt | Gt | LtEq | GtEq => Type::Bool,
+        // Logical ops return Bool
+        And | Or => Type::Bool,
+        // Arithmetic: Int op Int → Int, Float involved → Float
+        Add | Sub | Mul | Div | Mod | Pow | BitAnd | BitOr | BitXor | Shl | Shr => {
+            match (left, right) {
+                (Type::Int, Type::Int) => Type::Int,
+                (Type::Float, Type::Float) => Type::Float,
+                (Type::Int, Type::Float) | (Type::Float, Type::Int) => Type::Float,
+                _ => Type::Any, // Can't determine — leave as Any
+            }
+        }
+    }
+}
+
 // ─── Free variable analysis for closure captures ──────────────────────
 
 /// Collect all free variables referenced in a lambda body that are not in `bound` (params + locals).
@@ -3099,9 +3727,31 @@ fn collect_free_vars_expr(expr: &HirExpr, locals: &HashSet<String>, free: &mut H
                 collect_free_vars_expr(e, locals, free);
             }
         }
-        HirExprKind::Loop { body, .. } => {
+        HirExprKind::Loop { kind, body } => {
+            // Collect free vars from the loop kind (range start/end, condition, iterator)
+            let mut loop_locals = locals.clone();
+            match kind.as_ref() {
+                HirLoopKind::ForRange { var, start, end, .. } => {
+                    collect_free_vars_expr(start, locals, free);
+                    collect_free_vars_expr(end, locals, free);
+                    loop_locals.insert(var.clone());
+                }
+                HirLoopKind::ForEach { var, iter } => {
+                    collect_free_vars_expr(iter, locals, free);
+                    loop_locals.insert(var.clone());
+                }
+                HirLoopKind::ForEachIndexed { idx_var, val_var, iter } => {
+                    collect_free_vars_expr(iter, locals, free);
+                    loop_locals.insert(idx_var.clone());
+                    loop_locals.insert(val_var.clone());
+                }
+                HirLoopKind::While(cond) => {
+                    collect_free_vars_expr(cond, locals, free);
+                }
+                HirLoopKind::Infinite => {}
+            }
             for s in body {
-                collect_free_vars_stmt(s, &mut locals.clone(), free);
+                collect_free_vars_stmt(s, &mut loop_locals, free);
             }
         }
         HirExprKind::Lambda { params, body, .. } => {

@@ -97,6 +97,14 @@ impl TokValue {
         }
     }
 
+    pub fn from_tag_data(tag: i64, data: i64) -> Self {
+        TokValue {
+            tag: tag as u8,
+            _pad: [0; 7],
+            data: TokValueData { _raw: data as u64 },
+        }
+    }
+
     pub fn from_string(ptr: *mut TokString) -> Self {
         TokValue {
             tag: TAG_STRING,

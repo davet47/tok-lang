@@ -370,6 +370,57 @@ pub extern "C" fn tok_array_reduce(
     }
 }
 
+/// Parallel map: apply a closure to each array element in a separate thread.
+/// Returns a new array with results in the same order.
+/// Closure signature: (env: *mut u8, tag: i64, data: i64) -> TagData
+#[no_mangle]
+pub extern "C" fn tok_pmap(
+    arr: *mut TokArray,
+    closure: *mut TokClosure,
+) -> *mut TokArray {
+    assert!(!arr.is_null(), "tok_pmap: null array");
+    assert!(!closure.is_null(), "tok_pmap: null closure");
+    unsafe {
+        let fn_ptr: extern "C" fn(*mut u8, i64, i64) -> TagData =
+            std::mem::transmute((*closure).fn_ptr);
+        let env = (*closure).env_ptr;
+        let data = &(*arr).data;
+
+        if data.is_empty() {
+            return TokArray::alloc();
+        }
+
+        // Spawn one thread per element
+        let fn_ptr_usize = fn_ptr as usize;
+        let env_usize = env as usize;
+        let handles: Vec<_> = data.iter().map(|elem| {
+            let tag = elem.tag as i64;
+            let data = elem.data._raw as i64;
+            std::thread::spawn(move || {
+                let fp: extern "C" fn(*mut u8, i64, i64) -> TagData =
+                    std::mem::transmute(fn_ptr_usize);
+                let ep = env_usize as *mut u8;
+                fp(ep, tag, data)
+            })
+        }).collect();
+
+        // Join in order, collect results
+        let result = TokArray::alloc();
+        for h in handles {
+            match h.join() {
+                Ok(td) => {
+                    let val = TokValue::from_tag_data(td.tag, td.data);
+                    (*result).data.push(val);
+                }
+                Err(_) => {
+                    (*result).data.push(TokValue::nil());
+                }
+            }
+        }
+        result
+    }
+}
+
 // ═══════════════════════════════════════════════════════════════
 // Helpers
 // ═══════════════════════════════════════════════════════════════

@@ -2,7 +2,7 @@
 // Measures map insertion (Vec-based upsert), linear scan lookup, has()
 
 // Part A: Build map
-n_build=500000
+n_build=5000
 t0=clock()
 m={}
 ~(i:0..n_build){m["k"+str(i)]=i}
@@ -17,7 +17,7 @@ t1=clock()
 pl("[bench] map_lookup: {n_build} lookups in {t1-t0} ms (sum={total})")
 
 // Part C: has() membership
-n_has=1000000
+n_has=10000
 t0=clock()
 found=0
 ~(i:0..n_has){

@@ -3,7 +3,7 @@
 //! These are called directly by Cranelift-generated machine code.
 
 use crate::string::TokString;
-use crate::value::{format_float, TokValue, TAG_BOOL, TAG_FLOAT, TAG_INT, TAG_STRING};
+use crate::value::{format_float, TokValue, TAG_BOOL, TAG_FLOAT, TAG_INT, TAG_NIL, TAG_STRING};
 
 // ═══════════════════════════════════════════════════════════════
 // Reference counting (generic)
@@ -214,6 +214,57 @@ pub extern "C" fn tok_value_ceil(val: TokValue) -> TokValue {
             TAG_FLOAT => TokValue::from_int(val.data.float_val.ceil() as i64),
             TAG_INT => val,
             _ => val,
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// TokValue → concrete type extraction
+// ═══════════════════════════════════════════════════════════════
+
+/// Extract an i64 from a TokValue. Coerces Float→Int, Bool→Int. Returns 0 for other types.
+#[no_mangle]
+pub extern "C" fn tok_value_to_int(val: TokValue) -> i64 {
+    unsafe {
+        match val.tag {
+            TAG_INT => val.data.int_val,
+            TAG_FLOAT => val.data.float_val as i64,
+            TAG_BOOL => val.data.bool_val as i64,
+            _ => 0,
+        }
+    }
+}
+
+/// Extract an f64 from a TokValue. Coerces Int→Float, Bool→Float. Returns 0.0 for other types.
+#[no_mangle]
+pub extern "C" fn tok_value_to_float(val: TokValue) -> f64 {
+    unsafe {
+        match val.tag {
+            TAG_FLOAT => val.data.float_val,
+            TAG_INT => val.data.int_val as f64,
+            TAG_BOOL => val.data.bool_val as f64,
+            _ => 0.0,
+        }
+    }
+}
+
+/// Extract an i8 (bool) from a TokValue. Uses truthiness semantics.
+#[no_mangle]
+pub extern "C" fn tok_value_to_bool(val: TokValue) -> i8 {
+    unsafe {
+        match val.tag {
+            TAG_BOOL => val.data.bool_val,
+            TAG_INT => if val.data.int_val != 0 { 1 } else { 0 },
+            TAG_FLOAT => if val.data.float_val != 0.0 { 1 } else { 0 },
+            TAG_NIL => 0,
+            TAG_STRING => {
+                if val.data.string_ptr.is_null() {
+                    0
+                } else {
+                    if (*val.data.string_ptr).data.is_empty() { 0 } else { 1 }
+                }
+            }
+            _ => 1, // Arrays, maps, tuples, etc. are truthy
         }
     }
 }

@@ -5,6 +5,50 @@ Token counts will be measured with a real tokenizer in the analysis section.
 
 ---
 
+## Killer Example: Linear, Parallel, Error-Aware Dataflow
+
+This example demonstrates Tok’s core design goals in a single expression:  
+**concurrency, sequencing, transformation, and error handling** without control-flow explosion.
+
+### Tok
+```tok
+result =
+  spawn fetch(url1)
+  + spawn fetch(url2)
+  |> await
+  |> parse
+  |> validate
+  |> (ok err ? ok : log(err); nil)
+```
+
+### go
+```go
+ch1 := make(chan []byte)
+ch2 := make(chan []byte)
+
+go func() {
+  b, err := fetch(url1)
+  if err != nil { ch1 <- nil; return }
+  ch1 <- b
+}()
+
+go func() {
+  b, err := fetch(url2)
+  if err != nil { ch2 <- nil; return }
+  ch2 <- b
+}()
+
+b1 := <-ch1
+b2 := <-ch2
+if b1 == nil || b2 == nil { return nil }
+
+r, err := parse(append(b1, b2...))
+if err != nil { log(err); return nil }
+
+if !validate(r) { return nil }
+return r
+```
+---
 ## Example 1: FizzBuzz
 
 ### Tok

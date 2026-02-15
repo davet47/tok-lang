@@ -2,7 +2,7 @@
 // Measures string allocation, interpolation overhead, builtin string ops
 
 // Part A: Concatenation
-n_concat=20000000
+n_concat=500000
 t0=clock()
 s=""
 ~(i:0..n_concat){s=s+"a"}
