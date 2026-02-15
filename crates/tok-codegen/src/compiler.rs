@@ -81,7 +81,6 @@ fn cl_type_or_i64(ty: &Type) -> types::Type {
 }
 
 /// Is this type a heap-allocated pointer that needs refcount management?
-#[allow(dead_code)]
 fn is_heap_type(ty: &Type) -> bool {
     matches!(
         ty,
@@ -93,6 +92,28 @@ fn is_heap_type(ty: &Type) -> bool {
             | Type::Channel(_)
             | Type::Handle(_)
     )
+}
+
+/// Emit a runtime call to decrement the reference count of a value.
+/// No-ops for scalar types (Int, Float, Bool, Nil). For heap types and Any,
+/// calls tok_value_rc_dec(tag, data) which handles recursive cleanup.
+/// Optimized fast path for strings: calls tok_string_free(ptr) directly.
+fn emit_rc_dec(ctx: &mut FuncCtx, val: Value, ty: &Type) {
+    match ty {
+        Type::Int | Type::Float | Type::Bool | Type::Nil | Type::Never => {
+            return; // Scalars — no RC needed
+        }
+        Type::Str => {
+            // Fast path: direct string free without TokValue reconstruction
+            let func_ref = ctx.get_runtime_func_ref("tok_string_free");
+            ctx.builder.ins().call(func_ref, &[val]);
+            return;
+        }
+        _ => {}
+    }
+    let (tag, data) = to_tokvalue(ctx, val, ty);
+    let func_ref = ctx.get_runtime_func_ref("tok_value_rc_dec");
+    ctx.builder.ins().call(func_ref, &[tag, data]);
 }
 
 // ─── Compiler state ───────────────────────────────────────────────────
@@ -307,6 +328,8 @@ impl Compiler {
         // Refcount
         self.declare_runtime_func("tok_rc_inc", &[PTR], &[]);
         self.declare_runtime_func("tok_rc_dec", &[PTR], &[types::I8]);
+        self.declare_runtime_func("tok_value_rc_dec", &[types::I64, types::I64], &[]);
+        self.declare_runtime_func("tok_string_free", &[PTR], &[]);
 
         // Conversion
         self.declare_runtime_func("tok_to_int", &[PTR, types::I64], &[types::I64]);
@@ -1066,6 +1089,13 @@ fn compile_stmt(ctx: &mut FuncCtx, stmt: &HirStmt) -> Option<Value> {
             }
             if let Some(v) = val {
                 if let Some((var, existing_ty)) = ctx.vars.get(name).cloned() {
+                    // Save old value for RC dec after computing new value
+                    let needs_rc = is_heap_type(&existing_ty) || matches!(existing_ty, Type::Any);
+                    let old_val = if needs_rc {
+                        Some(ctx.builder.use_var(var))
+                    } else {
+                        None
+                    };
                     // Coerce value to match the variable's existing type
                     let coerced = match (&existing_ty, &value.ty) {
                         // Value is Any but variable is concrete — extract via runtime
@@ -1100,6 +1130,33 @@ fn compile_stmt(ctx: &mut FuncCtx, stmt: &HirStmt) -> Option<Value> {
                         _ => v,
                     };
                     ctx.builder.def_var(var, coerced);
+                    // RC: decrement old value now that new value is stored.
+                    // Guard against aliasing (e.g., x = push(x, v) returns same ptr).
+                    if let Some(old) = old_val {
+                        if is_heap_type(&existing_ty) {
+                            // Concrete pointer type: only dec if old != new pointer
+                            let same = ctx.builder.ins().icmp(
+                                cranelift_codegen::ir::condcodes::IntCC::Equal,
+                                old, coerced,
+                            );
+                            let dec_block = ctx.builder.create_block();
+                            let cont_block = ctx.builder.create_block();
+                            ctx.builder.ins().brif(same, cont_block, &[], dec_block, &[]);
+
+                            ctx.builder.switch_to_block(dec_block);
+                            ctx.builder.seal_block(dec_block);
+                            emit_rc_dec(ctx, old, &existing_ty);
+                            ctx.builder.ins().jump(cont_block, &[]);
+
+                            ctx.builder.switch_to_block(cont_block);
+                            ctx.builder.seal_block(cont_block);
+                        } else {
+                            // Any type: always dec (Any values are stack TokValues,
+                            // not raw pointers, so aliasing is rare and the runtime
+                            // handles tag-based no-op for scalars)
+                            emit_rc_dec(ctx, old, &existing_ty);
+                        }
+                    }
                 } else {
                     let ct = cl_type_or_i64(ty);
                     let var = ctx.new_var(ct);
@@ -3501,6 +3558,65 @@ fn compile_if(
 
 // ─── Loops ────────────────────────────────────────────────────────────
 
+/// Check if a ForRange loop body is safe to unroll.
+/// Criteria: no break/continue, no function calls, no nested loops, no returns.
+fn can_unroll_loop(body: &[HirStmt]) -> bool {
+    for stmt in body {
+        if !stmt_safe_to_unroll(stmt) {
+            return false;
+        }
+    }
+    true
+}
+
+fn stmt_safe_to_unroll(stmt: &HirStmt) -> bool {
+    match stmt {
+        HirStmt::Break | HirStmt::Continue | HirStmt::Return(_) => false,
+        HirStmt::Import(_) => false,
+        HirStmt::Assign { value, .. } => expr_safe_to_unroll(value),
+        HirStmt::IndexAssign { target, index, value } => {
+            expr_safe_to_unroll(target) && expr_safe_to_unroll(index) && expr_safe_to_unroll(value)
+        }
+        HirStmt::MemberAssign { target, value, .. } => {
+            expr_safe_to_unroll(target) && expr_safe_to_unroll(value)
+        }
+        HirStmt::Expr(e) => expr_safe_to_unroll(e),
+        HirStmt::FuncDecl { .. } => false,
+    }
+}
+
+fn expr_safe_to_unroll(expr: &HirExpr) -> bool {
+    use HirExprKind::*;
+    match &expr.kind {
+        Int(_) | Float(_) | Str(_) | Bool(_) | Nil | Ident(_) => true,
+        BinOp { left, right, .. } => expr_safe_to_unroll(left) && expr_safe_to_unroll(right),
+        UnaryOp { operand, .. } => expr_safe_to_unroll(operand),
+        // No function calls, no loops, no complex expressions
+        Call { .. } | RuntimeCall { .. } | Lambda { .. } | Loop { .. } => false,
+        If { cond, then_body, then_expr, else_body, else_expr } => {
+            expr_safe_to_unroll(cond)
+                && then_body.iter().all(|s| stmt_safe_to_unroll(s))
+                && then_expr.as_ref().map_or(true, |e| expr_safe_to_unroll(e))
+                && else_body.iter().all(|s| stmt_safe_to_unroll(s))
+                && else_expr.as_ref().map_or(true, |e| expr_safe_to_unroll(e))
+        }
+        Index { target, index } => expr_safe_to_unroll(target) && expr_safe_to_unroll(index),
+        Member { target, .. } => expr_safe_to_unroll(target),
+        Array(elems) => elems.iter().all(|e| expr_safe_to_unroll(e)),
+        Map(entries) => entries.iter().all(|(_, e)| expr_safe_to_unroll(e)),
+        Tuple(elems) => elems.iter().all(|e| expr_safe_to_unroll(e)),
+        Block { stmts, expr } => {
+            stmts.iter().all(|s| stmt_safe_to_unroll(s))
+                && expr.as_ref().map_or(true, |e| expr_safe_to_unroll(e))
+        }
+        Length(e) => expr_safe_to_unroll(e),
+        Range { start, end, .. } => expr_safe_to_unroll(start) && expr_safe_to_unroll(end),
+        Go(_) | Receive(_) | Send { .. } | Select(_) => false,
+    }
+}
+
+const UNROLL_FACTOR: i64 = 4;
+
 fn compile_loop(
     ctx: &mut FuncCtx,
     kind: &HirLoopKind,
@@ -3547,49 +3663,140 @@ fn compile_loop(
             ctx.builder.def_var(loop_var, start_val);
             ctx.vars.insert(var.clone(), (loop_var, Type::Int));
 
-            // Loop rotation: guard check → body → inc+check (back-edge is conditional)
-            // This eliminates one unconditional jump per iteration vs condition-at-top.
-            // Note: Cranelift may rematerialize end_val inside the loop for large constants
-            // (>12-bit immediate), but this is harmless on ARM64's wide execution pipeline
-            // and the rotation itself saves a branch per iteration.
-            let body_block = ctx.builder.create_block();
-            let inc_block = ctx.builder.create_block();
-            let exit_block = ctx.builder.create_block();
-
-            // Guard: skip loop entirely if start >= end
             let cc = if *inclusive {
                 cranelift_codegen::ir::condcodes::IntCC::SignedLessThanOrEqual
             } else {
                 cranelift_codegen::ir::condcodes::IntCC::SignedLessThan
             };
-            let guard_cond = ctx.builder.ins().icmp(cc, start_val, end_val);
-            ctx.builder.ins().brif(guard_cond, body_block, &[], exit_block, &[]);
 
-            // Body block
-            ctx.builder.switch_to_block(body_block);
+            // Try loop unrolling for simple bodies (non-inclusive ranges only)
+            if !*inclusive && can_unroll_loop(body) {
+                // Unrolled loop: main loop steps by UNROLL_FACTOR, remainder loop handles leftovers
+                let unrolled_body_block = ctx.builder.create_block();
+                let unrolled_inc_block = ctx.builder.create_block();
+                let remainder_body_block = ctx.builder.create_block();
+                let remainder_inc_block = ctx.builder.create_block();
+                let exit_block = ctx.builder.create_block();
 
-            ctx.loop_stack.push((inc_block, exit_block));
-            compile_body(ctx, body, &Type::Nil);
-            ctx.loop_stack.pop();
+                // Compute unrolled_end = start + ((end - start) / UNROLL_FACTOR) * UNROLL_FACTOR
+                // This is the limit for the main unrolled loop
+                let range_size = ctx.builder.ins().isub(end_val, start_val);
+                let factor = ctx.builder.ins().iconst(types::I64, UNROLL_FACTOR);
+                let full_chunks = ctx.builder.ins().sdiv(range_size, factor);
+                let unrolled_count = ctx.builder.ins().imul(full_chunks, factor);
+                let unrolled_end = ctx.builder.ins().iadd(start_val, unrolled_count);
 
-            if !ctx.block_terminated {
-                ctx.builder.ins().jump(inc_block, &[]);
+                // Guard: skip unrolled loop if start >= unrolled_end (fewer than UNROLL_FACTOR iterations)
+                let guard1 = ctx.builder.ins().icmp(cc, start_val, unrolled_end);
+                ctx.builder.ins().brif(guard1, unrolled_body_block, &[], remainder_body_block, &[]);
+
+                // === Unrolled main loop body ===
+                ctx.builder.switch_to_block(unrolled_body_block);
+
+                // Push loop stack for break/continue (though unrolled bodies shouldn't have them)
+                ctx.loop_stack.push((unrolled_inc_block, exit_block));
+
+                // Emit body UNROLL_FACTOR times with loop var offset
+                for u in 0..UNROLL_FACTOR {
+                    if u > 0 {
+                        let current = ctx.builder.use_var(loop_var);
+                        let offset = ctx.builder.ins().iconst(types::I64, 1);
+                        let next = ctx.builder.ins().iadd(current, offset);
+                        ctx.builder.def_var(loop_var, next);
+                    }
+                    compile_body(ctx, body, &Type::Nil);
+                }
+
+                ctx.loop_stack.pop();
+
+                if !ctx.block_terminated {
+                    ctx.builder.ins().jump(unrolled_inc_block, &[]);
+                }
+
+                // Unrolled increment: advance by 1 more (total UNROLL_FACTOR) and check
+                ctx.builder.switch_to_block(unrolled_inc_block);
+                ctx.builder.seal_block(unrolled_inc_block);
+                let current = ctx.builder.use_var(loop_var);
+                let one = ctx.builder.ins().iconst(types::I64, 1);
+                let next = ctx.builder.ins().iadd(current, one);
+                ctx.builder.def_var(loop_var, next);
+                let cond = ctx.builder.ins().icmp(cc, next, unrolled_end);
+                ctx.builder.ins().brif(cond, unrolled_body_block, &[], remainder_body_block, &[]);
+
+                ctx.builder.seal_block(unrolled_body_block);
+
+                // === Remainder loop (handles leftover iterations) ===
+                ctx.builder.switch_to_block(remainder_body_block);
+
+                // Check if there are any remaining iterations
+                let rem_current = ctx.builder.use_var(loop_var);
+                let rem_guard = ctx.builder.ins().icmp(cc, rem_current, end_val);
+                let remainder_real_block = ctx.builder.create_block();
+                ctx.builder.ins().brif(rem_guard, remainder_real_block, &[], exit_block, &[]);
+
+                ctx.builder.seal_block(remainder_body_block);
+
+                // Remainder body
+                ctx.builder.switch_to_block(remainder_real_block);
+
+                ctx.loop_stack.push((remainder_inc_block, exit_block));
+                compile_body(ctx, body, &Type::Nil);
+                ctx.loop_stack.pop();
+
+                if !ctx.block_terminated {
+                    ctx.builder.ins().jump(remainder_inc_block, &[]);
+                }
+
+                // Remainder increment
+                ctx.builder.switch_to_block(remainder_inc_block);
+                ctx.builder.seal_block(remainder_inc_block);
+                let rem_cur = ctx.builder.use_var(loop_var);
+                let rem_one = ctx.builder.ins().iconst(types::I64, 1);
+                let rem_next = ctx.builder.ins().iadd(rem_cur, rem_one);
+                ctx.builder.def_var(loop_var, rem_next);
+                let rem_cond = ctx.builder.ins().icmp(cc, rem_next, end_val);
+                ctx.builder.ins().brif(rem_cond, remainder_real_block, &[], exit_block, &[]);
+
+                ctx.builder.seal_block(remainder_real_block);
+                ctx.builder.switch_to_block(exit_block);
+                ctx.builder.seal_block(exit_block);
+                ctx.block_terminated = false;
+            } else {
+                // Standard rotated loop (non-unrolled path)
+                let body_block = ctx.builder.create_block();
+                let inc_block = ctx.builder.create_block();
+                let exit_block = ctx.builder.create_block();
+
+                // Guard: skip loop entirely if start >= end
+                let guard_cond = ctx.builder.ins().icmp(cc, start_val, end_val);
+                ctx.builder.ins().brif(guard_cond, body_block, &[], exit_block, &[]);
+
+                // Body block
+                ctx.builder.switch_to_block(body_block);
+
+                ctx.loop_stack.push((inc_block, exit_block));
+                compile_body(ctx, body, &Type::Nil);
+                ctx.loop_stack.pop();
+
+                if !ctx.block_terminated {
+                    ctx.builder.ins().jump(inc_block, &[]);
+                }
+
+                // Increment + back-edge condition check
+                ctx.builder.switch_to_block(inc_block);
+                ctx.builder.seal_block(inc_block);
+                let current = ctx.builder.use_var(loop_var);
+                let one = ctx.builder.ins().iconst(types::I64, 1);
+                let next = ctx.builder.ins().iadd(current, one);
+                ctx.builder.def_var(loop_var, next);
+                let cond = ctx.builder.ins().icmp(cc, next, end_val);
+                ctx.builder.ins().brif(cond, body_block, &[], exit_block, &[]);
+
+                ctx.builder.seal_block(body_block);
+                ctx.builder.switch_to_block(exit_block);
+                ctx.builder.seal_block(exit_block);
+                ctx.block_terminated = false;
             }
-
-            // Increment + back-edge condition check (replaces separate header block)
-            ctx.builder.switch_to_block(inc_block);
-            ctx.builder.seal_block(inc_block);
-            let current = ctx.builder.use_var(loop_var);
-            let one = ctx.builder.ins().iconst(types::I64, 1);
-            let next = ctx.builder.ins().iadd(current, one);
-            ctx.builder.def_var(loop_var, next);
-            let cond = ctx.builder.ins().icmp(cc, next, end_val);
-            ctx.builder.ins().brif(cond, body_block, &[], exit_block, &[]);
-
-            ctx.builder.seal_block(body_block);
-            ctx.builder.switch_to_block(exit_block);
-            ctx.builder.seal_block(exit_block);
-            ctx.block_terminated = false;
         }
 
         HirLoopKind::ForEach { var, iter } => {

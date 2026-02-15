@@ -90,6 +90,25 @@ pub extern "C" fn tok_env_alloc(count: i64) -> *mut u8 {
     }
 }
 
+/// Free a closure environment buffer previously allocated by `tok_env_alloc`.
+/// Decrements the refcount of each captured TokValue, then deallocates the buffer.
+#[no_mangle]
+pub extern "C" fn tok_env_free(ptr: *mut u8, count: i64) {
+    if ptr.is_null() || count <= 0 {
+        return;
+    }
+    unsafe {
+        let size = (count as usize) * 16;
+        // rc_dec each captured TokValue in the environment
+        for i in 0..count as usize {
+            let tv_ptr = ptr.add(i * 16) as *const crate::value::TokValue;
+            (*tv_ptr).rc_dec();
+        }
+        let layout = std::alloc::Layout::from_size_align(size, 8).unwrap();
+        std::alloc::dealloc(ptr, layout);
+    }
+}
+
 // ═══════════════════════════════════════════════════════════════
 // Tests
 // ═══════════════════════════════════════════════════════════════

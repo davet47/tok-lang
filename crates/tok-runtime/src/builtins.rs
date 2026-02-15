@@ -45,6 +45,40 @@ pub extern "C" fn tok_rc_dec(ptr: *mut u8) -> i8 {
     }
 }
 
+/// Full TokValue-level rc_dec: reconstructs a TokValue from (tag, data)
+/// and calls its rc_dec() method, which handles recursive child cleanup
+/// and deallocation when refcount reaches zero.
+/// Called by codegen on variable reassignment and function exit.
+///
+/// The (tag, data) pair matches the codegen's `to_tokvalue` representation:
+/// tag is the type discriminant (0-10) stored as i64, data is the payload.
+#[no_mangle]
+pub extern "C" fn tok_value_rc_dec(tag: i64, data: i64) {
+    // Reconstruct TokValue from its raw (tag, data) representation.
+    // TokValue layout is [tag:u8, _pad:7, data:8] = 16 bytes total.
+    // In codegen, tag is passed as i64 (only low byte matters), data is i64.
+    let v: TokValue = unsafe {
+        let mut bytes = [0u8; 16];
+        bytes[0] = tag as u8;
+        // data goes at offset 8
+        bytes[8..16].copy_from_slice(&data.to_ne_bytes());
+        std::mem::transmute(bytes)
+    };
+    v.rc_dec();
+}
+
+/// Fast rc_dec for strings: skips TokValue reconstruction overhead.
+/// Called by codegen when the variable type is known to be Str.
+#[no_mangle]
+pub extern "C" fn tok_string_free(ptr: *mut TokString) {
+    if ptr.is_null() { return; }
+    unsafe {
+        if (*ptr).rc_dec() {
+            drop(Box::from_raw(ptr));
+        }
+    }
+}
+
 // ═══════════════════════════════════════════════════════════════
 // Print builtins
 // ═══════════════════════════════════════════════════════════════
