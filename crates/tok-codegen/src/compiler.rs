@@ -2614,6 +2614,10 @@ fn compile_call(
                     let arg_types: Vec<Type> = args.iter().map(|a| a.ty.clone()).collect();
                     let all_concrete = arg_types.iter().all(|t| matches!(t, Type::Int | Type::Float | Type::Bool));
                     if all_concrete {
+                        // Try inlining first for simple lambdas (single-expression body)
+                        if can_inline_closure_call(&ctx.compiler.pending_lambdas[kc.pending_idx], &arg_types, name) {
+                            return compile_inline_closure_call(ctx, name, &kc, args, &arg_types, result_ty);
+                        }
                         return compile_specialized_closure_call(ctx, name, &kc, args, &arg_types, result_ty);
                     }
                     return compile_direct_closure_call(ctx, kc.func_id, kc.env_ptr, args, result_ty);
@@ -2855,6 +2859,177 @@ fn compile_specialized_closure_call(
         Some(alloc_tokvalue_on_stack(ctx, tag, data))
     } else {
         Some(coerce_value(ctx, raw_val, &spec_ret_type, result_ty))
+    }
+}
+
+// ─── Inline closure calls ──────────────────────────────────────────────
+
+/// Check if a known closure can be inlined at its call site.
+/// Returns true if the lambda body is a single expression and all types are concrete.
+fn can_inline_closure_call(
+    pending: &PendingLambda,
+    arg_types: &[Type],
+    var_name: &str,
+) -> bool {
+    // All args must be concrete
+    if !arg_types.iter().all(|t| matches!(t, Type::Int | Type::Float | Type::Bool)) {
+        return false;
+    }
+    // Body must be exactly one statement: Expr(e) or Return(Some(e))
+    if pending.body.len() != 1 {
+        return false;
+    }
+    let body_expr = match &pending.body[0] {
+        HirStmt::Expr(e) => e,
+        HirStmt::Return(Some(e)) => e,
+        _ => return false,
+    };
+    // All captures must be concrete
+    if !pending.captures.iter().all(|c| matches!(c.ty, Type::Int | Type::Float | Type::Bool)) {
+        return false;
+    }
+    // Don't inline self-recursive calls
+    !contains_self_call(body_expr, var_name)
+}
+
+/// Check if an HIR expression contains a call to a function with the given name.
+fn contains_self_call(expr: &HirExpr, name: &str) -> bool {
+    match &expr.kind {
+        HirExprKind::Call { func, args } => {
+            if let HirExprKind::Ident(callee) = &func.kind {
+                if callee == name {
+                    return true;
+                }
+            }
+            contains_self_call(func, name) || args.iter().any(|a| contains_self_call(a, name))
+        }
+        HirExprKind::BinOp { left, right, .. } => {
+            contains_self_call(left, name) || contains_self_call(right, name)
+        }
+        HirExprKind::UnaryOp { operand, .. } => contains_self_call(operand, name),
+        HirExprKind::If { cond, then_expr, .. } => {
+            contains_self_call(cond, name)
+                || then_expr.as_ref().map_or(false, |e| contains_self_call(e, name))
+        }
+        HirExprKind::Index { target, index } => {
+            contains_self_call(target, name) || contains_self_call(index, name)
+        }
+        HirExprKind::Member { target, .. } => contains_self_call(target, name),
+        _ => false,
+    }
+}
+
+/// Inline a known lambda call at the call site.
+/// Instead of emitting a function call, we compile the lambda body directly
+/// into the caller's instruction stream.
+fn compile_inline_closure_call(
+    ctx: &mut FuncCtx,
+    _name: &str,
+    kc: &KnownClosure,
+    args: &[HirExpr],
+    arg_types: &[Type],
+    result_ty: &Type,
+) -> Option<Value> {
+    // Get the pending lambda's body and metadata
+    let params = ctx.compiler.pending_lambdas[kc.pending_idx].params.clone();
+    let captures = ctx.compiler.pending_lambdas[kc.pending_idx].captures.clone();
+    let body = ctx.compiler.pending_lambdas[kc.pending_idx].body.clone();
+
+    // Compile argument expressions before binding anything
+    let mut arg_vals = Vec::new();
+    for arg in args {
+        let v = compile_expr(ctx, arg)
+            .unwrap_or_else(|| ctx.builder.ins().iconst(types::I64, 0));
+        arg_vals.push(v);
+    }
+
+    // Save old bindings and bind lambda parameters to compiled arg values
+    let mut old_param_bindings: Vec<(String, Option<(Variable, Type)>)> = Vec::new();
+    for (i, param) in params.iter().enumerate() {
+        old_param_bindings.push((param.name.clone(), ctx.vars.remove(&param.name)));
+        let ct = cl_type_or_i64(&arg_types[i]);
+        let var = ctx.new_var(ct);
+        ctx.builder.def_var(var, arg_vals[i]);
+        ctx.vars.insert(param.name.clone(), (var, arg_types[i].clone()));
+    }
+
+    // Handle captures: load from env_ptr to preserve snapshot semantics
+    let mut old_capture_bindings: Vec<(String, Option<(Variable, Type)>)> = Vec::new();
+    if !captures.is_empty() {
+        let env_ptr = kc.env_ptr;
+        for (i, cap) in captures.iter().enumerate() {
+            old_capture_bindings.push((cap.name.clone(), ctx.vars.remove(&cap.name)));
+            let offset = (i * 16) as i32;
+            match &cap.ty {
+                Type::Int => {
+                    let data = ctx.builder.ins().load(types::I64, MemFlags::trusted(), env_ptr, offset + 8);
+                    let var = ctx.new_var(types::I64);
+                    ctx.builder.def_var(var, data);
+                    ctx.vars.insert(cap.name.clone(), (var, Type::Int));
+                }
+                Type::Float => {
+                    let data = ctx.builder.ins().load(types::I64, MemFlags::trusted(), env_ptr, offset + 8);
+                    let fval = ctx.builder.ins().bitcast(types::F64, MemFlags::new(), data);
+                    let var = ctx.new_var(types::F64);
+                    ctx.builder.def_var(var, fval);
+                    ctx.vars.insert(cap.name.clone(), (var, Type::Float));
+                }
+                Type::Bool => {
+                    let data = ctx.builder.ins().load(types::I64, MemFlags::trusted(), env_ptr, offset + 8);
+                    let bval = ctx.builder.ins().ireduce(types::I8, data);
+                    let var = ctx.new_var(types::I8);
+                    ctx.builder.def_var(var, bval);
+                    ctx.vars.insert(cap.name.clone(), (var, Type::Bool));
+                }
+                _ => unreachable!("can_inline_closure_call requires all captures concrete"),
+            }
+        }
+    }
+
+    // Build type map and retype body for concrete types
+    let mut type_map = HashMap::new();
+    for (param, arg_ty) in params.iter().zip(arg_types.iter()) {
+        type_map.insert(param.name.clone(), arg_ty.clone());
+    }
+    for cap in &captures {
+        type_map.insert(cap.name.clone(), cap.ty.clone());
+    }
+    let retyped = retype_body(&body, &type_map);
+    let retyped = unwrap_return_stmts(retyped);
+
+    // Determine result type from the retyped body
+    let body_result_ty = retyped.last()
+        .and_then(|s| match s { HirStmt::Expr(e) => Some(e.ty.clone()), _ => None })
+        .unwrap_or(Type::Int);
+
+    // Compile the retyped body inline
+    let body_result = compile_body(ctx, &retyped, &body_result_ty);
+
+    // Restore old bindings for parameters
+    for (pname, old) in old_param_bindings {
+        ctx.vars.remove(&pname);
+        if let Some(old_val) = old {
+            ctx.vars.insert(pname, old_val);
+        }
+    }
+    // Restore old bindings for captures
+    for (cname, old) in old_capture_bindings {
+        ctx.vars.remove(&cname);
+        if let Some(old_val) = old {
+            ctx.vars.insert(cname, old_val);
+        }
+    }
+
+    // Coerce result to caller's expected type
+    if let Some(val) = body_result {
+        if matches!(result_ty, Type::Any | Type::Optional(_) | Type::Result(_)) && !matches!(body_result_ty, Type::Any) {
+            let (tag, data) = to_tokvalue(ctx, val, &body_result_ty);
+            Some(alloc_tokvalue_on_stack(ctx, tag, data))
+        } else {
+            Some(coerce_value(ctx, val, &body_result_ty, result_ty))
+        }
+    } else {
+        None
     }
 }
 
