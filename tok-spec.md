@@ -2,7 +2,7 @@
 
 ## 1. Design Philosophy
 
-Tok is a general-purpose programming language designed for a single metric: **minimizing the number of tokens an LLM must generate** to express any given program. It compiles to native machine code via LLVM.
+Tok is a general-purpose programming language designed for a single metric: **minimizing the number of tokens an LLM must generate** to express any given program. It compiles to native machine code via Cranelift.
 
 ### Non-goals
 - Human readability
@@ -52,11 +52,12 @@ No multi-line comment syntax. LLMs generating code rarely need comments.
 
 ### 2.5 Reserved Symbols & Keywords
 
-**Keywords** (minimal set):
+**Keywords** (minimal set — 6 total):
 | Keyword | Meaning |
 |---------|---------|
 | `f` | function declaration |
 | `go` | spawn concurrent task |
+| `sel` | select on channels |
 | `T` | boolean true |
 | `F` | boolean false |
 | `N` | nil |
@@ -177,7 +178,36 @@ items=[1 2 3]
 
 First assignment in a scope creates the variable. Subsequent assignments reassign.
 
-### 4.2 Destructuring
+### 4.2 Optional Type Annotations
+Type annotations are optional — the compiler performs forward-flow type inference and defaults to `Any` when types can't be determined. Annotations can be used for documentation or to constrain types.
+
+```
+x:i=5                    # annotate as Int
+y:f=3.14                 # annotate as Float
+name:s="Alice"           # annotate as String
+flag:b=T                 # annotate as Bool
+data:a=get_data()        # annotate as Any (dynamic)
+```
+
+**Type annotation shorthands**:
+| Annotation | Type |
+|-----------|------|
+| `:i` | Int |
+| `:f` | Float |
+| `:s` | String |
+| `:b` | Bool |
+| `:N` | Nil |
+| `:a` | Any |
+| `:[T]` | Array of T |
+| `:{T}` | Map with values of type T |
+| `:(T U V)` | Tuple of types |
+
+Function parameters and return types can also be annotated:
+```
+f add(a:i b:i):i=a+b
+```
+
+### 4.3 Destructuring
 ```
 a b=div(10 3)        # a=3, b=1 (tuple unpack)
 {x y}=point          # map destructure
@@ -185,7 +215,7 @@ a b=div(10 3)        # a=3, b=1 (tuple unpack)
 _ e=might_fail()      # discard value, keep error
 ```
 
-### 4.3 Compound Assignment
+### 4.4 Compound Assignment
 ```
 x+=1
 x-=1
@@ -195,7 +225,7 @@ x%=2
 x**=3
 ```
 
-### 4.4 Scoping
+### 4.5 Scoping
 Lexical scoping. Blocks `{}` create new scopes. Inner scopes can read and shadow outer variables.
 
 ---
@@ -622,7 +652,8 @@ f sub(a b)=a-b               # exported
 _cache={}                     # private
 ```
 
-### 10.3 Standard Module Paths
+### 10.3 Standard Module Paths (Planned)
+These standard library modules are planned but not yet implemented:
 ```
 @"io"                         # I/O operations
 @"fs"                         # filesystem
@@ -636,15 +667,19 @@ _cache={}                     # private
 @"re"                         # regex
 ```
 
+File-based modules (`@"path/to/file"`) work fully, including circular import detection.
+
 ---
 
 ## 11. Concurrency
 
-### 11.1 Green Threads
+### 11.1 Goroutines (OS Threads)
 ```
 h=go{expensive_computation()}
 result=<-h                    # block until done, get result
 ```
+
+Goroutines spawn OS threads (not green threads). Each goroutine gets an independent copy of its scope.
 
 ### 11.2 Channels
 ```
@@ -686,7 +721,6 @@ results=[1 2 3 4 5]|>pmap(\(x)=heavy(x))
 | `float(x)` | Convert to float | `float(42)` → `42.0` |
 | `str(x)` | Convert to string | `str(42)` → `"42"` |
 | `type(x)` | Get type as string | `type(42)` → `"int"` |
-| `is(x t)` | Type check | `is(42 "int")` → `T` |
 | `sort(a)` | Sort array | `sort([3 1 2])` → `[1 2 3]` |
 | `rev(a)` | Reverse array | `rev([1 2 3])` → `[3 2 1]` |
 | `keys(m)` | Map keys | `keys({a:1})` → `["a"]` |
@@ -694,16 +728,12 @@ results=[1 2 3 4 5]|>pmap(\(x)=heavy(x))
 | `has(m k)` | Map has key | `has({a:1} "a")` → `T` |
 | `del(m k)` | Delete key from map | `del({a:1 b:2} "a")` → `{b:2}` |
 | `push(a x)` | Append to array | `push([1 2] 3)` → `[1 2 3]` |
-| `pop(a)` | Remove last | `pop([1 2 3])` → `([1 2] 3)` |
 | `join(a s)` | Join array to string | `join(["a" "b"] ",")` → `"a,b"` |
 | `split(s d)` | Split string | `split("a,b" ",")` → `["a" "b"]` |
 | `trim(s)` | Trim whitespace | `trim(" hi ")` → `"hi"` |
 | `slice(x i j)` | Slice array/string | `slice([1 2 3 4] 1 3)` → `[2 3]` |
 | `flat(a)` | Flatten nested array | `flat([[1 2] [3]])` → `[1 2 3]` |
 | `uniq(a)` | Unique elements | `uniq([1 1 2])` → `[1 2]` |
-| `freq(a)` | Frequency map | `freq([1 1 2])` → `{1:2 2:1}` |
-| `top(m n)` | Top n by value (descending) | `top({a:3 b:1} 1)` → `[("a" 3)]` |
-| `zip(a b)` | Zip two arrays | `zip([1 2] [3 4])` → `[(1 3) (2 4)]` |
 | `min(a)` | Minimum | `min([3 1 2])` → `1` |
 | `max(a)` | Maximum | `max([3 1 2])` → `3` |
 | `sum(a)` | Sum | `sum([1 2 3])` → `6` |
@@ -712,72 +742,39 @@ results=[1 2 3 4 5]|>pmap(\(x)=heavy(x))
 | `ceil(x)` | Ceiling | `ceil(3.2)` → `4` |
 | `rand()` | Random float 0..1 | `rand()` → `0.472...` |
 | `exit(n)` | Exit with code | `exit(0)` |
-| `args()` | CLI arguments | `args()` → `["arg1" "arg2"]` |
-| `env(k)` | Environment var | `env("HOME")` |
+| `clock()` | Current time (seconds) | `clock()` → `1234567.89` |
 | `chan(n)` | Create channel | `chan()` or `chan(10)` |
+| `pmap(a f)` | Parallel map | `pmap([1 2 3] \(x)=x*2)` |
 
-### 12.2 I/O Module (`@"io"`)
-| Function | Description |
-|----------|-------------|
-| `input()` | Read line from stdin |
-| `input(prompt)` | Read with prompt |
-| `readall()` | Read all stdin |
+### 12.2 Standard Library Modules (Not Yet Implemented)
 
-### 12.3 Filesystem Module (`@"fs"`)
-| Function | Description |
-|----------|-------------|
-| `fread(path)` | Read file to string |
-| `fwrite(path data)` | Write string to file |
-| `fappend(path data)` | Append to file |
-| `fexists(path)` | Check if file exists |
-| `fls(path)` | List directory |
-| `fmk(path)` | Create directory |
-| `frm(path)` | Remove file/dir |
+The following module interfaces are planned but not yet available:
 
-### 12.4 HTTP Module (`@"http"`)
-| Function | Description |
-|----------|-------------|
-| `hget(url)` | HTTP GET, returns `(body err)` |
-| `hpost(url body)` | HTTP POST |
-| `hput(url body)` | HTTP PUT |
-| `hdel(url)` | HTTP DELETE |
-| `serve(port routes)` | Start HTTP server |
+- `@"io"` — stdin/stdout operations (`input`, `readall`)
+- `@"fs"` — filesystem (`fread`, `fwrite`, `fexists`, `fls`, etc.)
+- `@"http"` — HTTP client/server (`hget`, `hpost`, `serve`, etc.)
+- `@"json"` — JSON encode/decode (`jparse`, `jstr`)
+- `@"re"` — regex (`rmatch`, `rfind`, `rall`, `rsub`)
+- `@"time"` — time/date (`now`, `sleep`, `fmt`)
+- `@"math"` — extended math functions
+- `@"str"` — extended string utilities
+- `@"os"` — OS interaction
 
-### 12.5 JSON Module (`@"json"`)
-| Function | Description |
-|----------|-------------|
-| `jparse(s)` | Parse JSON string to value |
-| `jstr(v)` | Value to JSON string |
-
-### 12.6 Regex Module (`@"re"`)
-| Function | Description |
-|----------|-------------|
-| `rmatch(s pat)` | Test if string matches |
-| `rfind(s pat)` | Find first match |
-| `rall(s pat)` | Find all matches |
-| `rsub(s pat rep)` | Replace matches |
-
-### 12.7 Time Module (`@"time"`)
-| Function | Description |
-|----------|-------------|
-| `now()` | Current unix timestamp |
-| `sleep(ms)` | Sleep for milliseconds |
-| `fmt(ts pat)` | Format timestamp |
+Additional builtins planned but not yet implemented: `is(x t)`, `args()`, `env(k)`, `pop(a)`, `freq(a)`, `top(m n)`, `zip(a b)`.
 
 ---
 
 ## 13. Memory Model
 
 ### 13.1 Automatic Memory Management
-Tok uses automatic garbage collection. The programmer never explicitly allocates or frees memory. The compiler may choose:
-- Reference counting with cycle detection for deterministic destruction
-- Tracing GC for throughput-sensitive workloads
+Tok uses **reference counting** with `AtomicU32` for all heap-allocated types. The programmer never explicitly allocates or frees memory. Allocated via `Box::into_raw`, freed via `Box::from_raw` when the refcount reaches 0.
+
+**Limitations**: No cycle detection — reference cycles will leak memory.
 
 ### 13.2 Value Semantics
-- Integers, floats, booleans, nil: value types (stack-allocated)
+- Integers, floats, booleans, nil: value types (stack-allocated, unboxed in Cranelift IR)
 - Strings: immutable, reference counted
-- Arrays, maps, tuples: heap-allocated, reference semantics
-- Copy-on-write optimization for arrays/maps passed to functions
+- Arrays, maps, tuples, closures, channels, handles: heap-allocated, reference counted
 
 ---
 
@@ -785,22 +782,34 @@ Tok uses automatic garbage collection. The programmer never explicitly allocates
 
 ### 14.1 Pipeline
 ```
-Tok source → Lexer → Parser → AST → Type Inference → LLVM IR → Native Code
+Tok source → Lexer → Parser → AST → Type Inference → HIR → Cranelift IR → .o → Native Binary
 ```
 
-### 14.2 Dynamic Typing Strategy
-- Language is dynamically typed (no type annotations = fewer tokens)
-- Compiler performs aggressive type inference internally
-- Monomorphization for hot paths (Julia-style)
-- Fallback to boxed/tagged union values when types are ambiguous
-- Inline caching for dynamic dispatch
+The compiler is structured as 7 Rust crates: `tok-lexer`, `tok-parser`, `tok-types`, `tok-hir`, `tok-codegen`, `tok-runtime`, and `tok-driver` (CLI). The final linking step uses `cc` to link the `.o` file with the static C runtime library (`libtok_runtime.a`).
+
+### 14.2 Type System Strategy
+- **Optionally typed**: type annotations are available (`:i`, `:f`, `:s`, `:b`, `:a`) but never required — fewer tokens by default
+- **Forward-flow type inference** (not Hindley-Milner): types propagate forward through assignments and expressions
+- **Lenient**: emits warnings instead of errors, defaults to `Any` when types can't be determined
+- **Statically-typed values are unboxed**: Int=`i64`, Float=`f64`, Bool=`i8`, heap types=`i64` pointer
+- **`Any` type**: uses `TokValue`, a 16-byte tagged union (`tag:u8` + `data:union{i64, f64, i8, *mut T}`) stored on the stack
+- **Mixed-type branches**: when if/else branches have different types, the merge block upgrades to `Any` semantics
+
+Key unification rules:
+| Unification | Result |
+|---|---|
+| `unify(Any, X)` | `Any` |
+| `unify(Int, Float)` | `Float` |
+| `unify(Nil, T)` | `Optional(T)` |
+| `unify(X, X)` | `X` |
+| incompatible | `Any` |
 
 ### 14.3 Runtime Components
-- Garbage collector
-- Dynamic dispatch tables
-- Green thread scheduler (M:N threading model)
-- Channel implementation (lock-free queues)
-- Standard library (linked in)
+- Reference-counted heap allocations (`AtomicU32` refcounts)
+- Dynamic dispatch for `Any`-typed values (tag-based)
+- OS threads for goroutines (1:1 threading model)
+- Channel implementation (Mutex + Condvar, both buffered and unbuffered)
+- Static C-ABI runtime library linked into every binary
 
 ---
 
@@ -809,10 +818,12 @@ Tok source → Lexer → Parser → AST → Type Inference → LLVM IR → Nativ
 ```
 # Variables
 x=5; s="hi"; a=[1 2 3]; m={k:v}
+x:i=5; y:f=3.14              # optional type annotations
 
 # Functions
 f name(p1 p2)=expr
 f name(p1 p2){body}
+f add(a:i b:i):i=a+b         # with type annotations
 \(p)=expr                    # lambda
 
 # Control
@@ -830,6 +841,7 @@ expr?={pat:res _:def}        # match
 # Concurrency
 h=go{expr}; v=<-h            # spawn & await
 c=chan(); c<-v; v=<-c         # channels
+sel{v=<-c1:{...} _:{...}}    # select
 
 # Modules
 @"mod"; m=@"mod"; {a b}=@"mod"
@@ -837,4 +849,7 @@ c=chan(); c<-v; v=<-c         # channels
 # Error handling
 v e=might_fail()              # unpack result
 v=might_fail()?^              # propagate error
+
+# Keywords (6 total)
+f  go  sel  T  F  N
 ```

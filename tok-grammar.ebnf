@@ -21,13 +21,13 @@ import_stmt    = "@" STRING
 
 (* ---- Functions ---- *)
 
-func_decl      = "f" IDENT "(" param_list ")" func_body
-               | "f" IDENT "()" func_body ;
+func_decl      = "f" IDENT "(" param_list ")" [ ":" type_annot ] func_body
+               | "f" IDENT "()" [ ":" type_annot ] func_body ;
 
 param_list     = param { param }
                | param { param } ".." IDENT ;         (* variadic *)
 
-param          = IDENT [ "=" expr ] ;                  (* with default *)
+param          = IDENT [ ":" type_annot ] [ "=" expr ] ; (* with optional type and default *)
 
 func_body      = "=" expr                              (* single expression *)
                | block ;                               (* block body *)
@@ -48,7 +48,8 @@ assignment     = lvalue "=" expr
                | lvalue "*=" expr
                | lvalue "/=" expr
                | lvalue "%=" expr
-               | lvalue "**=" expr ;
+               | lvalue "**=" expr
+               | IDENT ":" type_annot "=" expr ;  (* typed assignment *)
 
 lvalue         = IDENT
                | IDENT "[" expr "]"
@@ -179,6 +180,19 @@ early_return   = "^" [ expr ] ;                        (* return from function *
 break_stmt     = "!" ;                                 (* break from loop *)
 continue_stmt  = ">!" ;                                (* continue to next iter *)
 
+(* ---- Type Annotations ---- *)
+
+type_annot     = "i"                                  (* Int *)
+               | "f"                                  (* Float *)
+               | "s"                                  (* String *)
+               | "b"                                  (* Bool *)
+               | "N"                                  (* Nil *)
+               | "a"                                  (* Any *)
+               | "[" type_annot "]"                   (* Array of T *)
+               | "{" type_annot "}"                   (* Map with value type T *)
+               | "(" type_annot { type_annot } ")"   (* Tuple types *)
+               ;
+
 (* ---- Lexical Elements ---- *)
 
 IDENT          = letter { letter | digit | "_" } ;
@@ -237,13 +251,13 @@ ident_list     = IDENT { IDENT } ;
 (* ============================================================ *)
 
 (* ============================================================ *)
-(* Reserved Keywords (5 total)                                  *)
+(* Reserved Keywords (6 total)                                  *)
 (* ============================================================ *)
-(*  f  go  T  F  N                                              *)
+(*  f  go  sel  T  F  N                                         *)
 (*                                                              *)
 (* All other "keywords" are stdlib functions, not reserved:     *)
-(*  p  pl  sort  rev  keys  vals  has  del  push  pop           *)
-(*  join  split  trim  slice  flat  uniq  zip  min  max  sum    *)
-(*  abs  floor  ceil  rand  exit  args  env  chan  freq  top    *)
-(*  int  float  str  type  is  pmap                             *)
+(*  p  pl  sort  rev  keys  vals  has  del  push                *)
+(*  join  split  trim  slice  flat  uniq  min  max  sum         *)
+(*  abs  floor  ceil  rand  clock  exit  chan  pmap              *)
+(*  int  float  str  type                                       *)
 (* ============================================================ *)
