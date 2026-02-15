@@ -59,8 +59,18 @@ pub extern "C" fn tok_string_concat(a: *mut TokString, b: *mut TokString) -> *mu
     assert!(!a.is_null(), "tok_string_concat: null lhs");
     assert!(!b.is_null(), "tok_string_concat: null rhs");
     unsafe {
-        let result = format!("{}{}", (*a).data, (*b).data);
-        TokString::alloc(result)
+        // COW optimization: if `a` has refcount 1, nobody else holds a reference,
+        // so we can mutate in-place and return the same pointer. This turns
+        // O(n²) repeated concat into amortized O(n) via String's growth strategy.
+        if (*a).rc.load(Ordering::Relaxed) == 1 {
+            (*a).data.push_str(&(*b).data);
+            a
+        } else {
+            let mut result = String::with_capacity((*a).data.len() + (*b).data.len());
+            result.push_str(&(*a).data);
+            result.push_str(&(*b).data);
+            TokString::alloc(result)
+        }
     }
 }
 
@@ -206,7 +216,10 @@ mod tests {
         let c = tok_string_concat(a, b);
         unsafe {
             assert_eq!(&(*c).data, "hello world");
-            free_str(a);
+            // COW may reuse `a`, so c may equal a
+            if c != a {
+                free_str(a);
+            }
             free_str(b);
             free_str(c);
         }

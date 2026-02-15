@@ -363,17 +363,21 @@ pub extern "C" fn tok_value_add(a: TokValue, b: TokValue) -> TokValue {
                 TokValue::from_float(a.data.float_val + b.data.int_val as f64)
             }
             (TAG_STRING, TAG_STRING) => {
-                let sa = if a.data.string_ptr.is_null() {
-                    ""
+                let ap = a.data.string_ptr;
+                let bp = b.data.string_ptr;
+                // COW: if `a` string has refcount 1, mutate in-place
+                if !ap.is_null() && (*ap).rc.load(std::sync::atomic::Ordering::Relaxed) == 1 {
+                    let sb = if bp.is_null() { "" } else { &(*bp).data };
+                    (*ap).data.push_str(sb);
+                    a // return the same TokValue (same pointer, mutated content)
                 } else {
-                    &(*a.data.string_ptr).data
-                };
-                let sb = if b.data.string_ptr.is_null() {
-                    ""
-                } else {
-                    &(*b.data.string_ptr).data
-                };
-                TokValue::from_string(TokString::alloc(format!("{}{}", sa, sb)))
+                    let sa = if ap.is_null() { "" } else { &(*ap).data };
+                    let sb = if bp.is_null() { "" } else { &(*bp).data };
+                    let mut result = String::with_capacity(sa.len() + sb.len());
+                    result.push_str(sa);
+                    result.push_str(sb);
+                    TokValue::from_string(TokString::alloc(result))
+                }
             }
             // String + other → concat with string representation
             (TAG_STRING, _) => {
@@ -675,7 +679,11 @@ mod tests {
         assert_eq!(result.tag, TAG_STRING);
         unsafe {
             assert_eq!(&(*result.data.string_ptr).data, "hello world");
-            drop(Box::from_raw(a));
+            // COW may reuse `a`, so result.data.string_ptr may equal a.
+            // Only free distinct pointers to avoid double-free.
+            if result.data.string_ptr != a {
+                drop(Box::from_raw(a));
+            }
             drop(Box::from_raw(b));
             drop(Box::from_raw(result.data.string_ptr));
         }

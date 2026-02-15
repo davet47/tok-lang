@@ -1,6 +1,7 @@
 //! Ordered map (string keys → TokValue values) for the Tok runtime.
 
 use std::sync::atomic::{AtomicU32, Ordering};
+use indexmap::IndexMap;
 
 use crate::value::TokValue;
 use crate::string::TokString;
@@ -13,14 +14,14 @@ use crate::array::TokArray;
 #[repr(C)]
 pub struct TokMap {
     pub rc: AtomicU32,
-    pub data: Vec<(String, TokValue)>,
+    pub data: IndexMap<String, TokValue>,
 }
 
 impl TokMap {
     pub fn new() -> Self {
         TokMap {
             rc: AtomicU32::new(1),
-            data: Vec::new(),
+            data: IndexMap::new(),
         }
     }
 
@@ -52,13 +53,12 @@ pub extern "C" fn tok_map_get(m: *mut TokMap, key: *mut TokString) -> TokValue {
     assert!(!key.is_null(), "tok_map_get: null key");
     unsafe {
         let key_str = &(*key).data;
-        for (k, v) in &(*m).data {
-            if k == key_str {
-                v.rc_inc();
-                return *v;
-            }
+        if let Some(v) = (*m).data.get(key_str) {
+            v.rc_inc();
+            *v
+        } else {
+            TokValue::nil()
         }
-        TokValue::nil()
     }
 }
 
@@ -68,18 +68,10 @@ pub extern "C" fn tok_map_set(m: *mut TokMap, key: *mut TokString, val: TokValue
     assert!(!key.is_null(), "tok_map_set: null key");
     unsafe {
         let key_str = (*key).data.clone();
-        // Check if key already exists
-        for (k, v) in &mut (*m).data {
-            if *k == key_str {
-                v.rc_dec();
-                val.rc_inc();
-                *v = val;
-                return;
-            }
-        }
-        // Insert new entry
         val.rc_inc();
-        (*m).data.push((key_str, val));
+        if let Some(old) = (*m).data.insert(key_str, val) {
+            old.rc_dec();
+        }
     }
 }
 
@@ -89,12 +81,7 @@ pub extern "C" fn tok_map_has(m: *mut TokMap, key: *mut TokString) -> i8 {
     assert!(!key.is_null(), "tok_map_has: null key");
     unsafe {
         let key_str = &(*key).data;
-        for (k, _) in &(*m).data {
-            if k == key_str {
-                return 1;
-            }
-        }
-        0
+        if (*m).data.contains_key(key_str) { 1 } else { 0 }
     }
 }
 
@@ -108,7 +95,7 @@ pub extern "C" fn tok_map_del(m: *mut TokMap, key: *mut TokString) -> *mut TokMa
         for (k, v) in &(*m).data {
             if k != key_str {
                 v.rc_inc();
-                (*result).data.push((k.clone(), *v));
+                (*result).data.insert(k.clone(), *v);
             }
         }
         result
