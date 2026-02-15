@@ -1,0 +1,10 @@
+// Benchmark 01: Recursion — naive recursive Fibonacci
+// Measures function call overhead, stack frame creation, scope isolation
+
+f fib(n:i):i=n<2?n:fib(n-1)+fib(n-2)
+
+n=45
+t0=clock()
+r=fib(n)
+t1=clock()
+pl("[bench] recursion: fib({n}) = {r} in {t1-t0} ms")

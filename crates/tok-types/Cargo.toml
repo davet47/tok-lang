@@ -1,0 +1,10 @@
+[package]
+name = "tok-types"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tok-parser = { workspace = true }
+
+[dev-dependencies]
+tok-lexer = { workspace = true }

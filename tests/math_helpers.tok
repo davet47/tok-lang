@@ -1,0 +1,7 @@
+// Helper module for Phase 7 import tests
+f add(a b)=a+b
+f mul(a b)=a*b
+f square(x)=mul(x x)
+pi=3.14159
+_secret=42
+_internal_cache={}

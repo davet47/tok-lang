@@ -1,0 +1,11 @@
+[package]
+name = "tok-hir"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tok-parser = { workspace = true }
+tok-types = { workspace = true }
+
+[dev-dependencies]
+tok-lexer = { workspace = true }

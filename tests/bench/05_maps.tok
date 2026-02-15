@@ -1,0 +1,28 @@
+// Benchmark 05: Maps — build, lookup, membership
+// Measures map insertion (Vec-based upsert), linear scan lookup, has()
+
+// Part A: Build map
+n_build=500000
+t0=clock()
+m={}
+~(i:0..n_build){m["k"+str(i)]=i}
+t1=clock()
+pl("[bench] map_build: {n_build} entries in {t1-t0} ms")
+
+// Part B: Lookup every key
+t0=clock()
+total=0
+~(i:0..n_build){total+=m["k"+str(i)]}
+t1=clock()
+pl("[bench] map_lookup: {n_build} lookups in {t1-t0} ms (sum={total})")
+
+// Part C: has() membership
+n_has=1000000
+t0=clock()
+found=0
+~(i:0..n_has){
+  k="k"+str(i)
+  has(m k)?{found+=1}:N
+}
+t1=clock()
+pl("[bench] map_has: {n_has} checks in {t1-t0} ms (found={found})")

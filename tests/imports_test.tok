@@ -1,0 +1,251 @@
+// Phase 7: Imports & Modules — comprehensive tests
+
+// === Direct import (merge into scope) ===
+@"math_helpers.tok"
+pl(add(2 3))
+pl(mul(4 5))
+
+// === Imported function calling another from same module ===
+pl(square(6))
+
+// === Exported variable ===
+pl(pi)
+
+// === Private names not exported (should not overwrite scope) ===
+_secret=99
+@"math_helpers.tok"
+pl(_secret)
+
+// === Namespace import ===
+m=@"math_helpers.tok"
+pl(m.add(10 20))
+pl(m.mul(3 7))
+pl(m.square(5))
+pl(m.pi)
+
+// === Namespace doesn't include privates ===
+pl(has(m "_secret"))
+pl(has(m "_internal_cache"))
+
+// === Namespace map operations ===
+pl(#m)
+pl(type(m))
+
+// === Extension omitted (.tok auto-appended) ===
+m2=@"math_helpers"
+pl(m2.add(100 200))
+
+// === Module caching (same path loaded only once) ===
+m3=@"math_helpers.tok"
+pl(m3.mul(7 8))
+
+// === Module exporting various value types ===
+su=@"_string_utils.tok"
+pl(su.greeting)
+pl(su.numbers)
+pl(su.config.debug)
+pl(su.config.version)
+pl(su.shout("wow"))
+pl(su.repeat("ab" 3))
+
+// === Transitive imports (module that imports another module) ===
+@"_uses_math.tok"
+pl(add3(1 2 3))
+pl(cube(3))
+
+// === Namespace import of transitive module ===
+um=@"_uses_math.tok"
+pl(um.add3(10 20 30))
+pl(um.cube(2))
+
+// === Import inside a function body ===
+f load_and_add(a b){
+  math=@"math_helpers.tok"
+  ^math.add(a b)
+}
+pl(load_and_add(42 58))
+
+// === Using import result directly in expression ===
+pl((@"math_helpers.tok").add(7 8))
+
+// === Keys of namespace import (sorted) ===
+k=keys(m)
+pl(k)
+
+// === Destructured import — cherry-pick exports ===
+{add square pi}=@"math_helpers.tok"
+pl(add(100 200))
+// expect: 300
+pl(square(9))
+// expect: 81
+pl(pi)
+// expect: 3.14159
+
+// === Destructured import — subset of exports ===
+{mul}=@"math_helpers.tok"
+pl(mul(6 7))
+// expect: 42
+
+// === Destructured import — missing key gives Nil ===
+{add nonexistent}=@"math_helpers.tok"
+pl(nonexistent)
+// expect: N
+
+// === Map destructuring (non-import) ===
+point={x:10 y:20 z:30}
+{x y}=point
+pl(x)
+// expect: 10
+pl(y)
+// expect: 20
+
+// === Map destructure — all keys ===
+{x y z}=point
+pl(x + y + z)
+// expect: 60
+
+// === Map destructure with string values ===
+config={host:"localhost" port:8080}
+{host port}=config
+pl(host)
+// expect: localhost
+pl(port)
+// expect: 8080
+
+// === Single key from map ===
+{z}=point
+pl(z)
+// expect: 30
+
+// === Destructured functions are callable ===
+m4=@"math_helpers.tok"
+{add}=m4
+pl(add(1 1))
+// expect: 2
+
+// === Destructured import without .tok extension ===
+{mul pi}=@"math_helpers"
+pl(mul(3 3))
+// expect: 9
+pl(pi)
+// expect: 3.14159
+
+// === Destructure various value types ===
+mixed={n:42 s:"hello" b:T fl:3.14 a:[1 2] inner:{x:1}}
+{n s b fl a inner}=mixed
+pl(n)
+// expect: 42
+pl(s)
+// expect: hello
+pl(b)
+// expect: T
+pl(fl)
+// expect: 3.14
+pl(a)
+// expect: [1 2]
+pl(inner)
+// expect: {x:1}
+
+// === Destructured nested map access ===
+pl(inner.x)
+// expect: 1
+
+// === Destructure overwrites existing variables ===
+old_val=999
+{old_val}={old_val:1}
+pl(old_val)
+// expect: 1
+
+// === Destructure does NOT pollute scope with unrequested keys ===
+_check_scope=T
+{a}={a:1 b:2 c:3}
+pl(a)
+// expect: 1
+pl(_check_scope)
+// expect: T
+
+// === Destructure RHS is an expression (function call returning map) ===
+f make_point(x y)={x:x y:y}
+{x y}=make_point(5 10)
+pl(x)
+// expect: 5
+pl(y)
+// expect: 10
+
+// === Destructure inside a function body ===
+f extract_name(person){
+  {name}=person
+  name
+}
+pl(extract_name({name:"Alice" age:30}))
+// expect: Alice
+
+// === Destructure inside a loop ===
+people=[{name:"A" age:1} {name:"B" age:2} {name:"C" age:3}]
+~(p:people){
+  {name age}=p
+  pl("{name}:{age}")
+}
+// expect: A:1
+// expect: B:2
+// expect: C:3
+
+// === Destructure with pipe result ===
+f to_map(x)={val:x doubled:x*2}
+{val doubled}=10|>to_map
+pl(val)
+// expect: 10
+pl(doubled)
+// expect: 20
+
+// === All missing keys give Nil ===
+{nope1 nope2 nope3}={other:1}
+pl(nope1)
+// expect: N
+pl(nope2)
+// expect: N
+pl(nope3)
+// expect: N
+
+// === Empty map — all keys Nil ===
+{e1 e2}={}
+pl(e1)
+// expect: N
+pl(e2)
+// expect: N
+
+// === Map literal still works (not confused with destructure) ===
+normal_map={a:1 b:2}
+pl(normal_map.a)
+// expect: 1
+pl(normal_map.b)
+// expect: 2
+
+// === Empty map literal still works ===
+empty={}
+pl(type(empty))
+// expect: map
+pl(#empty)
+// expect: 0
+
+// === Destructure with lambda values ===
+fns={inc:\(x)=x+1 dec:\(x)=x-1}
+{inc dec}=fns
+pl(inc(5))
+// expect: 6
+pl(dec(5))
+// expect: 4
+
+// === Previous phases still work ===
+f fib(n)=n<2?n:fib(n-1)+fib(n-2)
+pl(fib(10))
+
+f qsort(a){
+  #a<=1?^a
+  p=a[#a/2]
+  lo=a?>\(x)=x<p
+  eq=a?>\(x)=x==p
+  hi=a?>\(x)=x>p
+  [..qsort(lo) ..eq ..qsort(hi)]
+}
+pl(qsort([3 6 8 10 1 2 1]))

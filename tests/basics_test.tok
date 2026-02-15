@@ -1,0 +1,10 @@
+// Phase 1 tests
+p("no newline ")
+p("here")
+pl("")
+pl("Hello, Tok!")
+pl(42)
+pl(3.14)
+pl(T)
+pl(F)
+pl(N)

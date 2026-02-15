@@ -1,0 +1,526 @@
+// Phase 8: Error Handling — comprehensive tests
+
+// ============================================================
+// SECTION 1: Tuple Basics
+// ============================================================
+
+// === Tuple creation and display ===
+t=(1 "hello" T)
+pl(t)
+// expect: (1 hello T)
+pl(type(t))
+// expect: tuple
+pl(#t)
+// expect: 3
+
+// === Single-value parens are GROUPING, not tuple ===
+g=(42)
+pl(g)
+// expect: 42
+pl(type(g))
+// expect: int
+
+// === Tuple with computed expressions ===
+tc=(1+2 3*4 "ab"+"cd")
+pl(tc)
+// expect: (3 12 abcd)
+
+// === Tuple with nil elements ===
+tn=(N N)
+pl(tn)
+// expect: (N N)
+pl(#tn)
+// expect: 2
+
+// === Tuple truthiness — always truthy ===
+pl((0 0)?T:F)
+// expect: T
+pl((N N)?T:F)
+// expect: T
+pl((F F)?T:F)
+// expect: T
+
+// === 2-element tuple ===
+t2a=(10 20)
+pl(t2a)
+// expect: (10 20)
+
+// ============================================================
+// SECTION 2: Tuple Indexing
+// ============================================================
+
+// === Dot notation ===
+t2=(10 20 30)
+pl(t2.0)
+// expect: 10
+pl(t2.1)
+// expect: 20
+pl(t2.2)
+// expect: 30
+
+// === Bracket notation ===
+pl(t2[0])
+// expect: 10
+pl(t2[2])
+// expect: 30
+
+// === Negative indexing ===
+pl(t2[-1])
+// expect: 30
+pl(t2[-2])
+// expect: 20
+pl(t2[-3])
+// expect: 10
+
+// === Tuple length via # ===
+pl(#t2)
+// expect: 3
+pl(#(1 2 3 4 5))
+// expect: 5
+
+// === Tuple .length / .len member ===
+pl(t2.len)
+// expect: 3
+pl(t2.length)
+// expect: 3
+
+// ============================================================
+// SECTION 3: Tuple Destructuring
+// ============================================================
+
+// === 2-element destructuring ===
+a b=(1 2)
+pl(a)
+// expect: 1
+pl(b)
+// expect: 2
+
+// === 3-element destructuring ===
+x y z=(100 200 300)
+pl(x)
+// expect: 100
+pl(y)
+// expect: 200
+pl(z)
+// expect: 300
+
+// === Discard with _ ===
+_ e=("value" N)
+pl(e)
+// expect: N
+
+// === Destructuring from function return ===
+f pair(a b)=(a b)
+p1 p2=pair(7 8)
+pl(p1)
+// expect: 7
+pl(p2)
+// expect: 8
+
+// === Destructuring with _ in middle position (4-element) ===
+w1 _ _ w4=(10 20 30 40)
+pl(w1)
+// expect: 10
+pl(w4)
+// expect: 40
+
+// ============================================================
+// SECTION 4: Result Tuples
+// ============================================================
+
+f div(a b){
+  b==0?^(N "division by zero")
+  (a/b N)
+}
+
+// === Success case ===
+r=div(10 2)
+pl(r)
+// expect: (5 N)
+pl(r.0)
+// expect: 5
+pl(r.1)
+// expect: N
+
+// === Failure case ===
+r2=div(10 0)
+pl(r2)
+// expect: (N division by zero)
+pl(r2.0)
+// expect: N
+pl(r2.1)
+// expect: division by zero
+
+// === Destructure result tuple ===
+v e=div(10 2)
+pl(v)
+// expect: 5
+pl(e)
+// expect: N
+
+v2 e2=div(10 0)
+pl(v2)
+// expect: N
+pl(e2)
+// expect: division by zero
+
+// ============================================================
+// SECTION 5: Error Propagation ?^
+// ============================================================
+
+// === ?^ success path (value extracted) ===
+f calc(){
+  a=div(10 2)?^
+  b=div(a 1)?^
+  a+b
+}
+pl(calc())
+// expect: 10
+
+// === ?^ error path (propagates entire tuple) ===
+f calc_fail(){
+  a=div(10 0)?^
+  a+1
+}
+pl(calc_fail())
+// expect: (N division by zero)
+
+// === Chained ?^ propagation through nested functions ===
+f inner(){
+  x=div(10 0)?^
+  x
+}
+f outer(){
+  y=inner()?^
+  y+1
+}
+pl(outer())
+// expect: (N division by zero)
+
+// === Multiple ?^ in one function — first fails ===
+f multi_prop1(){
+  a=div(10 0)?^
+  b=div(10 2)?^
+  a+b
+}
+pl(multi_prop1())
+// expect: (N division by zero)
+
+// === Multiple ?^ in one function — second fails ===
+f multi_prop2(){
+  a=div(10 2)?^
+  b=div(a 0)?^
+  a+b
+}
+pl(multi_prop2())
+// expect: (N division by zero)
+
+// === Multiple ?^ in one function — all succeed ===
+f multi_prop3(){
+  a=div(10 2)?^
+  b=div(20 4)?^
+  a+b
+}
+pl(multi_prop3())
+// expect: 10
+
+// === ?^ with block body ===
+f block_prop(){
+  r=div(10 2)?^
+  result=r*10
+  result
+}
+pl(block_prop())
+// expect: 50
+
+// ============================================================
+// SECTION 6: Conditional Return ?^ (cond?^expr)
+// ============================================================
+
+// === cond?^expr still works (not confused with error prop) ===
+f abs_val(n){
+  n<0?^-n
+  n
+}
+pl(abs_val(-5))
+// expect: 5
+pl(abs_val(3))
+// expect: 3
+
+// === cond?^expr with comparison ===
+f first_positive(a b){
+  a>0?^a
+  b>0?^b
+  0
+}
+pl(first_positive(0 5))
+// expect: 5
+pl(first_positive(3 5))
+// expect: 3
+neg1=0-1
+neg2=0-2
+pl(first_positive(neg1 neg2))
+// expect: 0
+
+// ============================================================
+// SECTION 7: Nil Coalescing ??
+// ============================================================
+
+// === Nil on left → uses right ===
+x=N
+pl(x??42)
+// expect: 42
+
+// === Non-nil on left → keeps left ===
+y=5
+pl(y??42)
+// expect: 5
+
+// === Chained ?? (right-associative) ===
+pl(N??N??99)
+// expect: 99
+
+// === ?? with non-nil falsy values — 0 is NOT nil ===
+pl(0??42)
+// expect: 0
+
+// === ?? with F (false is NOT nil) ===
+pl(F??42)
+// expect: F
+
+// === ?? with empty string (NOT nil) ===
+pl(""??42)
+// expect: (empty string, nothing printed then 42 on next line)
+
+// === ?? in assignment ===
+f maybe_val(flag){
+  flag?5:N
+}
+result=maybe_val(F)??99
+pl(result)
+// expect: 99
+result2=maybe_val(T)??99
+pl(result2)
+// expect: 5
+
+// === ?? with string values ===
+name=N
+pl(name??"anonymous")
+// expect: anonymous
+
+// === Error recovery pattern from spec ===
+v3 e3=div(10 0)
+v3=v3??0
+pl(v3)
+// expect: 0
+
+// ============================================================
+// SECTION 8: Optional Chaining .?
+// ============================================================
+
+// === .? on nil → Nil ===
+n=N
+pl(n.?name)
+// expect: N
+
+// === .? on map — existing field ===
+m={name:"tok" version:1}
+pl(m.?name)
+// expect: tok
+
+// === .? on map — missing field ===
+pl(m.?missing)
+// expect: N
+
+// === Chained .? on nested maps ===
+a={b:{c:42}}
+pl(a.?b.?c)
+// expect: 42
+
+// === .? with nil intermediate ===
+a2={b:N}
+pl(a2.?b.?c)
+// expect: N
+
+// === .? on completely nil chain ===
+nn=N
+pl(nn.?x.?y.?z)
+// expect: N
+
+// === .? combined with ?? ===
+cfg={timeout:N}
+pl(cfg.?timeout??30)
+// expect: 30
+cfg2={timeout:5}
+pl(cfg2.?timeout??30)
+// expect: 5
+pl(N.?timeout??30)
+// expect: 30
+
+// ============================================================
+// SECTION 9: Tuple Equality and Comparison
+// ============================================================
+
+// === Equal tuples ===
+pl((1 2)==(1 2))
+// expect: T
+pl((1 "a")==(1 "a"))
+// expect: T
+
+// === Unequal tuples ===
+pl((1 2)==(1 3))
+// expect: F
+pl((1 2)==(1 2 3))
+// expect: F
+
+// === Nested tuple equality ===
+pl(((1 2) 3)==((1 2) 3))
+// expect: T
+pl(((1 2) 3)==((1 9) 3))
+// expect: F
+
+// ============================================================
+// SECTION 10: Tuples in Collections
+// ============================================================
+
+// === Tuple in array ===
+arr=[(1 N) (2 N) (N "err")]
+pl(arr[0])
+// expect: (1 N)
+pl(arr[2].1)
+// expect: err
+pl(#arr)
+// expect: 3
+
+// === Nested tuples + chained dot access ===
+t3=((1 2) (3 4))
+pl(t3.0)
+// expect: (1 2)
+pl(t3.1.1)
+// expect: 4
+pl(t3.0.0)
+// expect: 1
+
+// === Tuple as map value ===
+m2={result:(5 N) status:"ok"}
+pl(m2.result)
+// expect: (5 N)
+pl(m2.result.0)
+// expect: 5
+
+// ============================================================
+// SECTION 11: Tuples with Functions
+// ============================================================
+
+// === Tuple as function return ===
+f make_pair(a b)=(a b)
+pl(make_pair(1 2))
+// expect: (1 2)
+
+// === Tuple as function argument ===
+f sum_pair(p)=p.0+p.1
+pl(sum_pair((3 4)))
+// expect: 7
+
+// === Tuple in loop ===
+pairs=[(1 2) (3 4) (5 6)]
+total=0
+~(p:pairs){
+  total+=p.0+p.1
+}
+pl(total)
+// expect: 21
+
+// === Tuple in filter ===
+results=[(1 N) (N "err") (3 N) (N "fail")]
+successes=results?>\(r)=r.1==N
+pl(#successes)
+// expect: 2
+
+// === Tuple in reduce ===
+nums=[(10 1) (20 2) (30 3)]
+s=nums/>0 \(acc t)=acc+t.0
+pl(s)
+// expect: 60
+
+// ============================================================
+// SECTION 12: String Interpolation with Tuples
+// ============================================================
+
+tp=(1 2)
+pl("tuple: {tp}")
+// expect: tuple: (1 2)
+pl("first: {tp.0} second: {tp.1}")
+// expect: first: 1 second: 2
+
+// ============================================================
+// SECTION 13: Tuple in Pipe
+// ============================================================
+
+f double_first(t)=(t.0*2 t.1)
+r=(5 "ok")|>double_first
+pl(r)
+// expect: (10 ok)
+
+// ============================================================
+// SECTION 14: Edge Cases
+// ============================================================
+
+// === len() builtin on tuple ===
+pl(len((1 2 3)))
+// expect: 3
+
+// === type() on tuple elements ===
+mixed=(42 "hi" T N)
+pl(type(mixed.0))
+// expect: int
+pl(type(mixed.1))
+// expect: str
+pl(type(mixed.2))
+// expect: bool
+pl(type(mixed.3))
+// expect: nil
+
+// === Tuple index via variable ===
+ti=(10 20 30)
+i=1
+pl(ti[i])
+// expect: 20
+
+// === ?^ inside expression-bodied function ===
+f safe_div(a b)=div(a b)?^
+// Note: this would propagate out of safe_div if error
+pl(safe_div(10 2))
+// expect: 5
+
+// === Nested error propagation in expression body ===
+f safe_add(a b c d){
+  x=div(a b)?^
+  y=div(c d)?^
+  x+y
+}
+pl(safe_add(10 2 20 4))
+// expect: 10
+pl(safe_add(10 0 20 4))
+// expect: (N division by zero)
+pl(safe_add(10 2 20 0))
+// expect: (N division by zero)
+
+// ============================================================
+// SECTION 15: Regression — all previous phases
+// ============================================================
+
+f fib(n)=n<2?n:fib(n-1)+fib(n-2)
+pl(fib(10))
+// expect: 55
+
+f qsort(a){
+  #a<=1?^a
+  p=a[#a/2]
+  lo=a?>\(x)=x<p
+  eq=a?>\(x)=x==p
+  hi=a?>\(x)=x>p
+  [..qsort(lo) ..eq ..qsort(hi)]
+}
+pl(qsort([3 6 8 10 1 2 1]))
+// expect: [1 1 2 3 6 8 10]

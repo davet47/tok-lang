@@ -1,0 +1,30 @@
+// Benchmark 04: Strings — concatenation, interpolation, split/join
+// Measures string allocation, interpolation overhead, builtin string ops
+
+// Part A: Concatenation
+n_concat=20000000
+t0=clock()
+s=""
+~(i:0..n_concat){s=s+"a"}
+t1=clock()
+pl("[bench] string_concat: {n_concat} iterations in {t1-t0} ms (len={#s})")
+
+// Part B: Interpolation
+n_interp=20000000
+t0=clock()
+last=""
+~(i:0..n_interp){last="{i}"}
+t1=clock()
+pl("[bench] string_interp: {n_interp} iterations in {t1-t0} ms (last={last})")
+
+// Part C: Split + Join
+base="the quick brown fox jumps over the lazy dog"
+n_split=1000000
+s3=""
+t0=clock()
+~(i:0..n_split){
+  parts=split(base " ")
+  s3=join(parts "-")
+}
+t1=clock()
+pl("[bench] string_split_join: {n_split} iterations in {t1-t0} ms (result={s3})")

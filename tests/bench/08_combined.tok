@@ -1,0 +1,78 @@
+// Benchmark 08: Combined — realistic data processing pipeline
+// Exercises: loops, arrays, maps, closures, pipes, filter, reduce, pattern matching, strings
+
+// Helper: generate a pseudo-random number (simple LCG)
+f lcg(seed)=(seed*1103515245+12345)%2147483648
+
+// Build dataset of records: {name score category}
+n_records=500000
+t_build0=clock()
+records=[]
+seed=42
+~(i:0..n_records){
+  seed=lcg(seed)
+  score=seed%100
+  cat=score%4
+  category=cat?={0:"alpha"; 1:"beta"; 2:"gamma"; _:"delta"}
+  records=push(records {name:"item"+str(i) score:score category:category})
+}
+t_build1=clock()
+build_ms=t_build1-t_build0
+
+// Filter: keep records with score >= 50
+t_filt0=clock()
+high_scores=records?>\(r)=r.score>=50
+t_filt1=clock()
+filt_ms=t_filt1-t_filt0
+
+// Transform: double scores using pipe + lambda
+t_trans0=clock()
+transformed=[]
+~(r:high_scores){
+  new_score=r.score*2
+  transformed=push(transformed {name:r.name score:new_score category:r.category})
+}
+t_trans1=clock()
+trans_ms=t_trans1-t_trans0
+
+// Group by category using reduce
+t_group0=clock()
+groups={}
+~(r:transformed){
+  key=r.category
+  has(groups key)?{
+    existing=groups[key]
+    groups[key]=push(existing r.score)
+  }:{
+    groups[key]=[r.score]
+  }
+}
+t_group1=clock()
+group_ms=t_group1-t_group0
+
+// Sort each group and compute stats
+t_sort0=clock()
+stats={}
+~(k:keys(groups)){
+  scores=sort(groups[k])
+  avg=sum(scores)/#scores
+  stats[k]={count:#scores avg:avg min:scores[0] max:scores[#scores-1]}
+}
+t_sort1=clock()
+sort_ms=t_sort1-t_sort0
+
+// Format output using string interpolation
+t_fmt0=clock()
+output=""
+~(k:keys(stats)){
+  s=stats[k]
+  output=output+"{k}: count={s.count} avg={s.avg} min={s.min} max={s.max}\n"
+}
+t_fmt1=clock()
+fmt_ms=t_fmt1-t_fmt0
+
+total_ms=build_ms+filt_ms+trans_ms+group_ms+sort_ms+fmt_ms
+pl("[bench] combined: {n_records} records processed in {total_ms} ms")
+pl("[bench] combined_detail: build={build_ms}ms filter={filt_ms}ms transform={trans_ms}ms group={group_ms}ms sort={sort_ms}ms format={fmt_ms}ms")
+pl("[bench] combined_counts: total={#records} filtered={#high_scores} groups={#keys(stats)}")
+p(output)

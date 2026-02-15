@@ -1,0 +1,57 @@
+// Phase 5 comprehensive tests
+
+// --- String Interpolation ---
+name="Tok"
+pl("Hello, {name}!")
+age=3
+pl("{name} is {age} years old")
+pl("2+2={2+2}")
+pl("nested: {name} has {#name} chars")
+
+// --- Index Assignment ---
+a=[1 2 3 4 5]
+pl(a)
+a[1]=99
+pl(a)
+a[-1]=0
+pl(a)
+a[0]=a[0]+100
+pl(a)
+
+// --- Pipe Operator ---
+pl(5|>\(x)=x*2)
+pl([1 2 3]|>\(x)=#x)
+f double(x)=x*2
+f add1(x)=x+1
+pl(5|>double)
+pl(5|>double|>add1)
+
+// --- Reduce ---
+sum=[1 2 3 4 5]/>\(a x)=a+x
+pl(sum)
+product=[1 2 3 4 5]/>\(a x)=a*x
+pl(product)
+
+// --- Reduce with init ---
+sum2=[1 2 3]/>0 \(a x)=a+x
+pl(sum2)
+sum3=[1 2 3]/>10 \(a x)=a+x
+pl(sum3)
+
+// --- Pipe + Reduce combo ---
+result=[1 2 3 4 5]?>(\(x)=x%2==0)/>\(a x)=a+x
+pl(result)
+
+// --- Previous phases still work ---
+f fib(n)=n<2?n:fib(n-1)+fib(n-2)
+pl(fib(10))
+
+f qsort(a){
+  #a<=1?^a
+  p=a[#a/2]
+  lo=a?>\(x)=x<p
+  eq=a?>\(x)=x==p
+  hi=a?>\(x)=x>p
+  [..qsort(lo) ..eq ..qsort(hi)]
+}
+pl(qsort([3 6 8 10 1 2 1]))

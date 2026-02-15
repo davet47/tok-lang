@@ -1,0 +1,17 @@
+# Map basics
+m={name:"Alice" age:30}
+pl(m)
+pl(m.name)
+pl(m.age)
+pl(#m)
+
+# Map bracket access
+pl(m["name"])
+
+# Keys and vals
+pl(keys(m))
+pl(vals(m))
+
+# Has
+pl(has(m "name"))
+pl(has(m "foo"))

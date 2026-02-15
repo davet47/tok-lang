@@ -1,0 +1,12 @@
+// String utility module — tests that modules can export various types
+greeting="hello"
+numbers=[1 2 3]
+config={debug:T version:"1.0"}
+f shout(s)=s+" !"
+f repeat(s n){
+  result=""
+  ~(i:0..n){
+    result=result+s
+  }
+  ^result
+}

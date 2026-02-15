@@ -1,0 +1,30 @@
+# Variables and arithmetic
+x=10
+y=20
+pl(x+y)
+pl(x*y)
+pl(x-y)
+
+# Function definition and call
+f add(a:i b:i):i=a+b
+pl(add(3 4))
+
+# Recursion
+f fib(n:i):i=n<2?n:fib(n-1)+fib(n-2)
+pl(fib(10))
+
+# Boolean
+pl(T)
+pl(F)
+pl(1==1)
+pl(1<2)
+
+# String operations
+s="Hello"
+pl(s)
+
+# Conditional (ternary)
+pl(10>5?"yes":"no")
+
+# Loop
+~(i:1..6){pl(i)}

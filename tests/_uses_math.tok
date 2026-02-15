@@ -1,0 +1,4 @@
+// Module that imports another module (transitive import test)
+@"math_helpers.tok"
+f add3(a b c)=add(add(a b) c)
+f cube(x)=mul(square(x) x)

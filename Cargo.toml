@@ -1,0 +1,19 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/tok-lexer",
+    "crates/tok-parser",
+    "crates/tok-types",
+    "crates/tok-hir",
+    "crates/tok-codegen",
+    "crates/tok-runtime",
+    "crates/tok-driver",
+]
+
+[workspace.dependencies]
+tok-lexer = { path = "crates/tok-lexer" }
+tok-parser = { path = "crates/tok-parser" }
+tok-types = { path = "crates/tok-types" }
+tok-hir = { path = "crates/tok-hir" }
+tok-codegen = { path = "crates/tok-codegen" }
+tok-runtime = { path = "crates/tok-runtime" }

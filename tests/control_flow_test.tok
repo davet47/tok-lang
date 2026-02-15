@@ -1,0 +1,63 @@
+// Phase 2 comprehensive tests
+
+// --- Arithmetic ---
+pl(2+3)
+pl(10-4)
+pl(3*7)
+pl(10/3)
+pl(10%3)
+
+// --- Comparison ---
+pl(5>3)
+pl(5<3)
+pl(5==5)
+pl(5!=3)
+
+// --- Unary ---
+pl(-42)
+pl(!T)
+pl(!F)
+
+// --- Ternary ---
+pl(T?"yes":"no")
+pl(F?"yes":"no")
+pl(5>3?"bigger":"smaller")
+
+// --- Variables ---
+x=10
+y=20
+pl(x+y)
+
+// --- Functions ---
+f add(a b)=a+b
+pl(add(3 4))
+
+f max(a b)=a>b?a:b
+pl(max(10 20))
+pl(max(99 1))
+
+// --- Block body function ---
+f abs(x){
+  x<0?-x:x
+}
+pl(abs(-5))
+pl(abs(5))
+
+// --- Nested ternary ---
+f classify(x)=x>0?"pos":x<0?"neg":"zero"
+pl(classify(5))
+pl(classify(-3))
+pl(classify(0))
+
+// --- Recursion ---
+f fib(n)=n<2?n:fib(n-1)+fib(n-2)
+pl(fib(10))
+
+// --- String concat ---
+pl("hello "+"world")
+
+// --- Logical operators ---
+pl(T&T)
+pl(T&F)
+pl(F|T)
+pl(F|F)

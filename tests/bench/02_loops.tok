@@ -1,0 +1,26 @@
+// Benchmark 02: Loops — iteration overhead
+// Measures range loop, arithmetic body, while loop
+
+// Part A: Counting loop
+n_count=5000000000
+t0=clock()
+x=0
+~(i:0..n_count){x+=1}
+t1=clock()
+pl("[bench] loops_count: {n_count} iterations in {t1-t0} ms (result={x})")
+
+// Part B: Arithmetic body
+n_arith=1000000000
+t0=clock()
+s=0
+~(i:0..n_arith){s+=i*i%7}
+t1=clock()
+pl("[bench] loops_arith: {n_arith} iterations in {t1-t0} ms (result={s})")
+
+// Part C: While loop
+n_while=500000000
+t0=clock()
+n=n_while
+~(n>0){n-=1}
+t1=clock()
+pl("[bench] loops_while: {n_while} iterations in {t1-t0} ms (result={n})")

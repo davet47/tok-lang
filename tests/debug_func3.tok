@@ -1,0 +1,6 @@
+f add(a:i b:i):i{
+  pl(a)
+  pl(b)
+  ^a+b
+}
+pl(add(3 4))

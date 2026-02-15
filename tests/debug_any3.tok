@@ -1,0 +1,5 @@
+f abs(x:a):a{
+  x<0?-x:x
+}
+pl(abs(5))
+pl(abs(-5))

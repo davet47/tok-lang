@@ -1,0 +1,24 @@
+// Benchmark 03: Arrays — build, sort, filter, reduce
+// Measures array allocation, sorting, functional operations
+
+// Part A: Build array via push
+n_build=2000000
+t0=clock()
+a=[]
+~(i:0..n_build){a=push(a i)}
+t1=clock()
+pl("[bench] array_build: {n_build} elements in {t1-t0} ms")
+
+// Part B: Sort (reversed array = worst case for many sorts)
+b=rev(a)
+t0=clock()
+c=sort(b)
+t1=clock()
+pl("[bench] array_sort: {#b} elements in {t1-t0} ms (first={c[0]} last={c[#c-1]})")
+
+// Part C: Filter + Reduce
+t0=clock()
+evens=a?>\(x)=x%2==0
+total=evens/>0 \(acc x)=acc+x
+t1=clock()
+pl("[bench] array_filter_reduce: {#a} elements in {t1-t0} ms (result={total})")

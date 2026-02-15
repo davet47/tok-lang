@@ -1,0 +1,15 @@
+[package]
+name = "tok-driver"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "tok"
+path = "src/main.rs"
+
+[dependencies]
+tok-lexer = { workspace = true }
+tok-parser = { workspace = true }
+tok-types = { workspace = true }
+tok-hir = { workspace = true }
+tok-codegen = { workspace = true }

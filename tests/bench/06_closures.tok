@@ -1,0 +1,31 @@
+// Benchmark 06: Closures — lambda invoke, closure capture, higher-order functions
+// Measures lambda call overhead, scope chain lookup, function-as-argument
+
+// Part A: Lambda invocation
+double=\(x)=x*2
+n_invoke=200000000
+t0=clock()
+x=0
+~(i:0..n_invoke){x=double(i)}
+t1=clock()
+pl("[bench] closure_invoke: {n_invoke} calls in {t1-t0} ms (result={x})")
+
+// Part B: Closure capture
+offset=42
+adder=\(x)=x+offset
+n_capture=200000000
+t0=clock()
+x=0
+~(i:0..n_capture){x=adder(i)}
+t1=clock()
+pl("[bench] closure_capture: {n_capture} calls in {t1-t0} ms (result={x})")
+
+// Part C: Higher-order function
+f apply(fn x)=fn(x)
+inc=\(x)=x+1
+n_hof=100000000
+t0=clock()
+x=0
+~(i:0..n_hof){x=apply(inc i)}
+t1=clock()
+pl("[bench] closure_hof: {n_hof} calls in {t1-t0} ms (result={x})")

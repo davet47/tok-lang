@@ -1,0 +1,3 @@
+f add(a:i b:i):i=a+b
+x=add(3 4)
+pl(x)

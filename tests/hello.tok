@@ -1,0 +1,3 @@
+pl("Hello World")
+pl(1+2)
+pl(3*4+5)

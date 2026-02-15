@@ -1,0 +1,22 @@
+# String basics
+s="hello"
+pl(s)
+pl(#s)
+
+# String concatenation
+a="foo"
+b="bar"
+pl(a+b)
+
+# If/else (ternary with blocks)
+x=10
+x>5?{pl("big")}:{pl("small")}
+x>20?{pl("huge")}:{pl("not huge")}
+
+# Multi-statement function
+f fact(n:i):i{
+  n<=1?^1
+  ^n*fact(n-1)
+}
+pl(fact(5))
+pl(fact(10))

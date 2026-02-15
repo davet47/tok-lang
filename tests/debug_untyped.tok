@@ -1,0 +1,7 @@
+f abs(x){
+  x<0?-x:x
+}
+pl(abs(-5))
+
+f fib(n)=n<2?n:fib(n-1)+fib(n-2)
+pl(fib(10))

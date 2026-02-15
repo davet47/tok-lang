@@ -1,0 +1,52 @@
+// Benchmark 07: Concurrency — goroutines, channels, pmap
+// Measures thread spawn/join, channel throughput, parallel speedup
+
+f fib(n)=n<2?n:fib(n-1)+fib(n-2)
+
+// Part A: Parallel goroutines (8x fib(27))
+t0=clock()
+h1=go{fib(27)}
+h2=go{fib(27)}
+h3=go{fib(27)}
+h4=go{fib(27)}
+h5=go{fib(27)}
+h6=go{fib(27)}
+h7=go{fib(27)}
+h8=go{fib(27)}
+r=<-h1+<-h2+<-h3+<-h4+<-h5+<-h6+<-h7+<-h8
+t1=clock()
+par_ms=t1-t0
+pl("[bench] concurrency_parallel: 8 goroutines fib(27) in {par_ms} ms (result={r})")
+
+// Part B: Channel throughput
+n_msgs=10000000
+ch=chan(100)
+t0=clock()
+go{
+  ~(i:0..n_msgs){ch<-i}
+}
+total=0
+~(i:0..n_msgs){total+=<-ch}
+t1=clock()
+pl("[bench] concurrency_channel: {n_msgs} messages in {t1-t0} ms (sum={total})")
+
+// Part C: pmap
+t0=clock()
+inputs=[27 27 27 27 27 27 27 27]
+results=pmap(inputs fib)
+t1=clock()
+pmap_ms=t1-t0
+r2=results/>0 \(a x)=a+x
+pl("[bench] concurrency_pmap: 8 elements in {pmap_ms} ms (result={r2})")
+
+// Part D: Sequential comparison
+t0=clock()
+total2=0
+~(i:0..8){total2+=fib(27)}
+t1=clock()
+seq_ms=t1-t0
+pl("[bench] concurrency_sequential: 8 calls in {seq_ms} ms (result={total2})")
+
+// Speedup ratio
+speedup=seq_ms/par_ms
+pl("[bench] concurrency_speedup: {speedup}x (parallel vs sequential)")

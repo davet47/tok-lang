@@ -1,0 +1,64 @@
+// Phase 4 comprehensive tests
+
+// --- Array literal ---
+a=[1 2 3 4 5]
+pl(a)
+
+// --- Array indexing ---
+pl(a[0])
+pl(a[2])
+pl(a[4])
+
+// --- Length ---
+pl(#a)
+pl(#"hello")
+
+// --- Negative index ---
+pl(a[-1])
+
+// --- Lambda ---
+double=\(x)=x*2
+pl(double(5))
+
+// --- Filter ---
+evens=[1 2 3 4 5 6]?>\(x)=x%2==0
+pl(evens)
+
+// --- Spread ---
+x=[1 2 3]
+y=[4 5 6]
+z=[..x ..y]
+pl(z)
+
+// --- Spread with values ---
+w=[0 ..x 99]
+pl(w)
+
+// --- Foreach over array ---
+~(item:[10 20 30]){p(item)}
+pl("")
+
+// --- Early return (^) ---
+f first_positive(a){
+  ~(x:a){
+    x>0?^x
+  }
+  -1
+}
+pl(first_positive([-3 -1 0 5 2]))
+
+// --- Quicksort ---
+f qsort(a){
+  (#a)<=1?^a
+  p=a[(#a)/2]
+  lo=a?>\(x)=x<p
+  eq=a?>\(x)=x==p
+  hi=a?>\(x)=x>p
+  [..qsort(lo) ..eq ..qsort(hi)]
+}
+pl(qsort([3 6 8 10 1 2 1]))
+
+// --- Previous phases still work ---
+f fib(n)=n<2?n:fib(n-1)+fib(n-2)
+pl(fib(10))
+pl("Hello, Tok!")

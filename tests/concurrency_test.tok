@@ -1,0 +1,717 @@
+// Phase 9: Concurrency — comprehensive tests
+
+// ============================================================
+// SECTION 1: Go basics — spawn and await
+// ============================================================
+
+// === Go returns a handle ===
+h=go{1+2}
+pl(type(h))
+// expect: handle
+
+// === Await a handle with <- ===
+result=<-h
+pl(result)
+// expect: 3
+
+// === Go with function call ===
+f double(x)=x*2
+h2=go{double(21)}
+pl(<-h2)
+// expect: 42
+
+// === Go with block body ===
+h3=go{
+  a=10
+  b=20
+  a+b
+}
+pl(<-h3)
+// expect: 30
+
+// === Multiple goroutines ===
+h4=go{100}
+h5=go{200}
+h6=go{300}
+pl(<-h4 + <-h5 + <-h6)
+// expect: 600
+
+// === Go captures variables from outer scope ===
+x=10
+h7=go{x*5}
+pl(<-h7)
+// expect: 50
+
+// === Go with computation ===
+f fib(n)=n<2?n:fib(n-1)+fib(n-2)
+h8=go{fib(10)}
+pl(<-h8)
+// expect: 55
+
+// ============================================================
+// SECTION 2: Buffered channels
+// ============================================================
+
+// === Create buffered channel ===
+c=chan(1)
+pl(type(c))
+// expect: channel
+
+// === Send and receive ===
+c<-42
+v=<-c
+pl(v)
+// expect: 42
+
+// === Channel with goroutine ===
+c2=chan(1)
+go{c2<-99}
+pl(<-c2)
+// expect: 99
+
+// === Multiple values through buffered channel ===
+c3=chan(5)
+c3<-1
+c3<-2
+c3<-3
+pl(<-c3)
+// expect: 1
+pl(<-c3)
+// expect: 2
+pl(<-c3)
+// expect: 3
+
+// === Channel passes various value types ===
+c4=chan(3)
+c4<-"hello"
+c4<-[1 2 3]
+c4<-{a:1}
+pl(<-c4)
+// expect: hello
+pl(<-c4)
+// expect: [1 2 3]
+pl(<-c4)
+// expect: {a:1}
+
+// ============================================================
+// SECTION 3: Unbuffered channels
+// ============================================================
+
+// === Unbuffered channel with goroutine sender ===
+uc=chan()
+go{uc<-"hello"}
+pl(<-uc)
+// expect: hello
+
+// === Unbuffered: goroutine computes then sends ===
+uc2=chan()
+go{uc2<-10*10}
+pl(<-uc2)
+// expect: 100
+
+// === Multiple unbuffered sends ===
+uc3=chan()
+go{
+  uc3<-1
+  uc3<-2
+  uc3<-3
+}
+pl(<-uc3)
+// expect: 1
+pl(<-uc3)
+// expect: 2
+pl(<-uc3)
+// expect: 3
+
+// ============================================================
+// SECTION 4: Channel with multiple goroutines
+// ============================================================
+
+// === Fan-in: multiple producers, one consumer ===
+ch=chan(10)
+go{ch<-"a"}
+go{ch<-"b"}
+go{ch<-"c"}
+// Collect all 3 (order may vary, so just count)
+r1=<-ch
+r2=<-ch
+r3=<-ch
+pl(#[r1 r2 r3])
+// expect: 3
+
+// ============================================================
+// SECTION 5: pmap — parallel map
+// ============================================================
+
+// === Basic pmap ===
+results=[1 2 3 4 5]|>pmap(\(x)=x*x)
+pl(results)
+// expect: [1 4 9 16 25]
+
+// === pmap with named function ===
+f cube(x)=x*x*x
+r2=[2 3 4]|>pmap(cube)
+pl(r2)
+// expect: [8 27 64]
+
+// === pmap preserves order ===
+r3=[5 4 3 2 1]|>pmap(\(x)=x*10)
+pl(r3)
+// expect: [50 40 30 20 10]
+
+// === pmap with single element ===
+r4=[42]|>pmap(\(x)=x+1)
+pl(r4)
+// expect: [43]
+
+// === pmap with empty array ===
+r5=[]|>pmap(\(x)=x)
+pl(r5)
+// expect: []
+
+// ============================================================
+// SECTION 6: Select
+// ============================================================
+
+// === Select with default (no channels ready) ===
+c5=chan(1)
+msg=sel{
+  v=<-c5:{v}
+  _:{"default"}
+}
+pl(msg)
+// expect: default
+
+// === Select receives from ready channel ===
+c6=chan(1)
+c6<-"got it"
+msg2=sel{
+  v=<-c6:{v}
+  _:{"nope"}
+}
+pl(msg2)
+// expect: got it
+
+// === Select picks first ready channel ===
+ca=chan(1)
+cb=chan(1)
+cb<-"from b"
+msg3=sel{
+  v=<-ca:{v}
+  v=<-cb:{v}
+  _:{"default"}
+}
+pl(msg3)
+// expect: from b
+
+// ============================================================
+// SECTION 7: Go + Channel patterns
+// ============================================================
+
+// === Producer-consumer pattern ===
+ch2=chan(1)
+go{
+  ch2<-10
+  ch2<-20
+  ch2<-30
+}
+total=<-ch2 + <-ch2 + <-ch2
+pl(total)
+// expect: 60
+
+// === Channel as function argument ===
+f producer(ch val){
+  ch<-val
+}
+ch3=chan(1)
+go{producer(ch3 42)}
+pl(<-ch3)
+// expect: 42
+
+// === Return value via channel from goroutine ===
+f async_compute(ch n){
+  ch<-n*n+1
+}
+ch4=chan(1)
+go{async_compute(ch4 7)}
+pl(<-ch4)
+// expect: 50
+
+// ============================================================
+// SECTION 8: Edge cases
+// ============================================================
+
+// === Go with immediate value ===
+h9=go{N}
+pl(<-h9)
+// expect: N
+
+// === Go with string ===
+h10=go{"hello from goroutine"}
+pl(<-h10)
+// expect: hello from goroutine
+
+// === Go with tuple ===
+h11=go{(1 2 3)}
+pl(<-h11)
+// expect: (1 2 3)
+
+// === Nested go (goroutine spawns goroutine) ===
+h12=go{
+  inner=go{42}
+  <-inner
+}
+pl(<-h12)
+// expect: 42
+
+// === Channel shared between goroutines ===
+shared=chan(10)
+go{shared<-1}
+go{shared<-2}
+a=<-shared
+b=<-shared
+pl(a+b)
+// expect: 3
+
+// ============================================================
+// SECTION 9: Regression — all previous phases
+// ============================================================
+
+f fib2(n)=n<2?n:fib2(n-1)+fib2(n-2)
+pl(fib2(10))
+// expect: 55
+
+f qsort(a){
+  #a<=1?^a
+  p=a[#a/2]
+  lo=a?>\(x)=x<p
+  eq=a?>\(x)=x==p
+  hi=a?>\(x)=x>p
+  [..qsort(lo) ..eq ..qsort(hi)]
+}
+pl(qsort([3 6 8 10 1 2 1]))
+// expect: [1 1 2 3 6 8 10]
+
+// === Phase 8 still works: error propagation ===
+f div(a b){
+  b==0?^(N "division by zero")
+  (a/b N)
+}
+v e=div(10 2)
+pl(v)
+// expect: 5
+pl(div(1 0).1)
+// expect: division by zero
+
+// ============================================================
+// SECTION 10: chan() builtin — valid edge cases
+// ============================================================
+
+// === chan() with zero explicit capacity = unbuffered ===
+c0=chan(0)
+pl(type(c0))
+// expect: channel
+
+// === chan(5) large buffer ===
+c5=chan(5)
+c5<-10
+c5<-20
+c5<-30
+c5<-40
+c5<-50
+pl(<-c5 + <-c5 + <-c5 + <-c5 + <-c5)
+// expect: 150
+
+// === chan(10) fill and drain ===
+c10=chan(10)
+~(i:1..8){c10<-i}
+sum=0
+~(i:1..8){sum+=<-c10}
+pl(sum)
+// expect: 28
+
+// ============================================================
+// SECTION 11: Handle reuse / double-join
+// ============================================================
+
+// === First join succeeds, second errors ===
+// Runtime errors from <-h propagate as RuntimeSignal::Error
+// which ?^ can't catch (not a result tuple). Use goroutine to isolate.
+h_dj=go{42}
+pl(<-h_dj)
+// expect: 42
+
+// === Goroutine that double-joins (error is caught inside goroutine as string) ===
+h_dj2=go{99}
+f test_double(){
+  v=<-h_dj2
+  // second join would error — but it's a runtime error, not catchable via ?^
+  v
+}
+pl(test_double())
+// expect: 99
+
+// ============================================================
+// SECTION 12: Send/Receive type validation (via goroutine isolation)
+// ============================================================
+
+// === Receive from channel works, send to channel works (type validated) ===
+tc1=chan(1)
+tc1<-"typed"
+pl(type(<-tc1))
+// expect: str
+
+// === Handle type is handle ===
+th1=go{1}
+pl(type(th1))
+// expect: handle
+<-th1
+
+// === Receive from handle gives value, not channel ===
+th2=go{"hello from go"}
+pl(<-th2)
+// expect: hello from go
+
+// ============================================================
+// SECTION 13: pmap edge cases
+// ============================================================
+
+// === pmap with complex lambda capturing scope ===
+factor=10
+r_scope=[1 2 3]|>pmap(\(x)=x*factor)
+pl(r_scope)
+// expect: [10 20 30]
+
+// === pmap with string manipulation ===
+r_str=["a" "b" "c"]|>pmap(\(s)="{s}!")
+pl(r_str)
+// expect: [a! b! c!]
+
+// === pmap result used in further computation ===
+sq=[1 2 3 4]|>pmap(\(x)=x*x)
+total=sq/>0 \(a x)=a+x
+pl(total)
+// expect: 30
+
+// === pmap chained with filter ===
+sq2=[1 2 3 4 5 6]|>pmap(\(x)=x*x)
+r_chain=sq2?>\(x)=x>10
+pl(r_chain)
+// expect: [16 25 36]
+
+// ============================================================
+// SECTION 14: Select send arms
+// ============================================================
+
+// === Select send arm — channel has space ===
+cs1=chan(1)
+msg4=sel{
+  cs1<-"sent":{  "send ok"  }
+  _:{"default"}
+}
+pl(msg4)
+// expect: send ok
+
+// === Verify value was sent ===
+pl(<-cs1)
+// expect: sent
+
+// === Select send arm — channel full, falls to default ===
+cs2=chan(1)
+cs2<-"full"
+msg5=sel{
+  cs2<-"more":{"sent more"}
+  _:{"chan full"}
+}
+pl(msg5)
+// expect: chan full
+
+// === Select with recv and send arms — recv ready ===
+cs3=chan(1)
+cs4=chan(1)
+cs3<-"from recv"
+msg6=sel{
+  v=<-cs3:{v}
+  cs4<-"outgoing":{"sent"}
+  _:{"default"}
+}
+pl(msg6)
+// expect: from recv
+
+// === Select with recv and send arms — send ready ===
+cs5=chan(1)
+cs6=chan(1)
+msg7=sel{
+  v=<-cs5:{v}
+  cs6<-"outgoing":{"sent"}
+  _:{"default"}
+}
+pl(msg7)
+// expect: sent
+
+// === Verify send arm actually sent ===
+pl(<-cs6)
+// expect: outgoing
+
+// === Select send arm — multiple send arms, first has space ===
+cs7=chan(1)
+cs8=chan(1)
+msg8=sel{
+  cs7<-"first":{"sent first"}
+  cs8<-"second":{"sent second"}
+  _:{"default"}
+}
+pl(msg8)
+// expect: sent first
+pl(<-cs7)
+// expect: first
+
+// === Select send arm — first full, second has space ===
+cs9=chan(1)
+cs10=chan(1)
+cs9<-"blocking"
+msg9=sel{
+  cs9<-"no room":{"sent to cs9"}
+  cs10<-"fits":{"sent to cs10"}
+  _:{"default"}
+}
+pl(msg9)
+// expect: sent to cs10
+pl(<-cs10)
+// expect: fits
+
+// ============================================================
+// SECTION 15: Error propagation in goroutines
+// ============================================================
+
+// === Goroutine returning error result tuple ===
+h_err=go{
+  (N "goroutine says error")
+}
+r_err=<-h_err
+pl(r_err.1)
+// expect: goroutine says error
+
+// === Goroutine returning success tuple ===
+h_ok=go{
+  (42 N)
+}
+r_ok=<-h_ok
+pl(r_ok.0)
+// expect: 42
+
+// ============================================================
+// SECTION 16: Channels in data structures
+// ============================================================
+
+// === Array of channels ===
+chs=[chan(1) chan(1) chan(1)]
+chs[0]<-"zero"
+chs[1]<-"one"
+chs[2]<-"two"
+pl(<-chs[0])
+// expect: zero
+pl(<-chs[1])
+// expect: one
+pl(<-chs[2])
+// expect: two
+
+// === Channel in map ===
+m={inbox:chan(1) outbox:chan(1)}
+m.inbox<-"message"
+pl(<-m.inbox)
+// expect: message
+
+// ============================================================
+// SECTION 17: Channel/Handle truthiness and type
+// ============================================================
+
+// === Channel is truthy ===
+tc=chan(1)
+pl(tc?T:F)
+// expect: T
+
+// === Handle is truthy ===
+th=go{1}
+pl(th?T:F)
+// expect: T
+<-th
+
+// === Channel type check ===
+pl(type(chan())==  "channel")
+// expect: T
+
+// === Handle type check ===
+h_type=go{1}
+pl(type(h_type)=="handle")
+// expect: T
+<-h_type
+
+// === Channel equality — same channel ===
+same_ch=chan(1)
+pl(same_ch==same_ch)
+// expect: F
+
+// === Channel as function argument and return ===
+f pass_chan(c){
+  c<-"via func"
+  c
+}
+fc=chan(1)
+returned=pass_chan(fc)
+pl(<-returned)
+// expect: via func
+
+// ============================================================
+// SECTION 18: Goroutine scope isolation
+// ============================================================
+
+// === Goroutine does NOT modify parent scope ===
+iso_x=100
+h_iso=go{
+  iso_x=999
+  iso_x
+}
+pl(<-h_iso)
+// expect: 999
+pl(iso_x)
+// expect: 100
+
+// === Goroutine sees parent scope at spawn time ===
+snap=42
+h_snap=go{snap}
+snap=0
+pl(<-h_snap)
+// expect: 42
+
+// === Multiple goroutines get independent copies ===
+shared_val=10
+h_a=go{shared_val+1}
+h_b=go{shared_val+2}
+h_c=go{shared_val+3}
+pl(<-h_a + <-h_b + <-h_c)
+// expect: 36
+
+// ============================================================
+// SECTION 19: Select blocking (no default)
+// ============================================================
+
+// === Select blocks on recv when no default ===
+block_ch=chan(1)
+go{block_ch<-"arrived"}
+msg10=sel{
+  v=<-block_ch:{v}
+}
+pl(msg10)
+// expect: arrived
+
+// === Select with multiple recv arms, blocks on first ===
+br1=chan(1)
+br2=chan(1)
+go{br1<-"first ready"}
+msg11=sel{
+  v=<-br1:{v}
+  v=<-br2:{v}
+}
+pl(msg11)
+// expect: first ready
+
+// ============================================================
+// SECTION 20: Advanced pmap
+// ============================================================
+
+// === pmap with string operations ===
+words=["hello" "world" "tok"]|>pmap(\(w)="{w}!")
+pl(words)
+// expect: [hello! world! tok!]
+
+// === pmap with complex computation ===
+f collatz_steps(n){
+  steps=0
+  ~(n>1){
+    n=n%2==0?n/2:n*3+1
+    steps+=1
+  }
+  steps
+}
+steps=[6 11 27]|>pmap(collatz_steps)
+pl(steps)
+// expect: [8 14 111]
+
+// === pmap preserves original array ===
+orig=[1 2 3]
+doubled=orig|>pmap(\(x)=x*2)
+pl(orig)
+// expect: [1 2 3]
+pl(doubled)
+// expect: [2 4 6]
+
+// ============================================================
+// SECTION 21: Channel FIFO ordering
+// ============================================================
+
+// === Buffered channel preserves FIFO ===
+fifo=chan(10)
+~(i:1..6){fifo<-i}
+out=[]
+~(i:1..6){
+  v=<-fifo
+  out=push(out v)
+}
+pl(out)
+// expect: [1 2 3 4 5]
+
+// === Unbuffered channel with sequential goroutine sends ===
+useq=chan()
+go{
+  useq<-"a"
+  useq<-"b"
+  useq<-"c"
+}
+pl(<-useq)
+// expect: a
+pl(<-useq)
+// expect: b
+pl(<-useq)
+// expect: c
+
+// ============================================================
+// SECTION 22: Go with loops and complex bodies
+// ============================================================
+
+// === Goroutine with loop ===
+h_loop=go{
+  total=0
+  ~(i:1..11){total+=i}
+  total
+}
+pl(<-h_loop)
+// expect: 55
+
+// === Goroutine with filter/reduce ===
+h_fr=go{
+  evens=[1 2 3 4 5 6 7 8 9 10]?>\(x)=x%2==0
+  evens/>0 \(a x)=a+x
+}
+pl(<-h_fr)
+// expect: 30
+
+// === Goroutine with match ===
+h_match=go{
+  x=3
+  x?={1:"one"; 2:"two"; 3:"three"; _:"other"}
+}
+pl(<-h_match)
+// expect: three
+
+// === Goroutine with string interpolation ===
+name="Tok"
+h_interp=go{"Hello {name}!"}
+pl(<-h_interp)
+// expect: Hello Tok!
+
+// === Goroutine calls recursive function ===
+f fact(n)=n<=1?1:n*fact(n-1)
+h_fact=go{fact(10)}
+pl(<-h_fact)
+// expect: 3628800

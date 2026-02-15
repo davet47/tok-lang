@@ -1,0 +1,2 @@
+f max(a:a b:a):a=a>b?a:b
+pl(max(10 20))

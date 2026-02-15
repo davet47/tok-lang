@@ -1,0 +1,15 @@
+# Array basics
+a=[1 2 3]
+pl(a)
+pl(#a)
+
+# Array indexing
+pl(a[0])
+pl(a[2])
+
+# While loop
+n=0
+~(n<5){pl(n);n=n+1}
+
+# Nested loops
+~(i:0..3){~(j:0..3){p(i*3+j);p(" ")};pl("")}

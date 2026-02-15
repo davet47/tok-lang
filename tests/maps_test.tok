@@ -1,0 +1,112 @@
+// Phase 6 comprehensive tests
+
+// --- Map Literals ---
+m={a:1 b:2 c:3}
+pl(m)
+empty={}
+pl(empty)
+pl(type(m))
+
+// --- Member Access ---
+pl(m.a)
+pl(m.b)
+pl(m.c)
+pl(m.d)
+
+// --- Map Indexing ---
+pl(m["a"])
+pl(m["b"])
+
+// --- Map Length ---
+pl(#m)
+pl(#empty)
+
+// --- Member Assignment ---
+m.d=4
+pl(m)
+m.a=100
+pl(m)
+
+// --- Map Index Assignment ---
+m["e"]=5
+pl(m)
+
+// --- Map Builtins ---
+pl(keys(m))
+pl(vals(m))
+pl(has(m "a"))
+pl(has(m "z"))
+pl(del(m "a"))
+
+// --- Compound Assignment ---
+x=10
+x+=5
+pl(x)
+x-=3
+pl(x)
+x*=2
+pl(x)
+x/=6
+pl(x)
+x%=3
+pl(x)
+
+// --- sort, rev ---
+a=[3 1 4 1 5 9 2 6]
+pl(sort(a))
+pl(rev(a))
+pl(sort(["banana" "apple" "cherry"]))
+
+// --- join, split ---
+pl(join(["a" "b" "c"] ","))
+pl(split("hello world" " "))
+pl(join(split("one-two-three" "-") " "))
+
+// --- slice ---
+pl(slice([1 2 3 4 5] 1 3))
+pl(slice("hello" 1 4))
+
+// --- min, max, sum ---
+nums=[3 1 4 1 5 9 2 6]
+pl(min(nums))
+pl(max(nums))
+pl(sum(nums))
+pl(sum([1.5 2.5 3.0]))
+
+// --- flat, uniq ---
+pl(flat([[1 2] [3 4] [5]]))
+pl(uniq([1 2 3 2 1 4 3 5]))
+
+// --- abs ---
+pl(abs(-42))
+pl(abs(42))
+pl(abs(-3.14))
+
+// --- Pipe with new builtins ---
+result=[5 3 1 4 2]|>sort|>rev
+pl(result)
+pl([1 2 3 4 5]|>sum)
+
+// --- String interpolation with maps ---
+person={name:"Alice" age:30}
+pl("Name: {person.name}, Age: {person.age}")
+
+// --- Nested maps ---
+config={db:{host:"localhost" port:5432} debug:T}
+pl(config.db.host)
+pl(config.db.port)
+pl(config.debug)
+
+// --- Previous phases still work ---
+f fib(n)=n<2?n:fib(n-1)+fib(n-2)
+pl(fib(10))
+
+f qsort(a){
+  (#a)<=1?^a
+  p=a[(#a)/2]
+  lo=a?>\(x)=x<p
+  eq=a?>\(x)=x==p
+  hi=a?>\(x)=x>p
+  [..qsort(lo) ..eq ..qsort(hi)]
+}
+pl(qsort([3 6 8 10 1 2 1]))

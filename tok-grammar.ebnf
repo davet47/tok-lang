@@ -1,0 +1,249 @@
+(* ============================================================ *)
+(* Tok Language — Formal Grammar (EBNF)                         *)
+(* Version 0.1                                                  *)
+(* ============================================================ *)
+
+(* ---- Top Level ---- *)
+
+program        = { statement sep } ;
+sep            = NEWLINE | ";" ;
+statement      = assignment
+               | func_decl
+               | expr
+               | import_stmt
+               | go_stmt ;
+
+(* ---- Imports ---- *)
+
+import_stmt    = "@" STRING
+               | IDENT "=" "@" STRING
+               | "{" ident_list "}" "=" "@" STRING ;
+
+(* ---- Functions ---- *)
+
+func_decl      = "f" IDENT "(" param_list ")" func_body
+               | "f" IDENT "()" func_body ;
+
+param_list     = param { param }
+               | param { param } ".." IDENT ;         (* variadic *)
+
+param          = IDENT [ "=" expr ] ;                  (* with default *)
+
+func_body      = "=" expr                              (* single expression *)
+               | block ;                               (* block body *)
+
+block          = "{" { statement sep } "}" ;
+
+(* ---- Lambdas ---- *)
+
+lambda         = "\\" "(" param_list ")" func_body
+               | "\\" "()" func_body
+               | "\\" "=" expr ;                       (* zero-param *)
+
+(* ---- Assignment ---- *)
+
+assignment     = lvalue "=" expr
+               | lvalue "+=" expr
+               | lvalue "-=" expr
+               | lvalue "*=" expr
+               | lvalue "/=" expr
+               | lvalue "%=" expr
+               | lvalue "**=" expr ;
+
+lvalue         = IDENT
+               | IDENT "[" expr "]"
+               | IDENT "." IDENT
+               | destructure ;
+
+destructure    = IDENT IDENT { IDENT }                 (* tuple unpack: a b = ... *)
+               | "{" ident_list "}"
+               | "[" IDENT ".." IDENT "]" ;            (* head/tail: [h ..t] *)
+
+(* ---- Expressions ---- *)
+
+expr           = ternary_expr ;
+
+ternary_expr   = or_expr "?" expr ":" expr             (* ternary *)
+               | or_expr "?" expr                      (* one-branch *)
+               | or_expr "?=" match_block              (* multi-match *)
+               | or_expr "?^"                          (* error propagate *)
+               | or_expr "??" expr                     (* nil coalesce *)
+               | or_expr ;
+
+match_block    = "{" { match_arm sep } "}" ;
+match_arm      = pattern ":" expr
+               | pattern ":" block ;
+
+pattern        = "_"                                   (* wildcard *)
+               | literal
+               | IDENT
+               | "(" pattern_list ")"                  (* tuple pattern *)
+               | guard_expr ;                          (* condition-based *)
+
+pattern_list   = pattern { pattern } ;
+
+guard_expr     = comparison_expr ;                     (* used in condition matching *)
+
+or_expr        = and_expr { "|" and_expr } ;
+and_expr       = bitwise_or { "&" bitwise_or } ;
+bitwise_or     = bitwise_xor { "||" bitwise_xor } ;
+bitwise_xor    = bitwise_and { "^^" bitwise_and } ;
+bitwise_and    = comparison { "&&" comparison } ;
+
+comparison     = shift { comp_op shift } ;
+comp_op        = "==" | "!=" | ">" | "<" | ">=" | "<=" ;
+
+shift          = additive { ( "<<" | ">>" ) additive } ;
+additive       = multiplicative { ( "+" | "-" ) multiplicative } ;
+multiplicative = power { ( "*" | "/" | "%" ) power } ;
+power          = unary [ "**" power ] ;                (* right-assoc *)
+
+unary          = "!" unary
+               | "-" unary
+               | "#" unary                             (* length *)
+               | ".." unary                            (* spread *)
+               | postfix ;
+
+postfix        = primary { postfix_op } ;
+
+postfix_op     = "." IDENT                             (* member access *)
+               | ".?" IDENT                            (* optional chain *)
+               | "[" expr "]"                          (* index *)
+               | "(" arg_list ")"                      (* call *)
+               | "|>" pipe_target                      (* pipeline *)
+               | "?>" lambda                           (* filter *)
+               | "/>" [ expr ] lambda ;                (* reduce, opt init *)
+
+pipe_target    = IDENT
+               | IDENT "(" arg_list ")"
+               | lambda ;
+
+arg_list       = [ expr { expr } ] ;                   (* space-separated, no commas *)
+
+(* ---- Primary Expressions ---- *)
+
+primary        = literal
+               | IDENT
+               | "(" expr ")"                          (* grouping / tuple *)
+               | tuple
+               | array
+               | map
+               | lambda
+               | loop_expr
+               | cond_match
+               | select_expr
+               | block ;                               (* block as expression *)
+
+literal        = INT | FLOAT | STRING | RAW_STRING
+               | "T" | "F" | "N" ;
+
+tuple          = "(" expr expr { expr } ")" ;
+array          = "[" { expr } "]" ;
+map            = "{" { map_pair } "}" ;
+map_pair       = ( IDENT | STRING ) ":" expr ;
+
+(* ---- Control Flow ---- *)
+
+loop_expr      = "~" "(" loop_clause ")" block         (* loop with block body *)
+               | "~" "(" loop_clause ")" "=" expr      (* loop as expression (collect) *)
+               | "~" block ;                           (* infinite loop *)
+
+loop_clause    = expr                                  (* while condition *)
+               | IDENT ":" iterable                    (* foreach *)
+               | IDENT IDENT ":" iterable              (* foreach with index/key *)
+               ;
+
+iterable       = expr
+               | range ;
+
+range          = expr ".." expr                        (* exclusive end *)
+               | expr "..=" expr ;                     (* inclusive end *)
+
+cond_match     = "?=" match_block ;                    (* standalone condition match *)
+
+(* ---- Concurrency ---- *)
+
+go_stmt        = "go" block ;
+
+select_expr    = "sel" "{" { select_arm sep } "}" ;
+select_arm     = IDENT "=" "<-" expr ":" block         (* receive *)
+               | expr "<-" expr ":" block              (* send *)
+               | "_" ":" block ;                       (* default *)
+
+channel_ops    = "<-" expr                             (* send *)
+               | "<-" IDENT ;                          (* receive *)
+
+(* ---- Early Return / Loop Control ---- *)
+
+early_return   = "^" [ expr ] ;                        (* return from function *)
+break_stmt     = "!" ;                                 (* break from loop *)
+continue_stmt  = ">!" ;                                (* continue to next iter *)
+
+(* ---- Lexical Elements ---- *)
+
+IDENT          = letter { letter | digit | "_" } ;
+letter         = "a".."z" | "A".."Z" | "_" ;
+digit          = "0".."9" ;
+
+INT            = digit { digit | "_" }
+               | "0x" hex_digit { hex_digit | "_" }
+               | "0b" bin_digit { bin_digit | "_" }
+               | "0o" oct_digit { oct_digit | "_" } ;
+
+FLOAT          = [ digit { digit } ] "." digit { digit } [ exponent ]
+               | digit { digit } exponent ;
+
+exponent       = ( "e" | "E" ) [ "+" | "-" ] digit { digit } ;
+
+hex_digit      = digit | "a".."f" | "A".."F" ;
+bin_digit      = "0" | "1" ;
+oct_digit      = "0".."7" ;
+
+STRING         = '"' { string_char | interpolation } '"' ;
+string_char    = any_char - ( '"' | "\\" | "{" )
+               | escape_seq ;
+escape_seq     = "\\" ( "n" | "t" | "\\" | '"' | "{" | "0"
+               | "x" hex_digit hex_digit
+               | "u{" hex_digit { hex_digit } "}" ) ;
+interpolation  = "{" expr "}" ;
+
+RAW_STRING     = "`" { any_char - "`" } "`" ;
+
+NEWLINE        = "\n" | "\r\n" ;
+COMMENT        = "#" { any_char - NEWLINE } NEWLINE ;
+
+ident_list     = IDENT { IDENT } ;
+
+(* ============================================================ *)
+(* Operator Precedence Table (highest to lowest)                *)
+(* ============================================================ *)
+(*                                                              *)
+(*  14  .  .?             (left)   member access                *)
+(*  13  #                 (prefix) length                       *)
+(*  12  !  - (unary)      (prefix) not, negation                *)
+(*  11  **                (right)  power                        *)
+(*  10  *  /  %           (left)   multiplicative               *)
+(*   9  +  -              (left)   additive                     *)
+(*   8  ..  ..=           (none)   range                        *)
+(*   7  <<  >>            (left)   bitwise shift                *)
+(*   6  &&                (left)   bitwise and                  *)
+(*   5  ^^                (left)   bitwise xor                  *)
+(*   4  ||                (left)   bitwise or                   *)
+(*   3  == != > < >= <=   (left)   comparison                   *)
+(*   2  &                 (left)   logical and                  *)
+(*   1  |                 (left)   logical or                   *)
+(*   0  ? ?: ?? |> ?> />  (right)  ternary, pipes, coalesce     *)
+(*                                                              *)
+(* ============================================================ *)
+
+(* ============================================================ *)
+(* Reserved Keywords (5 total)                                  *)
+(* ============================================================ *)
+(*  f  go  T  F  N                                              *)
+(*                                                              *)
+(* All other "keywords" are stdlib functions, not reserved:     *)
+(*  p  pl  sort  rev  keys  vals  has  del  push  pop           *)
+(*  join  split  trim  slice  flat  uniq  zip  min  max  sum    *)
+(*  abs  floor  ceil  rand  exit  args  env  chan  freq  top    *)
+(*  int  float  str  type  is  pmap                             *)
+(* ============================================================ *)
