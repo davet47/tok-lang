@@ -88,8 +88,12 @@ impl TokChannel {
             while inner.buffer.len() >= inner.capacity {
                 inner = self.send_condvar.wait(inner).unwrap();
             }
+            let was_empty = inner.buffer.is_empty();
             inner.buffer.push_back(val);
-            self.recv_condvar.notify_one();
+            // Only notify receiver if buffer was empty (a receiver might be waiting)
+            if was_empty {
+                self.recv_condvar.notify_one();
+            }
         }
     }
 
@@ -110,8 +114,12 @@ impl TokChannel {
             while inner.buffer.is_empty() {
                 inner = self.recv_condvar.wait(inner).unwrap();
             }
+            let was_full = inner.buffer.len() >= inner.capacity;
             let val = inner.buffer.pop_front().unwrap();
-            self.send_condvar.notify_one();
+            // Only notify sender if buffer was full (a sender might be waiting)
+            if was_full {
+                self.send_condvar.notify_one();
+            }
             val
         }
     }
@@ -127,8 +135,11 @@ impl TokChannel {
             false
         } else {
             if inner.buffer.len() < inner.capacity {
+                let was_empty = inner.buffer.is_empty();
                 inner.buffer.push_back(val);
-                self.recv_condvar.notify_one();
+                if was_empty {
+                    self.recv_condvar.notify_one();
+                }
                 true
             } else {
                 false
@@ -151,7 +162,10 @@ impl TokChannel {
             }
         } else {
             if let Some(val) = inner.buffer.pop_front() {
-                self.send_condvar.notify_one();
+                // Only notify sender if buffer was full before we popped
+                if inner.buffer.len() + 1 >= inner.capacity {
+                    self.send_condvar.notify_one();
+                }
                 Some(val)
             } else {
                 None

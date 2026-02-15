@@ -929,6 +929,9 @@ fn compile_main(compiler: &mut Compiler, stmts: &[HirStmt]) {
     func_ctx.builder.finalize();
 
     let mut ctx = Context::for_function(func);
+    if std::env::var("CLIF_DUMP").is_ok() {
+        eprintln!("=== _tok_main IR ===\n{}", ctx.func.display());
+    }
     compiler
         .module
         .define_function(func_id, &mut ctx)
@@ -1508,8 +1511,12 @@ fn compile_expr(ctx: &mut FuncCtx, expr: &HirExpr) -> Option<Value> {
             // Special-case filter/reduce: closure arg needs special handling
             match name.as_str() {
                 "tok_array_filter" => {
+                    // Inline filter when lambda is literal and element type is concrete
+                    if can_inline_hof(&args[1], &args[0].ty, 1) {
+                        return compile_inline_filter(ctx, &args[0], &args[1], &expr.ty);
+                    }
+                    // Fallback: runtime call
                     let arr_raw = compile_expr(ctx, &args[0]).unwrap();
-                    // If target is Any, extract the array pointer from the TokValue
                     let arr = if matches!(&args[0].ty, Type::Any | Type::Optional(_) | Type::Result(_)) {
                         ctx.builder.ins().load(types::I64, MemFlags::trusted(), arr_raw, 8)
                     } else {
@@ -1519,7 +1526,6 @@ fn compile_expr(ctx: &mut FuncCtx, expr: &HirExpr) -> Option<Value> {
                     let func_ref = ctx.get_runtime_func_ref("tok_array_filter");
                     let call = ctx.builder.ins().call(func_ref, &[arr, closure]);
                     let result = ctx.builder.inst_results(call)[0];
-                    // If the expected type is Any, wrap result as TokValue(TAG_ARRAY, ptr)
                     if matches!(&expr.ty, Type::Any | Type::Optional(_) | Type::Result(_)) {
                         let tag = ctx.builder.ins().iconst(types::I64, TAG_ARRAY as i64);
                         return Some(alloc_tokvalue_on_stack(ctx, tag, result));
@@ -1527,6 +1533,11 @@ fn compile_expr(ctx: &mut FuncCtx, expr: &HirExpr) -> Option<Value> {
                     return Some(result);
                 }
                 "tok_array_reduce" => {
+                    // Inline reduce when lambda is literal and element type is concrete
+                    if can_inline_hof(&args[2], &args[0].ty, 2) {
+                        return compile_inline_reduce(ctx, &args[0], &args[1], &args[2], &expr.ty);
+                    }
+                    // Fallback: runtime call
                     let arr_raw = compile_expr(ctx, &args[0]).unwrap();
                     let arr = if matches!(&args[0].ty, Type::Any | Type::Optional(_) | Type::Result(_)) {
                         ctx.builder.ins().load(types::I64, MemFlags::trusted(), arr_raw, 8)
@@ -2847,6 +2858,325 @@ fn compile_specialized_closure_call(
     }
 }
 
+// ─── Inline filter/reduce ──────────────────────────────────────────────
+
+/// Check if a filter/reduce lambda can be inlined at compile time.
+fn can_inline_hof(lambda_expr: &HirExpr, arr_ty: &Type, expected_params: usize) -> bool {
+    if let HirExprKind::Lambda { params, .. } = &lambda_expr.kind {
+        if params.len() != expected_params {
+            return false;
+        }
+        // Array element type must be concrete (not Any) for native-type inlining to help
+        match arr_ty {
+            Type::Array(inner) => !matches!(inner.as_ref(), Type::Any),
+            _ => false,
+        }
+    } else {
+        false
+    }
+}
+
+/// Compile `arr?>\(x)=pred` as an inline loop instead of a runtime call.
+fn compile_inline_filter(
+    ctx: &mut FuncCtx,
+    arr_expr: &HirExpr,
+    lambda_expr: &HirExpr,
+    result_ty: &Type,
+) -> Option<Value> {
+    let HirExprKind::Lambda { params, body, .. } = &lambda_expr.kind else { unreachable!() };
+    let elem_type = match &arr_expr.ty {
+        Type::Array(inner) => inner.as_ref().clone(),
+        _ => Type::Any,
+    };
+    let param_name = &params[0].name;
+
+    // Compile source array
+    let arr_raw = compile_expr(ctx, arr_expr).unwrap();
+    let arr = if matches!(&arr_expr.ty, Type::Any | Type::Optional(_) | Type::Result(_)) {
+        ctx.builder.ins().load(types::I64, MemFlags::trusted(), arr_raw, 8)
+    } else {
+        arr_raw
+    };
+
+    // Allocate result array
+    let alloc_ref = ctx.get_runtime_func_ref("tok_array_alloc");
+    let alloc_call = ctx.builder.ins().call(alloc_ref, &[]);
+    let result_arr = ctx.builder.inst_results(alloc_call)[0];
+
+    // Get source length
+    let len_ref = ctx.get_runtime_func_ref("tok_array_len");
+    let len_call = ctx.builder.ins().call(len_ref, &[arr]);
+    let len_val = ctx.builder.inst_results(len_call)[0];
+
+    // Loop index
+    let idx_var = ctx.new_var(types::I64);
+    let zero = ctx.builder.ins().iconst(types::I64, 0);
+    ctx.builder.def_var(idx_var, zero);
+
+    // Element variable bound to lambda param
+    let ct = cl_type_or_i64(&elem_type);
+    let elem_var = ctx.new_var(ct);
+    let elem_zero = zero_value(&mut ctx.builder, ct);
+    ctx.builder.def_var(elem_var, elem_zero);
+
+    // Save old binding and insert lambda param
+    let old_binding = ctx.vars.remove(param_name);
+    ctx.vars.insert(param_name.clone(), (elem_var, elem_type.clone()));
+
+    // Loop blocks
+    let header_block = ctx.builder.create_block();
+    let body_block = ctx.builder.create_block();
+    let push_block = ctx.builder.create_block();
+    let inc_block = ctx.builder.create_block();
+    let exit_block = ctx.builder.create_block();
+
+    ctx.builder.ins().jump(header_block, &[]);
+    ctx.builder.switch_to_block(header_block);
+
+    // Condition: i < len
+    let current_idx = ctx.builder.use_var(idx_var);
+    let cond = ctx.builder.ins().icmp(
+        cranelift_codegen::ir::condcodes::IntCC::SignedLessThan,
+        current_idx,
+        len_val,
+    );
+    ctx.builder.ins().brif(cond, body_block, &[], exit_block, &[]);
+
+    ctx.builder.switch_to_block(body_block);
+    ctx.builder.seal_block(body_block);
+
+    // Get element as (tag, data)
+    let current_idx = ctx.builder.use_var(idx_var);
+    let get_ref = ctx.get_runtime_func_ref("tok_array_get");
+    let get_call = ctx.builder.ins().call(get_ref, &[arr, current_idx]);
+    let get_results = ctx.builder.inst_results(get_call);
+    let elem_tag = get_results[0];
+    let elem_data = get_results[1];
+
+    // Extract native value for the lambda body
+    let elem_native = from_tokvalue(ctx, elem_tag, elem_data, &elem_type);
+    ctx.builder.def_var(elem_var, elem_native);
+
+    // Retype and compile lambda body inline
+    let mut type_map = HashMap::new();
+    type_map.insert(param_name.clone(), elem_type.clone());
+    let retyped = retype_body(body, &type_map);
+    // Unwrap trailing Return(Some(expr)) → Expr(expr) since we're inlining
+    let retyped = unwrap_return_stmts(retyped);
+    let pred_result = compile_body(ctx, &retyped, &Type::Bool);
+
+    if let Some(pred_val) = pred_result {
+        if !ctx.block_terminated {
+            // Determine predicate result type
+            let pred_ty = retyped.last()
+                .and_then(|s| match s { HirStmt::Expr(e) => Some(e.ty.clone()), _ => None })
+                .unwrap_or(Type::Bool);
+            let bool_val = to_bool(ctx, pred_val, &pred_ty);
+
+            ctx.builder.ins().brif(bool_val, push_block, &[], inc_block, &[]);
+        }
+
+        // Push block: add element to result array
+        ctx.builder.switch_to_block(push_block);
+        ctx.builder.seal_block(push_block);
+        let push_ref = ctx.get_runtime_func_ref("tok_array_push");
+        ctx.builder.ins().call(push_ref, &[result_arr, elem_tag, elem_data]);
+        ctx.builder.ins().jump(inc_block, &[]);
+    } else {
+        if !ctx.block_terminated {
+            ctx.builder.ins().jump(inc_block, &[]);
+        }
+    }
+
+    // Increment
+    ctx.block_terminated = false;
+    ctx.builder.switch_to_block(inc_block);
+    ctx.builder.seal_block(inc_block);
+    let current_idx = ctx.builder.use_var(idx_var);
+    let one = ctx.builder.ins().iconst(types::I64, 1);
+    let next_idx = ctx.builder.ins().iadd(current_idx, one);
+    ctx.builder.def_var(idx_var, next_idx);
+    ctx.builder.ins().jump(header_block, &[]);
+
+    ctx.builder.seal_block(header_block);
+    ctx.builder.switch_to_block(exit_block);
+    ctx.builder.seal_block(exit_block);
+    ctx.block_terminated = false;
+
+    // Restore old binding
+    ctx.vars.remove(param_name);
+    if let Some(old) = old_binding {
+        ctx.vars.insert(param_name.clone(), old);
+    }
+
+    // If caller expects Any, wrap result
+    if matches!(result_ty, Type::Any | Type::Optional(_) | Type::Result(_)) {
+        let tag = ctx.builder.ins().iconst(types::I64, TAG_ARRAY as i64);
+        return Some(alloc_tokvalue_on_stack(ctx, tag, result_arr));
+    }
+    Some(result_arr)
+}
+
+/// Compile `arr/>init \(acc x)=body` as an inline loop instead of a runtime call.
+fn compile_inline_reduce(
+    ctx: &mut FuncCtx,
+    arr_expr: &HirExpr,
+    init_expr: &HirExpr,
+    lambda_expr: &HirExpr,
+    result_ty: &Type,
+) -> Option<Value> {
+    let HirExprKind::Lambda { params, body, .. } = &lambda_expr.kind else { unreachable!() };
+    let elem_type = match &arr_expr.ty {
+        Type::Array(inner) => inner.as_ref().clone(),
+        _ => Type::Any,
+    };
+    let acc_name = &params[0].name;
+    let elem_name = &params[1].name;
+
+    // Compile source array
+    let arr_raw = compile_expr(ctx, arr_expr).unwrap();
+    let arr = if matches!(&arr_expr.ty, Type::Any | Type::Optional(_) | Type::Result(_)) {
+        ctx.builder.ins().load(types::I64, MemFlags::trusted(), arr_raw, 8)
+    } else {
+        arr_raw
+    };
+
+    // Get length
+    let len_ref = ctx.get_runtime_func_ref("tok_array_len");
+    let len_call = ctx.builder.ins().call(len_ref, &[arr]);
+    let len_val = ctx.builder.inst_results(len_call)[0];
+
+    // Determine accumulator type from init expression
+    let acc_type = if matches!(&init_expr.kind, HirExprKind::Nil) {
+        // No explicit init — acc type is same as element type
+        elem_type.clone()
+    } else {
+        init_expr.ty.clone()
+    };
+    let acc_ct = cl_type_or_i64(&acc_type);
+
+    // Compile init value and determine start index
+    let (init_val, start_idx) = if matches!(&init_expr.kind, HirExprKind::Nil) {
+        // No init: use first element, start from 1
+        let zero_idx = ctx.builder.ins().iconst(types::I64, 0);
+        let get_ref = ctx.get_runtime_func_ref("tok_array_get");
+        let get_call = ctx.builder.ins().call(get_ref, &[arr, zero_idx]);
+        let results = ctx.builder.inst_results(get_call);
+        let first = from_tokvalue(ctx, results[0], results[1], &elem_type);
+        let one = ctx.builder.ins().iconst(types::I64, 1);
+        (first, one)
+    } else {
+        let iv = compile_expr(ctx, init_expr).unwrap();
+        let zero = ctx.builder.ins().iconst(types::I64, 0);
+        (iv, zero)
+    };
+
+    // Accumulator variable
+    let acc_var = ctx.new_var(acc_ct);
+    ctx.builder.def_var(acc_var, init_val);
+
+    // Loop index
+    let idx_var = ctx.new_var(types::I64);
+    ctx.builder.def_var(idx_var, start_idx);
+
+    // Element variable
+    let elem_ct = cl_type_or_i64(&elem_type);
+    let elem_var = ctx.new_var(elem_ct);
+    let elem_zero = zero_value(&mut ctx.builder, elem_ct);
+    ctx.builder.def_var(elem_var, elem_zero);
+
+    // Bind lambda params
+    let old_acc_binding = ctx.vars.remove(acc_name);
+    let old_elem_binding = ctx.vars.remove(elem_name);
+    ctx.vars.insert(acc_name.clone(), (acc_var, acc_type.clone()));
+    ctx.vars.insert(elem_name.clone(), (elem_var, elem_type.clone()));
+
+    // Loop blocks
+    let header_block = ctx.builder.create_block();
+    let body_block = ctx.builder.create_block();
+    let inc_block = ctx.builder.create_block();
+    let exit_block = ctx.builder.create_block();
+
+    ctx.builder.ins().jump(header_block, &[]);
+    ctx.builder.switch_to_block(header_block);
+
+    // Condition: i < len
+    let current_idx = ctx.builder.use_var(idx_var);
+    let cond = ctx.builder.ins().icmp(
+        cranelift_codegen::ir::condcodes::IntCC::SignedLessThan,
+        current_idx,
+        len_val,
+    );
+    ctx.builder.ins().brif(cond, body_block, &[], exit_block, &[]);
+
+    ctx.builder.switch_to_block(body_block);
+    ctx.builder.seal_block(body_block);
+
+    // Get element
+    let current_idx = ctx.builder.use_var(idx_var);
+    let get_ref = ctx.get_runtime_func_ref("tok_array_get");
+    let get_call = ctx.builder.ins().call(get_ref, &[arr, current_idx]);
+    let get_results = ctx.builder.inst_results(get_call);
+    let elem_native = from_tokvalue(ctx, get_results[0], get_results[1], &elem_type);
+    ctx.builder.def_var(elem_var, elem_native);
+
+    // Retype and compile lambda body inline
+    let mut type_map = HashMap::new();
+    type_map.insert(acc_name.clone(), acc_type.clone());
+    type_map.insert(elem_name.clone(), elem_type.clone());
+    let retyped = retype_body(body, &type_map);
+    // Unwrap trailing Return(Some(expr)) → Expr(expr) since we're inlining
+    let retyped = unwrap_return_stmts(retyped);
+    let body_result = compile_body(ctx, &retyped, &acc_type);
+
+    if let Some(val) = body_result {
+        // Determine body result type
+        let body_ty = retyped.last()
+            .and_then(|s| match s { HirStmt::Expr(e) => Some(e.ty.clone()), _ => None })
+            .unwrap_or(acc_type.clone());
+        let coerced = coerce_value(ctx, val, &body_ty, &acc_type);
+        ctx.builder.def_var(acc_var, coerced);
+    }
+
+    // Increment
+    if !ctx.block_terminated {
+        ctx.builder.ins().jump(inc_block, &[]);
+    }
+    ctx.block_terminated = false;
+
+    ctx.builder.switch_to_block(inc_block);
+    ctx.builder.seal_block(inc_block);
+    let current_idx = ctx.builder.use_var(idx_var);
+    let one = ctx.builder.ins().iconst(types::I64, 1);
+    let next_idx = ctx.builder.ins().iadd(current_idx, one);
+    ctx.builder.def_var(idx_var, next_idx);
+    ctx.builder.ins().jump(header_block, &[]);
+
+    ctx.builder.seal_block(header_block);
+    ctx.builder.switch_to_block(exit_block);
+    ctx.builder.seal_block(exit_block);
+    ctx.block_terminated = false;
+
+    // Restore bindings
+    ctx.vars.remove(acc_name);
+    ctx.vars.remove(elem_name);
+    if let Some(old) = old_acc_binding {
+        ctx.vars.insert(acc_name.clone(), old);
+    }
+    if let Some(old) = old_elem_binding {
+        ctx.vars.insert(elem_name.clone(), old);
+    }
+
+    // Return accumulator
+    let final_acc = ctx.builder.use_var(acc_var);
+    if matches!(result_ty, Type::Any | Type::Optional(_) | Type::Result(_)) {
+        let (tag, data) = to_tokvalue(ctx, final_acc, &acc_type);
+        Some(alloc_tokvalue_on_stack(ctx, tag, data))
+    } else {
+        Some(coerce_value(ctx, final_acc, &acc_type, result_ty))
+    }
+}
+
 fn compile_print_call(ctx: &mut FuncCtx, args: &[HirExpr], newline: bool) -> Option<Value> {
     for (i, arg) in args.iter().enumerate() {
         let val = compile_expr(ctx, arg).unwrap_or_else(|| {
@@ -3042,49 +3372,49 @@ fn compile_loop(
             ctx.builder.def_var(loop_var, start_val);
             ctx.vars.insert(var.clone(), (loop_var, Type::Int));
 
-            // Store end value in a Cranelift variable for proper SSA across blocks
-            let end_var = ctx.new_var(types::I64);
-            ctx.builder.def_var(end_var, end_val);
-
-            let header_block = ctx.builder.create_block();
+            // Loop rotation: guard check → body → inc+check (back-edge is conditional)
+            // This eliminates one unconditional jump per iteration vs condition-at-top.
+            // Note: Cranelift may rematerialize end_val inside the loop for large constants
+            // (>12-bit immediate), but this is harmless on ARM64's wide execution pipeline
+            // and the rotation itself saves a branch per iteration.
             let body_block = ctx.builder.create_block();
             let inc_block = ctx.builder.create_block();
             let exit_block = ctx.builder.create_block();
 
-            ctx.builder.ins().jump(header_block, &[]);
-            ctx.builder.switch_to_block(header_block);
-
-            let current = ctx.builder.use_var(loop_var);
-            let end_for_cmp = ctx.builder.use_var(end_var);
+            // Guard: skip loop entirely if start >= end
             let cc = if *inclusive {
                 cranelift_codegen::ir::condcodes::IntCC::SignedLessThanOrEqual
             } else {
                 cranelift_codegen::ir::condcodes::IntCC::SignedLessThan
             };
-            let cond = ctx.builder.ins().icmp(cc, current, end_for_cmp);
-            ctx.builder.ins().brif(cond, body_block, &[], exit_block, &[]);
+            let guard_cond = ctx.builder.ins().icmp(cc, start_val, end_val);
+            ctx.builder.ins().brif(guard_cond, body_block, &[], exit_block, &[]);
 
+            // Body block
             ctx.builder.switch_to_block(body_block);
-            ctx.builder.seal_block(body_block);
 
             ctx.loop_stack.push((inc_block, exit_block));
             compile_body(ctx, body, &Type::Nil);
             ctx.loop_stack.pop();
 
-            ctx.builder.ins().jump(inc_block, &[]);
+            if !ctx.block_terminated {
+                ctx.builder.ins().jump(inc_block, &[]);
+            }
 
-            // Increment block
+            // Increment + back-edge condition check (replaces separate header block)
             ctx.builder.switch_to_block(inc_block);
             ctx.builder.seal_block(inc_block);
             let current = ctx.builder.use_var(loop_var);
             let one = ctx.builder.ins().iconst(types::I64, 1);
             let next = ctx.builder.ins().iadd(current, one);
             ctx.builder.def_var(loop_var, next);
-            ctx.builder.ins().jump(header_block, &[]);
+            let cond = ctx.builder.ins().icmp(cc, next, end_val);
+            ctx.builder.ins().brif(cond, body_block, &[], exit_block, &[]);
 
-            ctx.builder.seal_block(header_block);
+            ctx.builder.seal_block(body_block);
             ctx.builder.switch_to_block(exit_block);
             ctx.builder.seal_block(exit_block);
+            ctx.block_terminated = false;
         }
 
         HirLoopKind::ForEach { var, iter } => {
@@ -3538,6 +3868,17 @@ fn zero_value(builder: &mut FunctionBuilder, ty: types::Type) -> Value {
 /// Retype a lambda body by replacing `Any` types with concrete types from the given map.
 /// This enables specialized lambda bodies to compile with native arithmetic instead of
 /// going through the Any (TokValue) code paths.
+/// Convert Return(Some(expr)) → Expr(expr) in a statement list.
+/// Used when inlining a lambda body: the lambda's "return" should produce a value
+/// in the current block, not jump to the enclosing function's return block.
+fn unwrap_return_stmts(stmts: Vec<HirStmt>) -> Vec<HirStmt> {
+    stmts.into_iter().map(|s| match s {
+        HirStmt::Return(Some(expr)) => HirStmt::Expr(expr),
+        HirStmt::Return(None) => HirStmt::Expr(HirExpr { kind: HirExprKind::Nil, ty: Type::Nil }),
+        other => other,
+    }).collect()
+}
+
 fn retype_body(body: &[HirStmt], type_map: &HashMap<String, Type>) -> Vec<HirStmt> {
     body.iter().map(|s| retype_stmt(s, type_map)).collect()
 }

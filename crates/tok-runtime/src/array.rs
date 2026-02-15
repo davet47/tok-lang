@@ -202,12 +202,25 @@ pub extern "C" fn tok_array_join(arr: *mut TokArray, sep: *mut TokString) -> *mu
     assert!(!sep.is_null(), "tok_array_join: null separator");
     unsafe {
         let sep_str = &(*sep).data;
-        let parts: Vec<String> = (*arr)
-            .data
-            .iter()
-            .map(|v| format!("{}", v))
-            .collect();
-        let result = parts.join(sep_str);
+        let data = &(*arr).data;
+        if data.is_empty() {
+            return TokString::alloc(String::new());
+        }
+        // Direct-write: build result string without intermediate Vec<String>.
+        // For string elements, copy directly from TokString data without formatting.
+        let mut result = String::new();
+        for (i, v) in data.iter().enumerate() {
+            if i > 0 {
+                result.push_str(sep_str);
+            }
+            // Fast path: string elements — no format! overhead
+            if v.tag == TAG_STRING && !v.data.string_ptr.is_null() {
+                result.push_str(&(*v.data.string_ptr).data);
+            } else {
+                use std::fmt::Write;
+                let _ = write!(result, "{}", v);
+            }
+        }
         TokString::alloc(result)
     }
 }
