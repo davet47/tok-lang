@@ -26,7 +26,7 @@
 use cranelift_codegen::entity::EntityRef;
 use cranelift_codegen::ir::types;
 use cranelift_codegen::ir::{
-    AbiParam, Block, Function, InstBuilder, MemFlags, StackSlotData, StackSlotKind, UserFuncName, Value,
+    AbiParam, Block, Function, InstBuilder, MemFlags, SigRef, StackSlotData, StackSlotKind, UserFuncName, Value,
 };
 use cranelift_codegen::isa;
 use cranelift_codegen::isa::CallConv;
@@ -170,6 +170,8 @@ pub struct Compiler {
     lambda_counter: u32,
     /// Lambdas waiting to be compiled (deferred until current function finalizes).
     pending_lambdas: Vec<PendingLambda>,
+    /// User function bodies, stored for potential inlining.
+    func_bodies: HashMap<String, (Vec<HirParam>, Type, Vec<HirStmt>)>,
 }
 
 impl Compiler {
@@ -202,6 +204,7 @@ impl Compiler {
             gensym_counter: 0,
             lambda_counter: 0,
             pending_lambdas: Vec::new(),
+            func_bodies: HashMap::new(),
         }
     }
 
@@ -345,6 +348,8 @@ impl Compiler {
         self.declare_runtime_func("tok_ceil", &[types::F64], &[types::I64]);
         self.declare_runtime_func("tok_value_ceil", &[PTR, types::I64], &[PTR, types::I64]);
         self.declare_runtime_func("tok_rand", &[], &[types::F64]);
+        self.declare_runtime_func("tok_pow_f64", &[types::F64, types::F64], &[types::F64]);
+        self.declare_runtime_func("tok_pow_int", &[types::I64, types::I64], &[types::I64]);
 
         // TokValue → concrete type extraction
         self.declare_runtime_func("tok_value_to_int", &[PTR, types::I64], &[types::I64]);
@@ -357,6 +362,7 @@ impl Compiler {
         self.declare_runtime_func("tok_value_mul", &[PTR, types::I64, PTR, types::I64], &[PTR, types::I64]);
         self.declare_runtime_func("tok_value_div", &[PTR, types::I64, PTR, types::I64], &[PTR, types::I64]);
         self.declare_runtime_func("tok_value_mod", &[PTR, types::I64, PTR, types::I64], &[PTR, types::I64]);
+        self.declare_runtime_func("tok_value_pow", &[PTR, types::I64, PTR, types::I64], &[PTR, types::I64]);
         self.declare_runtime_func("tok_value_negate", &[PTR, types::I64], &[PTR, types::I64]);
         self.declare_runtime_func("tok_value_eq", &[PTR, types::I64, PTR, types::I64], &[types::I8]);
         self.declare_runtime_func("tok_value_lt", &[PTR, types::I64, PTR, types::I64], &[types::I8]);
@@ -366,6 +372,13 @@ impl Compiler {
         // Utility
         self.declare_runtime_func("tok_clock", &[], &[types::I64]);
         self.declare_runtime_func("tok_exit", &[types::I64], &[]);
+
+        // Stdlib module constructors — each returns *mut TokMap
+        self.declare_runtime_func("tok_stdlib_math", &[], &[PTR]);
+        self.declare_runtime_func("tok_stdlib_str", &[], &[PTR]);
+        self.declare_runtime_func("tok_stdlib_os", &[], &[PTR]);
+        self.declare_runtime_func("tok_stdlib_io", &[], &[PTR]);
+        self.declare_runtime_func("tok_stdlib_json", &[], &[PTR]);
     }
 
     /// Declare a string literal as a data object, returning a DataId.
@@ -449,6 +462,16 @@ struct FuncCtx<'a> {
     known_closures: HashMap<String, KnownClosure>,
     /// Set by Lambda compilation so the enclosing Assign can record it in known_closures.
     last_lambda_info: Option<(FuncId, Value, usize)>, // (func_id, env_ptr, pending_idx)
+    /// Parameter names (should not be RC dec'd at function exit — caller owns them).
+    param_names: HashSet<String>,
+    /// Cached SigRef for indirect closure calls, keyed by arg count.
+    closure_sig_cache: HashMap<usize, SigRef>,
+    /// TCO: function name if this function uses tail-call optimization.
+    tco_func_name: Option<String>,
+    /// TCO: the loop header block to jump back to for tail calls.
+    tco_loop_header: Option<Block>,
+    /// TCO: the parameter variables in order (for reassignment on tail call jump).
+    tco_param_vars: Vec<Variable>,
 }
 
 // We need a separate lifetime for the FunctionBuilderContext because
@@ -483,6 +506,11 @@ pub fn compile(program: &HirProgram) -> Vec<u8> {
                 ret_type,
                 body,
             } => {
+                // Store body for potential inlining at call sites
+                compiler.func_bodies.insert(
+                    name.clone(),
+                    (params.clone(), ret_type.clone(), body.clone()),
+                );
                 compile_function(&mut compiler, name, params, ret_type, body);
             }
             other => {
@@ -582,33 +610,91 @@ fn compile_function(
         ret_type: ret_type.clone(),
         known_closures: HashMap::new(),
         last_lambda_info: None,
+        param_names: HashSet::new(),
+        closure_sig_cache: HashMap::new(),
+        tco_func_name: None,
+        tco_loop_header: None,
+        tco_param_vars: Vec::new(),
+    };
+
+    // Check for tail-call optimization opportunity
+    let use_tco = is_self_tail_recursive(body, name);
+
+    // Collect initial param values from entry block params
+    let mut entry_param_vals = Vec::new();
+    {
+        let mut bpi = 0;
+        for param in params.iter() {
+            if matches!(param.ty, Type::Any) {
+                let tag_val = func_ctx.builder.block_params(entry_block)[bpi];
+                let data_val = func_ctx.builder.block_params(entry_block)[bpi + 1];
+                entry_param_vals.push(tag_val);
+                entry_param_vals.push(data_val);
+                bpi += 2;
+            } else if cl_type(&param.ty).is_some() {
+                let val = func_ctx.builder.block_params(entry_block)[bpi];
+                entry_param_vals.push(val);
+                bpi += 1;
+            }
+        }
+    }
+
+    // If TCO, create loop header block and jump from entry
+    let body_block = if use_tco {
+        let loop_header = func_ctx.builder.create_block();
+        // Add block params matching the function's Cranelift params
+        for param in params.iter() {
+            if matches!(param.ty, Type::Any) {
+                func_ctx.builder.append_block_param(loop_header, types::I64); // tag
+                func_ctx.builder.append_block_param(loop_header, types::I64); // data
+            } else if let Some(ct) = cl_type(&param.ty) {
+                func_ctx.builder.append_block_param(loop_header, ct);
+            }
+        }
+        // Jump from entry to loop header with initial values
+        func_ctx.builder.ins().jump(loop_header, &entry_param_vals);
+        func_ctx.builder.switch_to_block(loop_header);
+        // Don't seal loop_header yet — back-edges will be added by tail calls
+        func_ctx.tco_func_name = Some(name.to_string());
+        func_ctx.tco_loop_header = Some(loop_header);
+        loop_header
+    } else {
+        entry_block
     };
 
     // Define parameters as variables
     // For Any params, each takes two block params (tag, data); we store as stack TokValue.
     let mut block_param_idx = 0;
     for (_i, param) in params.iter().enumerate() {
+        func_ctx.param_names.insert(param.name.clone());
         if matches!(param.ty, Type::Any) {
             // Any param: two block params (tag, data), store as stack TokValue
-            let tag_val = func_ctx.builder.block_params(entry_block)[block_param_idx];
-            let data_val = func_ctx.builder.block_params(entry_block)[block_param_idx + 1];
+            let tag_val = func_ctx.builder.block_params(body_block)[block_param_idx];
+            let data_val = func_ctx.builder.block_params(body_block)[block_param_idx + 1];
             block_param_idx += 2;
             // Create stack slot and store
             let addr = alloc_tokvalue_on_stack(&mut func_ctx, tag_val, data_val);
             let var = func_ctx.new_var(PTR);
             func_ctx.builder.def_var(var, addr);
             func_ctx.vars.insert(param.name.clone(), (var, param.ty.clone()));
+            func_ctx.tco_param_vars.push(var);
         } else if let Some(ct) = cl_type(&param.ty) {
             let var = func_ctx.new_var(ct);
-            let param_val = func_ctx.builder.block_params(entry_block)[block_param_idx];
+            let param_val = func_ctx.builder.block_params(body_block)[block_param_idx];
             block_param_idx += 1;
             func_ctx.builder.def_var(var, param_val);
             func_ctx.vars.insert(param.name.clone(), (var, param.ty.clone()));
+            func_ctx.tco_param_vars.push(var);
         }
     }
 
     // Compile body
     let last_val = compile_body(&mut func_ctx, body, ret_type);
+
+    // Seal TCO loop header now that all back-edges have been added
+    if let Some(loop_header) = func_ctx.tco_loop_header {
+        func_ctx.builder.seal_block(loop_header);
+    }
 
     // Jump to return block with value, but only if the current block isn't
     // already terminated (e.g., by a Return statement that already jumped).
@@ -644,14 +730,80 @@ fn compile_function(
     // Return block
     func_ctx.builder.switch_to_block(return_block);
     func_ctx.builder.seal_block(return_block);
+
+    // RC cleanup: dec all heap-typed locals (skip params — caller owns them)
+    let heap_locals: Vec<(String, Variable, Type)> = func_ctx.vars.iter()
+        .filter(|(name, (_, ty))| {
+            !func_ctx.param_names.contains(name.as_str())
+                && (is_heap_type(ty) || matches!(ty, Type::Any))
+        })
+        .map(|(name, (var, ty))| (name.clone(), *var, ty.clone()))
+        .collect();
+
     if is_any_return {
         let tag_ret = func_ctx.builder.block_params(return_block)[0];
         let data_ret = func_ctx.builder.block_params(return_block)[1];
+
+        // For Any return, data_ret might be a heap pointer.
+        // Use aliasing guard: compare each local against data_ret, skip if same.
+        for (_, var, ty) in &heap_locals {
+            let v = func_ctx.builder.use_var(*var);
+            // For Any-typed locals, the pointer is inside the TokValue stack slot;
+            // for heap-typed locals, v is the pointer directly.
+            let ptr = if matches!(ty, Type::Any) {
+                // Load the data field (offset +8) from the stack TokValue
+                func_ctx.builder.ins().load(types::I64, MemFlags::trusted(), v, 8)
+            } else {
+                v
+            };
+            let same = func_ctx.builder.ins().icmp(
+                cranelift_codegen::ir::condcodes::IntCC::Equal, ptr, data_ret);
+            let dec_block = func_ctx.builder.create_block();
+            let cont_block = func_ctx.builder.create_block();
+            func_ctx.builder.ins().brif(same, cont_block, &[], dec_block, &[]);
+            func_ctx.builder.switch_to_block(dec_block);
+            func_ctx.builder.seal_block(dec_block);
+            emit_rc_dec(&mut func_ctx, v, ty);
+            func_ctx.builder.ins().jump(cont_block, &[]);
+            func_ctx.builder.switch_to_block(cont_block);
+            func_ctx.builder.seal_block(cont_block);
+        }
+
         func_ctx.builder.ins().return_(&[tag_ret, data_ret]);
     } else if let Some(_rv) = return_var {
         let ret_val = func_ctx.builder.block_params(return_block)[0];
+
+        if is_heap_type(ret_type) {
+            // Return is a heap pointer — use aliasing guard per local
+            for (_, var, ty) in &heap_locals {
+                let v = func_ctx.builder.use_var(*var);
+                let same = func_ctx.builder.ins().icmp(
+                    cranelift_codegen::ir::condcodes::IntCC::Equal, v, ret_val);
+                let dec_block = func_ctx.builder.create_block();
+                let cont_block = func_ctx.builder.create_block();
+                func_ctx.builder.ins().brif(same, cont_block, &[], dec_block, &[]);
+                func_ctx.builder.switch_to_block(dec_block);
+                func_ctx.builder.seal_block(dec_block);
+                emit_rc_dec(&mut func_ctx, v, ty);
+                func_ctx.builder.ins().jump(cont_block, &[]);
+                func_ctx.builder.switch_to_block(cont_block);
+                func_ctx.builder.seal_block(cont_block);
+            }
+        } else {
+            // Return is scalar — safe to unconditionally dec all heap locals
+            for (_, var, ty) in &heap_locals {
+                let v = func_ctx.builder.use_var(*var);
+                emit_rc_dec(&mut func_ctx, v, ty);
+            }
+        }
+
         func_ctx.builder.ins().return_(&[ret_val]);
     } else {
+        // Void return: unconditionally dec all heap locals
+        for (_, var, ty) in &heap_locals {
+            let v = func_ctx.builder.use_var(*var);
+            emit_rc_dec(&mut func_ctx, v, ty);
+        }
         func_ctx.builder.ins().return_(&[]);
     }
 
@@ -709,6 +861,11 @@ fn compile_lambda_body(compiler: &mut Compiler, lambda: &PendingLambda) {
         ret_type: lambda.ret_type.clone(),
         known_closures: HashMap::new(),
         last_lambda_info: None,
+        param_names: HashSet::new(),
+        closure_sig_cache: HashMap::new(),
+        tco_func_name: None,
+        tco_loop_header: None,
+        tco_param_vars: Vec::new(),
     };
 
     // Bind parameters: first block param is env_ptr, then (tag, data) pairs
@@ -819,6 +976,11 @@ fn compile_specialized_lambda_body(compiler: &mut Compiler, lambda: &PendingLamb
         ret_type: lambda.ret_type.clone(),
         known_closures: HashMap::new(),
         last_lambda_info: None,
+        param_names: HashSet::new(),
+        closure_sig_cache: HashMap::new(),
+        tco_func_name: None,
+        tco_loop_header: None,
+        tco_param_vars: Vec::new(),
     };
 
     // Bind parameters: first block param is env_ptr, then one native value per param
@@ -939,6 +1101,11 @@ fn compile_main(compiler: &mut Compiler, stmts: &[HirStmt]) {
         ret_type: Type::Nil,
         known_closures: HashMap::new(),
         last_lambda_info: None,
+        param_names: HashSet::new(),
+        closure_sig_cache: HashMap::new(),
+        tco_func_name: None,
+        tco_loop_header: None,
+        tco_param_vars: Vec::new(),
     };
 
     compile_body(&mut func_ctx, stmts, &Type::Nil);
@@ -948,6 +1115,17 @@ fn compile_main(compiler: &mut Compiler, stmts: &[HirStmt]) {
     }
     func_ctx.builder.switch_to_block(return_block);
     func_ctx.builder.seal_block(return_block);
+
+    // RC cleanup: dec all heap-typed locals before exit (main has no params)
+    let heap_vars: Vec<(Variable, Type)> = func_ctx.vars.values()
+        .filter(|(_, ty)| is_heap_type(ty) || matches!(ty, Type::Any))
+        .map(|(var, ty)| (*var, ty.clone()))
+        .collect();
+    for (var, ty) in &heap_vars {
+        let v = func_ctx.builder.use_var(*var);
+        emit_rc_dec(&mut func_ctx, v, ty);
+    }
+
     func_ctx.builder.ins().return_(&[]);
     func_ctx.builder.finalize();
 
@@ -1567,6 +1745,23 @@ fn compile_expr(ctx: &mut FuncCtx, expr: &HirExpr) -> Option<Value> {
         HirExprKind::RuntimeCall { name, args } => {
             // Special-case filter/reduce: closure arg needs special handling
             match name.as_str() {
+                "tok_import" => {
+                    // Stdlib module import: intercept known module names
+                    if let HirExprKind::Str(path) = &args[0].kind {
+                        let constructor = match path.as_str() {
+                            "math" => "tok_stdlib_math",
+                            "str"  => "tok_stdlib_str",
+                            "os"   => "tok_stdlib_os",
+                            "io"   => "tok_stdlib_io",
+                            "json" => "tok_stdlib_json",
+                            other  => panic!("Unknown module: @\"{}\" — only stdlib modules (math, str, os, io, json) are supported in compiled mode", other),
+                        };
+                        let func_ref = ctx.get_runtime_func_ref(constructor);
+                        let call = ctx.builder.ins().call(func_ref, &[]);
+                        return Some(ctx.builder.inst_results(call)[0]);
+                    }
+                    panic!("Dynamic imports not supported in compiled mode");
+                }
                 "tok_array_filter" => {
                     // Inline filter when lambda is literal and element type is concrete
                     if can_inline_hof(&args[1], &args[0].ty, 1) {
@@ -1930,36 +2125,118 @@ fn compile_expr(ctx: &mut FuncCtx, expr: &HirExpr) -> Option<Value> {
         }
 
         HirExprKind::Select(arms) => {
-            // Simplified select: try each arm in order.
-            // Full implementation would use runtime select.
-            // For now, just compile the first arm's body.
-            if let Some(arm) = arms.first() {
+            // Select: try each arm non-blocking in order.
+            // If an arm succeeds, execute its body and jump to merge.
+            // If no arm succeeds:
+            //   - If there's a default arm, execute it
+            //   - Otherwise, block on the first recv arm
+            let merge_block = ctx.builder.create_block();
+
+            // Separate default arm from channel arms
+            let mut default_body: Option<&Vec<HirStmt>> = None;
+            let mut channel_arms: Vec<&HirSelectArm> = Vec::new();
+            for arm in arms.iter() {
+                match arm {
+                    HirSelectArm::Default(body) => default_body = Some(body),
+                    _ => channel_arms.push(arm),
+                }
+            }
+
+            // Try each channel arm non-blocking
+            for arm in channel_arms.iter() {
+                let next_block = ctx.builder.create_block();
+                let body_block = ctx.builder.create_block();
+
                 match arm {
                     HirSelectArm::Recv { var, chan, body } => {
                         let chan_val = compile_expr(ctx, chan).unwrap();
-                        let func_ref = ctx.get_runtime_func_ref("tok_channel_recv");
-                        let call = ctx.builder.ins().call(func_ref, &[chan_val]);
-                        let results = ctx.builder.inst_results(call);
-                        let val = results[1]; // data word
+                        // Allocate stack slot for try_recv output
+                        let ss = ctx.builder.create_sized_stack_slot(StackSlotData::new(
+                            StackSlotKind::ExplicitSlot,
+                            16, // sizeof(TokValue)
+                            3,  // 8-byte alignment
+                        ));
+                        let out_ptr = ctx.builder.ins().stack_addr(PTR, ss, 0);
+                        let try_recv_ref = ctx.get_runtime_func_ref("tok_channel_try_recv");
+                        let call = ctx.builder.ins().call(try_recv_ref, &[chan_val, out_ptr]);
+                        let ok = ctx.builder.inst_results(call)[0];
+                        ctx.builder.ins().brif(ok, body_block, &[], next_block, &[]);
+
+                        // Body block: received successfully
+                        // out_ptr is a pointer to TokValue on the stack — use it as Any
+                        ctx.builder.switch_to_block(body_block);
+                        ctx.builder.seal_block(body_block);
                         let ct = cl_type_or_i64(&Type::Any);
                         let v = ctx.new_var(ct);
-                        ctx.builder.def_var(v, val);
+                        ctx.builder.def_var(v, out_ptr);
                         ctx.vars.insert(var.clone(), (v, Type::Any));
+                        ctx.block_terminated = false;
                         compile_body(ctx, body, &Type::Nil);
-                    }
-                    HirSelectArm::Default(body) => {
-                        compile_body(ctx, body, &Type::Nil);
+                        if !ctx.block_terminated {
+                            ctx.builder.ins().jump(merge_block, &[]);
+                        }
                     }
                     HirSelectArm::Send { chan, value, body } => {
                         let chan_val = compile_expr(ctx, chan).unwrap();
                         let val = compile_expr(ctx, value).unwrap();
-                        let (tag, data) = to_tokvalue(ctx, val, &Type::Any);
-                        let func_ref = ctx.get_runtime_func_ref("tok_channel_send");
-                        ctx.builder.ins().call(func_ref, &[chan_val, tag, data]);
+                        let (tag, data) = to_tokvalue(ctx, val, &value.ty);
+                        let try_send_ref = ctx.get_runtime_func_ref("tok_channel_try_send");
+                        let call = ctx.builder.ins().call(try_send_ref, &[chan_val, tag, data]);
+                        let ok = ctx.builder.inst_results(call)[0];
+                        ctx.builder.ins().brif(ok, body_block, &[], next_block, &[]);
+
+                        // Body block: sent successfully
+                        ctx.builder.switch_to_block(body_block);
+                        ctx.builder.seal_block(body_block);
+                        ctx.block_terminated = false;
                         compile_body(ctx, body, &Type::Nil);
+                        if !ctx.block_terminated {
+                            ctx.builder.ins().jump(merge_block, &[]);
+                        }
+                    }
+                    HirSelectArm::Default(_) => unreachable!(),
+                }
+
+                ctx.builder.switch_to_block(next_block);
+                ctx.builder.seal_block(next_block);
+            }
+
+            // All non-blocking attempts failed — we're in the fallthrough block
+            if let Some(body) = default_body {
+                // Default arm exists: execute it
+                ctx.block_terminated = false;
+                compile_body(ctx, body, &Type::Nil);
+                if !ctx.block_terminated {
+                    ctx.builder.ins().jump(merge_block, &[]);
+                }
+            } else if let Some(first_recv) = channel_arms.iter().find(|a| matches!(a, HirSelectArm::Recv { .. })) {
+                // No default: block on first recv arm
+                if let HirSelectArm::Recv { var, chan, body } = first_recv {
+                    let chan_val = compile_expr(ctx, chan).unwrap();
+                    let recv_ref = ctx.get_runtime_func_ref("tok_channel_recv");
+                    let call = ctx.builder.ins().call(recv_ref, &[chan_val]);
+                    let results = ctx.builder.inst_results(call);
+                    let tag = results[0];
+                    let data = results[1];
+                    // Store as TokValue on stack for Any-typed access
+                    let val_ptr = alloc_tokvalue_on_stack(ctx, tag, data);
+                    let ct = cl_type_or_i64(&Type::Any);
+                    let v = ctx.new_var(ct);
+                    ctx.builder.def_var(v, val_ptr);
+                    ctx.vars.insert(var.clone(), (v, Type::Any));
+                    ctx.block_terminated = false;
+                    compile_body(ctx, body, &Type::Nil);
+                    if !ctx.block_terminated {
+                        ctx.builder.ins().jump(merge_block, &[]);
                     }
                 }
+            } else {
+                // No recv arms and no default — just jump to merge
+                ctx.builder.ins().jump(merge_block, &[]);
             }
+
+            ctx.builder.switch_to_block(merge_block);
+            ctx.builder.seal_block(merge_block);
             None
         }
     }
@@ -1984,13 +2261,16 @@ fn compile_binop(
     let lv = compile_expr(ctx, left).unwrap_or_else(|| ctx.builder.ins().iconst(types::I64, 0));
     let rv = compile_expr(ctx, right).unwrap_or_else(|| ctx.builder.ins().iconst(types::I64, 0));
 
-    // If both sides are Int
-    if matches!(left.ty, Type::Int) && matches!(right.ty, Type::Int) {
+    let left_is_any = matches!(&left.ty, Type::Any | Type::Optional(_) | Type::Result(_));
+    let right_is_any = matches!(&right.ty, Type::Any | Type::Optional(_) | Type::Result(_));
+
+    // If both sides are Int (and neither is Any)
+    if matches!(left.ty, Type::Int) && matches!(right.ty, Type::Int) && !left_is_any && !right_is_any {
         return compile_int_binop(ctx, op, lv, rv);
     }
 
-    // If both sides are Float (or one is Float and one is Int)
-    if matches!(left.ty, Type::Float) || matches!(right.ty, Type::Float) {
+    // If both sides are Float (or one is Float and one is Int), but neither is Any
+    if !left_is_any && !right_is_any && (matches!(left.ty, Type::Float) || matches!(right.ty, Type::Float)) {
         let lf = if matches!(left.ty, Type::Int) {
             ctx.builder.ins().fcvt_from_sint(types::F64, lv)
         } else {
@@ -2113,8 +2393,9 @@ fn compile_binop(
             let one = ctx.builder.ins().iconst(types::I8, 1);
             return Some(ctx.builder.ins().bxor(lt_result, one));
         }
+        HirBinOp::Pow => "tok_value_pow",
         _ => {
-            // Bitwise ops, Pow — fallback to 0
+            // Bitwise ops — fallback to 0
             return Some(ctx.builder.ins().iconst(types::I64, 0));
         }
     };
@@ -2138,14 +2419,9 @@ fn compile_int_binop(
         HirBinOp::Div => ctx.builder.ins().sdiv(lv, rv),
         HirBinOp::Mod => ctx.builder.ins().srem(lv, rv),
         HirBinOp::Pow => {
-            // Integer power — use a loop or runtime call.
-            // Simple approach: convert to float, pow, convert back.
-            let _lf = ctx.builder.ins().fcvt_from_sint(types::F64, lv);
-            let _rf = ctx.builder.ins().fcvt_from_sint(types::F64, rv);
-            // No fpow in Cranelift — use a simple loop for integer exponentiation.
-            // For now, just multiply (only handles small cases).
-            // TODO: runtime call for general pow
-            ctx.builder.ins().imul(lv, rv) // placeholder
+            let func_ref = ctx.get_runtime_func_ref("tok_pow_int");
+            let call = ctx.builder.ins().call(func_ref, &[lv, rv]);
+            ctx.builder.inst_results(call)[0]
         }
         HirBinOp::Eq => ctx.builder.ins().icmp(IntCC::Equal, lv, rv),
         HirBinOp::Neq => ctx.builder.ins().icmp(IntCC::NotEqual, lv, rv),
@@ -2182,10 +2458,9 @@ fn compile_float_binop(
             ctx.builder.ins().fsub(lv, prod)
         }
         HirBinOp::Pow => {
-            // No fpow in Cranelift. Use runtime.
-            // For now just return lv as placeholder.
-            // TODO: link libm or implement pow
-            lv
+            let func_ref = ctx.get_runtime_func_ref("tok_pow_f64");
+            let call = ctx.builder.ins().call(func_ref, &[lv, rv]);
+            ctx.builder.inst_results(call)[0]
         }
         HirBinOp::Eq => ctx.builder.ins().fcmp(FloatCC::Equal, lv, rv),
         HirBinOp::Neq => ctx.builder.ins().fcmp(FloatCC::NotEqual, lv, rv),
@@ -2301,6 +2576,12 @@ fn compile_call(
     if let HirExprKind::Ident(name) = &func_expr.kind {
         // User-defined functions take priority over builtins
         if ctx.compiler.declared_funcs.contains_key(name.as_str()) {
+            // Try inlining small user functions (single-expression body, non-recursive)
+            if can_inline_user_func(ctx, name) {
+                if let Some(result) = compile_inline_user_func(ctx, name, args, result_ty) {
+                    return Some(result);
+                }
+            }
             return compile_user_func_call(ctx, name, args, result_ty);
         }
         // Built-in function calls
@@ -2699,11 +2980,201 @@ fn compile_call(
 
     // Generic function call (through closure expression)
     let func_val = compile_expr(ctx, func_expr);
-    if let Some(closure_ptr) = func_val {
+    if let Some(raw_val) = func_val {
+        // If func expr is Any-typed, extract closure ptr from TokValue data field
+        let closure_ptr = if matches!(&func_expr.ty, Type::Any | Type::Optional(_) | Type::Result(_)) {
+            ctx.builder.ins().load(types::I64, MemFlags::trusted(), raw_val, 8)
+        } else {
+            raw_val
+        };
         return compile_closure_call(ctx, closure_ptr, args, result_ty);
     }
 
     Some(ctx.builder.ins().iconst(types::I64, 0))
+}
+
+/// Check if a user-defined function can be inlined at the call site.
+/// Eligible: single-expression or single-return body, non-recursive, small.
+fn can_inline_user_func(ctx: &FuncCtx, name: &str) -> bool {
+    let (params, _ret_type, body) = match ctx.compiler.func_bodies.get(name) {
+        Some(v) => v,
+        None => return false,
+    };
+    // Must be a single statement
+    if body.len() != 1 {
+        return false;
+    }
+    // All parameters must be scalar types or known closures
+    // (skip inlining for Tuple/Map/Array params which have complex ABI)
+    if !params.iter().all(|p| matches!(p.ty, Type::Int | Type::Float | Type::Bool | Type::Any)) {
+        return false;
+    }
+    let expr = match &body[0] {
+        HirStmt::Expr(e) => e,
+        HirStmt::Return(Some(e)) => e,
+        _ => return false,
+    };
+    // Don't inline self-recursive functions
+    if contains_self_call(expr, name) {
+        return false;
+    }
+    // Don't inline functions that contain embedded Return statements
+    // (e.g., from ?^ error propagation or cond?^expr)
+    // because Returns would jump to the wrong return block when inlined.
+    if expr_contains_return(expr) {
+        return false;
+    }
+    true
+}
+
+/// Check if an HIR expression tree contains any Return statements
+/// (nested in If/Block/Loop etc.)
+fn expr_contains_return(expr: &HirExpr) -> bool {
+    match &expr.kind {
+        HirExprKind::If { cond, then_body, then_expr, else_body, else_expr } => {
+            expr_contains_return(cond)
+                || then_body.iter().any(|s| stmt_contains_return(s))
+                || then_expr.as_ref().map_or(false, |e| expr_contains_return(e))
+                || else_body.iter().any(|s| stmt_contains_return(s))
+                || else_expr.as_ref().map_or(false, |e| expr_contains_return(e))
+        }
+        HirExprKind::Block { stmts, expr: e } => {
+            stmts.iter().any(|s| stmt_contains_return(s))
+                || e.as_ref().map_or(false, |e| expr_contains_return(e))
+        }
+        HirExprKind::BinOp { left, right, .. } => {
+            expr_contains_return(left) || expr_contains_return(right)
+        }
+        HirExprKind::UnaryOp { operand, .. } => expr_contains_return(operand),
+        HirExprKind::Call { func, args } => {
+            expr_contains_return(func) || args.iter().any(|a| expr_contains_return(a))
+        }
+        HirExprKind::Index { target, index } => {
+            expr_contains_return(target) || expr_contains_return(index)
+        }
+        HirExprKind::Member { target, .. } => expr_contains_return(target),
+        HirExprKind::Loop { body, .. } => body.iter().any(|s| stmt_contains_return(s)),
+        HirExprKind::Array(elems) => elems.iter().any(|e| expr_contains_return(e)),
+        HirExprKind::Tuple(elems) => elems.iter().any(|e| expr_contains_return(e)),
+        _ => false,
+    }
+}
+
+fn stmt_contains_return(stmt: &HirStmt) -> bool {
+    match stmt {
+        HirStmt::Return(_) => true,
+        HirStmt::Expr(e) => expr_contains_return(e),
+        HirStmt::Assign { value, .. } => expr_contains_return(value),
+        _ => false,
+    }
+}
+
+/// Inline a user-defined function at the call site.
+fn compile_inline_user_func(
+    ctx: &mut FuncCtx,
+    name: &str,
+    args: &[HirExpr],
+    result_ty: &Type,
+) -> Option<Value> {
+    let (params, _ret_type, body) = match ctx.compiler.func_bodies.get(name).cloned() {
+        Some(v) => v,
+        None => return None,
+    };
+    if params.len() != args.len() {
+        return None;
+    }
+
+    // Compile argument expressions first
+    let mut arg_vals = Vec::new();
+    let mut arg_types = Vec::new();
+    for arg in args {
+        let v = compile_expr(ctx, arg)
+            .unwrap_or_else(|| ctx.builder.ins().iconst(types::I64, 0));
+        arg_vals.push(v);
+        arg_types.push(arg.ty.clone());
+    }
+
+    // Save old bindings and bind function parameters to arg values.
+    // Also propagate known closures from call site to inlined body.
+    let mut old_bindings: Vec<(String, Option<(Variable, Type)>)> = Vec::new();
+    let mut old_kc_bindings: Vec<(String, Option<KnownClosure>)> = Vec::new();
+    for (i, param) in params.iter().enumerate() {
+        old_bindings.push((param.name.clone(), ctx.vars.remove(&param.name)));
+        // If param is Any and arg is concrete, keep as concrete type
+        let actual_ty = if matches!(param.ty, Type::Any) {
+            &arg_types[i]
+        } else {
+            &param.ty
+        };
+        let ct = cl_type_or_i64(actual_ty);
+        let var = ctx.new_var(ct);
+        // Coerce arg value to the parameter type if needed
+        let coerced = if matches!(param.ty, Type::Any) && !matches!(arg_types[i], Type::Any) {
+            // Parameter is Any but we keep concrete type (no boxing needed when inlining)
+            arg_vals[i]
+        } else {
+            coerce_value(ctx, arg_vals[i], &arg_types[i], actual_ty)
+        };
+        ctx.builder.def_var(var, coerced);
+        ctx.vars.insert(param.name.clone(), (var, actual_ty.clone()));
+
+        // Propagate known closure info: if the argument is a known closure variable,
+        // bind that closure info to the parameter name so fn(x) can be inlined/specialized
+        if let HirExprKind::Ident(arg_name) = &args[i].kind {
+            if let Some(kc) = ctx.known_closures.get(arg_name).cloned() {
+                old_kc_bindings.push((param.name.clone(), ctx.known_closures.remove(&param.name)));
+                ctx.known_closures.insert(param.name.clone(), kc);
+            }
+        }
+    }
+
+    // Retype the body with concrete arg types
+    let mut type_map = HashMap::new();
+    for (i, param) in params.iter().enumerate() {
+        let actual_ty = if matches!(param.ty, Type::Any) {
+            &arg_types[i]
+        } else {
+            &param.ty
+        };
+        type_map.insert(param.name.clone(), actual_ty.clone());
+    }
+    let retyped = retype_body(&body, &type_map);
+    let retyped = unwrap_return_stmts(retyped);
+
+    // Determine result type from retyped body
+    let body_result_ty = retyped.last()
+        .and_then(|s| match s { HirStmt::Expr(e) => Some(e.ty.clone()), _ => None })
+        .unwrap_or(Type::Nil);
+
+    // Compile the body inline
+    let body_result = compile_body(ctx, &retyped, &body_result_ty);
+
+    // Restore old bindings
+    for (pname, old) in old_bindings {
+        ctx.vars.remove(&pname);
+        if let Some(old_val) = old {
+            ctx.vars.insert(pname, old_val);
+        }
+    }
+    // Restore old known_closure bindings
+    for (pname, old) in old_kc_bindings {
+        ctx.known_closures.remove(&pname);
+        if let Some(old_val) = old {
+            ctx.known_closures.insert(pname, old_val);
+        }
+    }
+
+    // Coerce result to caller's expected type
+    if let Some(val) = body_result {
+        if matches!(result_ty, Type::Any | Type::Optional(_) | Type::Result(_)) && !matches!(body_result_ty, Type::Any) {
+            let (tag, data) = to_tokvalue(ctx, val, &body_result_ty);
+            Some(alloc_tokvalue_on_stack(ctx, tag, data))
+        } else {
+            Some(coerce_value(ctx, val, &body_result_ty, result_ty))
+        }
+    } else {
+        None
+    }
 }
 
 fn compile_user_func_call(
@@ -2712,6 +3183,39 @@ fn compile_user_func_call(
     args: &[HirExpr],
     result_ty: &Type,
 ) -> Option<Value> {
+    // TCO: if this is a tail call to self, compile args and jump to loop header
+    if ctx.tco_func_name.as_deref() == Some(name) {
+        if let Some(loop_header) = ctx.tco_loop_header {
+            let func_sig = ctx.compiler.func_sigs.get(name).cloned();
+            let mut jump_vals = Vec::new();
+            for (i, arg) in args.iter().enumerate() {
+                if let Some(v) = compile_expr(ctx, arg) {
+                    let param_ty = func_sig.as_ref()
+                        .and_then(|s| s.0.get(i))
+                        .cloned()
+                        .unwrap_or(arg.ty.clone());
+                    if matches!(param_ty, Type::Any) {
+                        let (tag, data) = to_tokvalue(ctx, v, &arg.ty);
+                        jump_vals.push(tag);
+                        jump_vals.push(data);
+                    } else if matches!(arg.ty, Type::Any) {
+                        let coerced = coerce_value(ctx, v, &arg.ty, &param_ty);
+                        jump_vals.push(coerced);
+                    } else {
+                        jump_vals.push(v);
+                    }
+                }
+            }
+            ctx.builder.ins().jump(loop_header, &jump_vals);
+            // Create a dead block for any unreachable code after the tail call
+            let dead_block = ctx.builder.create_block();
+            ctx.builder.switch_to_block(dead_block);
+            ctx.builder.seal_block(dead_block);
+            ctx.block_terminated = true;
+            return None;
+        }
+    }
+
     let func_sig = ctx.compiler.func_sigs.get(name).cloned();
     let mut arg_vals = Vec::new();
     for (i, arg) in args.iter().enumerate() {
@@ -2766,16 +3270,23 @@ fn compile_closure_call(
     let fn_ptr = ctx.builder.ins().load(PTR, MemFlags::trusted(), closure_ptr, 8);
     let env_ptr = ctx.builder.ins().load(PTR, MemFlags::trusted(), closure_ptr, 16);
 
-    // Build signature for indirect call: (env: PTR, tag0: I64, data0: I64, ...) -> (I64, I64)
-    let mut sig = ctx.compiler.module.make_signature();
-    sig.params.push(AbiParam::new(PTR)); // env
-    for _ in args {
-        sig.params.push(AbiParam::new(types::I64)); // tag
-        sig.params.push(AbiParam::new(types::I64)); // data
-    }
-    sig.returns.push(AbiParam::new(types::I64)); // ret tag
-    sig.returns.push(AbiParam::new(types::I64)); // ret data
-    let sig_ref = ctx.builder.import_signature(sig);
+    // Build or reuse cached signature for indirect call: (env: PTR, tag0: I64, data0: I64, ...) -> (I64, I64)
+    let n_args = args.len();
+    let sig_ref = if let Some(&cached) = ctx.closure_sig_cache.get(&n_args) {
+        cached
+    } else {
+        let mut sig = ctx.compiler.module.make_signature();
+        sig.params.push(AbiParam::new(PTR)); // env
+        for _ in 0..n_args {
+            sig.params.push(AbiParam::new(types::I64)); // tag
+            sig.params.push(AbiParam::new(types::I64)); // data
+        }
+        sig.returns.push(AbiParam::new(types::I64)); // ret tag
+        sig.returns.push(AbiParam::new(types::I64)); // ret data
+        let sr = ctx.builder.import_signature(sig);
+        ctx.closure_sig_cache.insert(n_args, sr);
+        sr
+    };
 
     // Build args: env, then (tag, data) pairs for each arg
     let mut call_args = vec![env_ptr];
@@ -2949,6 +3460,16 @@ fn can_inline_closure_call(
     !contains_self_call(body_expr, var_name)
 }
 
+/// Check if an HIR statement contains a call to a function with the given name.
+fn stmt_contains_self_call(stmt: &HirStmt, name: &str) -> bool {
+    match stmt {
+        HirStmt::Expr(e) => contains_self_call(e, name),
+        HirStmt::Return(Some(e)) => contains_self_call(e, name),
+        HirStmt::Assign { value, .. } => contains_self_call(value, name),
+        _ => false,
+    }
+}
+
 /// Check if an HIR expression contains a call to a function with the given name.
 fn contains_self_call(expr: &HirExpr, name: &str) -> bool {
     match &expr.kind {
@@ -2964,14 +3485,53 @@ fn contains_self_call(expr: &HirExpr, name: &str) -> bool {
             contains_self_call(left, name) || contains_self_call(right, name)
         }
         HirExprKind::UnaryOp { operand, .. } => contains_self_call(operand, name),
-        HirExprKind::If { cond, then_expr, .. } => {
+        HirExprKind::If { cond, then_body, then_expr, else_body, else_expr } => {
             contains_self_call(cond, name)
+                || then_body.iter().any(|s| stmt_contains_self_call(s, name))
                 || then_expr.as_ref().map_or(false, |e| contains_self_call(e, name))
+                || else_body.iter().any(|s| stmt_contains_self_call(s, name))
+                || else_expr.as_ref().map_or(false, |e| contains_self_call(e, name))
         }
         HirExprKind::Index { target, index } => {
             contains_self_call(target, name) || contains_self_call(index, name)
         }
         HirExprKind::Member { target, .. } => contains_self_call(target, name),
+        _ => false,
+    }
+}
+
+/// Check if a function body ends with a self-tail-call (directly or in both branches of an if).
+fn is_self_tail_recursive(body: &[HirStmt], name: &str) -> bool {
+    let last = match body.last() {
+        Some(s) => s,
+        None => return false,
+    };
+    match last {
+        HirStmt::Expr(e) => is_tail_call_expr(e, name),
+        HirStmt::Return(Some(e)) => is_tail_call_expr(e, name),
+        _ => false,
+    }
+}
+
+/// Check if an expression is a tail call to `name` (direct call or if-then-else where at least
+/// one branch is a tail call).
+fn is_tail_call_expr(expr: &HirExpr, name: &str) -> bool {
+    match &expr.kind {
+        HirExprKind::Call { func, args: _ } => {
+            if let HirExprKind::Ident(callee) = &func.kind {
+                callee == name
+            } else {
+                false
+            }
+        }
+        HirExprKind::If { then_body: _, then_expr, else_body: _, else_expr, .. } => {
+            // At least one branch must be a tail call for TCO to be useful.
+            // We only transform the branches that ARE tail calls; non-tail branches
+            // return normally.
+            let then_tail = then_expr.as_ref().map_or(false, |e| is_tail_call_expr(e, name));
+            let else_tail = else_expr.as_ref().map_or(false, |e| is_tail_call_expr(e, name));
+            then_tail || else_tail
+        }
         _ => false,
     }
 }
@@ -4334,6 +4894,7 @@ fn infer_binop_type(left: &Type, right: &Type, op: HirBinOp) -> Type {
                 (Type::Int, Type::Int) => Type::Int,
                 (Type::Float, Type::Float) => Type::Float,
                 (Type::Int, Type::Float) | (Type::Float, Type::Int) => Type::Float,
+                (Type::Str, Type::Str) if matches!(op, Add) => Type::Str,
                 _ => Type::Any, // Can't determine — leave as Any
             }
         }

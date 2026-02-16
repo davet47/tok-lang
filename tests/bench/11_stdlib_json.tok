@@ -1,0 +1,34 @@
+// Benchmark 11: Stdlib JSON — parse + stringify
+// Measures JSON serialization/deserialization performance
+
+j=@"json"
+
+// Part A: Parse simple values repeatedly
+n_parse_simple=1000000
+t0=clock()
+~(i:0..n_parse_simple){
+  last=j.parse("[1, 2, 3, 4, 5]")
+}
+t1=clock()
+pl("[bench] json_parse_array: {n_parse_simple} calls in {t1-t0} ms")
+
+// Part B: Stringify maps repeatedly
+n_stringify=1000000
+data={name:"tok" version:1 fast:T tags:["lang" "compiled"]}
+t0=clock()
+~(i:0..n_stringify){
+  last_s=j.stringify(data)
+}
+t1=clock()
+pl("[bench] json_stringify: {n_stringify} calls in {t1-t0} ms")
+
+// Part C: Parse + stringify roundtrip
+n_roundtrip=500000
+json_str="\{\"x\":1,\"y\":2,\"z\":3}"
+t0=clock()
+~(i:0..n_roundtrip){
+  obj=j.parse(json_str)
+  rt=j.stringify(obj)
+}
+t1=clock()
+pl("[bench] json_roundtrip: {n_roundtrip} parse+stringify in {t1-t0} ms")

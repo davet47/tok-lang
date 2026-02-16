@@ -1,0 +1,31 @@
+// Standard library: @"os" module tests
+
+os=@"os"
+
+// --- pid ---
+pid=os.pid()
+pl(type(pid))
+
+// --- cwd ---
+cwd=os.cwd()
+pl(type(cwd))
+
+// --- time ---
+t=os.time()
+pl(type(t))
+
+// --- args ---
+args=os.args()
+pl(type(args))
+
+// --- env / set_env ---
+os.set_env("TOK_TEST_VAR" "hello_tok")
+pl(os.env("TOK_TEST_VAR"))
+
+// --- env (missing) ---
+missing=os.env("TOK_NONEXISTENT_VAR_12345")
+pl(missing)
+
+// --- exec ---
+result=os.exec("echo hello")
+pl(type(result))

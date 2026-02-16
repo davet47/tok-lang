@@ -1,0 +1,38 @@
+// Standard library: @"json" module tests
+
+j=@"json"
+
+// --- parse simple values ---
+pl(j.parse("42"))
+pl(j.parse("3.14"))
+pl(j.parse("true"))
+pl(j.parse("false"))
+pl(j.parse("null"))
+
+// --- parse array ---
+arr=j.parse("[1, 2, 3]")
+pl(arr)
+pl(#arr)
+
+// --- parse object (use \{ to escape brace in string) ---
+obj=j.parse("\{\"name\": \"tok\", \"version\": 1}")
+pl(obj.name)
+pl(obj.version)
+
+// --- stringify ---
+pl(j.stringify(42))
+pl(j.stringify("hello"))
+pl(j.stringify([1 2 3]))
+
+// --- stringify map ---
+m={name:"tok" version:1}
+pl(j.stringify(m))
+
+// --- roundtrip ---
+original="\{\"a\":1,\"b\":[2,3],\"c\":true}"
+parsed=j.parse(original)
+back=j.stringify(parsed)
+pl(back)
+
+// --- pretty ---
+pl(j.pretty({x:1 y:2}))

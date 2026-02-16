@@ -1,0 +1,33 @@
+// Standard library: @"io" module tests
+
+io=@"io"
+
+// --- write_file / read_file ---
+io.write_file("/tmp/tok_io_test.txt" "hello from tok")
+pl(io.read_file("/tmp/tok_io_test.txt"))
+
+// --- append_file ---
+io.append_file("/tmp/tok_io_test.txt" "\nline2")
+pl(io.read_file("/tmp/tok_io_test.txt"))
+
+// --- exists ---
+pl(io.exists("/tmp/tok_io_test.txt"))
+pl(io.exists("/tmp/nonexistent_tok_file_12345"))
+
+// --- is_file / is_dir ---
+pl(io.is_file("/tmp/tok_io_test.txt"))
+pl(io.is_dir("/tmp"))
+pl(io.is_dir("/tmp/tok_io_test.txt"))
+
+// --- mkdir / ls ---
+io.mkdir("/tmp/tok_test_dir")
+io.write_file("/tmp/tok_test_dir/a.txt" "aaa")
+io.write_file("/tmp/tok_test_dir/b.txt" "bbb")
+files=io.ls("/tmp/tok_test_dir")
+pl(#files)
+
+// --- rm ---
+io.rm("/tmp/tok_io_test.txt")
+pl(io.exists("/tmp/tok_io_test.txt"))
+io.rm("/tmp/tok_test_dir")
+pl(io.exists("/tmp/tok_test_dir"))

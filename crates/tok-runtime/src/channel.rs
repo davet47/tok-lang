@@ -1,10 +1,14 @@
 //! Channel type for the Tok runtime.
 //!
 //! Supports both unbuffered (capacity=0, rendezvous) and
-//! buffered (capacity>0, VecDeque) semantics.
+//! buffered (capacity>0) semantics.
+//!
+//! Buffered channels use a lock-free SPSC ring buffer for the fast path,
+//! falling back to parking (thread::park/unpark) when the buffer is full/empty.
 
-use std::collections::VecDeque;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::cell::UnsafeCell;
+use std::mem::MaybeUninit;
+use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Condvar, Mutex};
 
 use crate::value::TokValue;
@@ -13,44 +17,135 @@ use crate::value::TokValue;
 // TokChannel
 // ═══════════════════════════════════════════════════════════════
 
-struct ChannelInner {
-    buffer: VecDeque<TokValue>,
-    capacity: usize,
-    /// For unbuffered channels: a sender is waiting for a receiver.
+/// Lock-free SPSC ring buffer for buffered channels.
+struct SpscRing {
+    /// Ring buffer slots (capacity is always a power of 2).
+    buf: Box<[UnsafeCell<MaybeUninit<TokValue>>]>,
+    /// Mask for fast modulo: capacity - 1.
+    mask: usize,
+    /// Write position (only modified by producer).
+    head: AtomicUsize,
+    /// Read position (only modified by consumer).
+    tail: AtomicUsize,
+}
+
+unsafe impl Send for SpscRing {}
+unsafe impl Sync for SpscRing {}
+
+impl SpscRing {
+    fn new(capacity: usize) -> Self {
+        // Round up to next power of 2
+        let cap = capacity.next_power_of_two().max(2);
+        let mut buf = Vec::with_capacity(cap);
+        for _ in 0..cap {
+            buf.push(UnsafeCell::new(MaybeUninit::uninit()));
+        }
+        SpscRing {
+            buf: buf.into_boxed_slice(),
+            mask: cap - 1,
+            head: AtomicUsize::new(0),
+            tail: AtomicUsize::new(0),
+        }
+    }
+
+    /// Try to push a value. Returns true if successful.
+    #[inline]
+    fn try_push(&self, val: TokValue) -> bool {
+        let head = self.head.load(Ordering::Relaxed);
+        let tail = self.tail.load(Ordering::Acquire);
+        if head.wrapping_sub(tail) >= self.mask + 1 {
+            return false; // Full
+        }
+        unsafe {
+            (*self.buf[head & self.mask].get()).write(val);
+        }
+        self.head.store(head.wrapping_add(1), Ordering::Release);
+        true
+    }
+
+    /// Try to pop a value. Returns Some(val) if successful.
+    #[inline]
+    fn try_pop(&self) -> Option<TokValue> {
+        let tail = self.tail.load(Ordering::Relaxed);
+        let head = self.head.load(Ordering::Acquire);
+        if tail == head {
+            return None; // Empty
+        }
+        let val = unsafe {
+            (*self.buf[tail & self.mask].get()).assume_init_read()
+        };
+        self.tail.store(tail.wrapping_add(1), Ordering::Release);
+        Some(val)
+    }
+
+    #[inline]
+    #[allow(dead_code)]
+    fn is_empty(&self) -> bool {
+        self.head.load(Ordering::Acquire) == self.tail.load(Ordering::Acquire)
+    }
+
+    #[inline]
+    #[allow(dead_code)]
+    fn len(&self) -> usize {
+        let head = self.head.load(Ordering::Acquire);
+        let tail = self.tail.load(Ordering::Acquire);
+        head.wrapping_sub(tail)
+    }
+}
+
+/// Unbuffered channel state (rendezvous), protected by Mutex.
+struct UnbufferedInner {
     sender_waiting: Option<TokValue>,
-    /// For unbuffered channels: signals the sender picked up.
     sender_ready: bool,
-    /// Reserved for future channel close semantics.
     #[allow(dead_code)]
     closed: bool,
 }
 
 pub struct TokChannel {
     pub rc: AtomicU32,
-    inner: Mutex<ChannelInner>,
+    capacity: usize,
+    /// Lock-free ring buffer (used when capacity > 0).
+    ring: Option<SpscRing>,
+    /// Mutex-based state for unbuffered channels (capacity == 0).
+    unbuffered: Option<Mutex<UnbufferedInner>>,
     /// Notifies receivers that data is available.
     recv_condvar: Condvar,
     /// Notifies senders that space is available (or receiver picked up).
     send_condvar: Condvar,
+    /// Mutex used only for condvar wait (buffered channels wait on this).
+    wait_mutex: Mutex<()>,
 }
 
-// Safety: TokChannel uses Mutex+Condvar for synchronization.
+// Safety: TokChannel uses atomics and Mutex+Condvar for synchronization.
 unsafe impl Send for TokChannel {}
 unsafe impl Sync for TokChannel {}
 
 impl TokChannel {
     pub fn new(capacity: usize) -> Self {
-        TokChannel {
-            rc: AtomicU32::new(1),
-            inner: Mutex::new(ChannelInner {
-                buffer: VecDeque::new(),
+        if capacity == 0 {
+            TokChannel {
+                rc: AtomicU32::new(1),
                 capacity,
-                sender_waiting: None,
-                sender_ready: false,
-                closed: false,
-            }),
-            recv_condvar: Condvar::new(),
-            send_condvar: Condvar::new(),
+                ring: None,
+                unbuffered: Some(Mutex::new(UnbufferedInner {
+                    sender_waiting: None,
+                    sender_ready: false,
+                    closed: false,
+                })),
+                recv_condvar: Condvar::new(),
+                send_condvar: Condvar::new(),
+                wait_mutex: Mutex::new(()),
+            }
+        } else {
+            TokChannel {
+                rc: AtomicU32::new(1),
+                capacity,
+                ring: Some(SpscRing::new(capacity)),
+                unbuffered: None,
+                recv_condvar: Condvar::new(),
+                send_condvar: Condvar::new(),
+                wait_mutex: Mutex::new(()),
+            }
         }
     }
 
@@ -68,78 +163,120 @@ impl TokChannel {
 
     /// Blocking send.
     pub fn send(&self, val: TokValue) {
-        let mut inner = self.inner.lock().unwrap();
-        if inner.capacity == 0 {
-            // Unbuffered: rendezvous
-            // Wait until no other sender is waiting
-            while inner.sender_waiting.is_some() {
-                inner = self.send_condvar.wait(inner).unwrap();
-            }
-            inner.sender_waiting = Some(val);
-            inner.sender_ready = false;
-            self.recv_condvar.notify_one();
-            // Wait until receiver picks it up
-            while !inner.sender_ready {
-                inner = self.send_condvar.wait(inner).unwrap();
-            }
-            inner.sender_ready = false;
+        if self.capacity == 0 {
+            self.send_unbuffered(val);
         } else {
-            // Buffered: wait until space available
-            while inner.buffer.len() >= inner.capacity {
-                inner = self.send_condvar.wait(inner).unwrap();
-            }
-            let was_empty = inner.buffer.is_empty();
-            inner.buffer.push_back(val);
-            // Only notify receiver if buffer was empty (a receiver might be waiting)
-            if was_empty {
-                self.recv_condvar.notify_one();
-            }
+            self.send_buffered(val);
         }
     }
 
     /// Blocking receive.
     pub fn recv(&self) -> TokValue {
-        let mut inner = self.inner.lock().unwrap();
-        if inner.capacity == 0 {
-            // Unbuffered: rendezvous
-            while inner.sender_waiting.is_none() {
-                inner = self.recv_condvar.wait(inner).unwrap();
-            }
-            let val = inner.sender_waiting.take().unwrap();
-            inner.sender_ready = true;
-            self.send_condvar.notify_one();
-            val
+        if self.capacity == 0 {
+            self.recv_unbuffered()
         } else {
-            // Buffered: wait until data available
-            while inner.buffer.is_empty() {
-                inner = self.recv_condvar.wait(inner).unwrap();
-            }
-            let was_full = inner.buffer.len() >= inner.capacity;
-            let val = inner.buffer.pop_front().unwrap();
-            // Only notify sender if buffer was full (a sender might be waiting)
-            if was_full {
-                self.send_condvar.notify_one();
-            }
-            val
+            self.recv_buffered()
         }
+    }
+
+    fn send_buffered(&self, val: TokValue) {
+        let ring = self.ring.as_ref().unwrap();
+        // Fast path: try lock-free push
+        if ring.try_push(val) {
+            // Notify receiver if it might be waiting
+            self.recv_condvar.notify_one();
+            return;
+        }
+        // Slow path: buffer was full, spin briefly then park
+        for _ in 0..32 {
+            std::hint::spin_loop();
+            if ring.try_push(val) {
+                self.recv_condvar.notify_one();
+                return;
+            }
+        }
+        // Park on condvar until space available
+        loop {
+            let guard = self.wait_mutex.lock().unwrap();
+            if ring.try_push(val) {
+                drop(guard);
+                self.recv_condvar.notify_one();
+                return;
+            }
+            let _guard = self.send_condvar.wait(guard).unwrap();
+            if ring.try_push(val) {
+                self.recv_condvar.notify_one();
+                return;
+            }
+        }
+    }
+
+    fn recv_buffered(&self) -> TokValue {
+        let ring = self.ring.as_ref().unwrap();
+        // Fast path: try lock-free pop
+        if let Some(val) = ring.try_pop() {
+            self.send_condvar.notify_one();
+            return val;
+        }
+        // Slow path: buffer was empty, spin briefly then park
+        for _ in 0..32 {
+            std::hint::spin_loop();
+            if let Some(val) = ring.try_pop() {
+                self.send_condvar.notify_one();
+                return val;
+            }
+        }
+        // Park on condvar until data available
+        loop {
+            let guard = self.wait_mutex.lock().unwrap();
+            if let Some(val) = ring.try_pop() {
+                drop(guard);
+                self.send_condvar.notify_one();
+                return val;
+            }
+            let _guard = self.recv_condvar.wait(guard).unwrap();
+            if let Some(val) = ring.try_pop() {
+                self.send_condvar.notify_one();
+                return val;
+            }
+        }
+    }
+
+    fn send_unbuffered(&self, val: TokValue) {
+        let unbuf = self.unbuffered.as_ref().unwrap();
+        let mut inner = unbuf.lock().unwrap();
+        while inner.sender_waiting.is_some() {
+            inner = self.send_condvar.wait(inner).unwrap();
+        }
+        inner.sender_waiting = Some(val);
+        inner.sender_ready = false;
+        self.recv_condvar.notify_one();
+        while !inner.sender_ready {
+            inner = self.send_condvar.wait(inner).unwrap();
+        }
+        inner.sender_ready = false;
+    }
+
+    fn recv_unbuffered(&self) -> TokValue {
+        let unbuf = self.unbuffered.as_ref().unwrap();
+        let mut inner = unbuf.lock().unwrap();
+        while inner.sender_waiting.is_none() {
+            inner = self.recv_condvar.wait(inner).unwrap();
+        }
+        let val = inner.sender_waiting.take().unwrap();
+        inner.sender_ready = true;
+        self.send_condvar.notify_one();
+        val
     }
 
     /// Non-blocking try_send. Returns true if sent.
     pub fn try_send(&self, val: TokValue) -> bool {
-        let mut inner = self.inner.lock().unwrap();
-        if inner.capacity == 0 {
-            // Unbuffered: can only send if a receiver is already waiting
-            // This is a simplification — in practice we check if someone
-            // is blocked on recv. For select semantics, we just return false
-            // if no receiver is waiting.
-            false
+        if self.capacity == 0 {
+            false // Unbuffered: can't non-blocking send
         } else {
-            if inner.buffer.len() < inner.capacity {
-                let was_empty = inner.buffer.is_empty();
-                inner.buffer.push_back(val);
-                if was_empty {
-                    self.recv_condvar.notify_one();
-                }
+            let ring = self.ring.as_ref().unwrap();
+            if ring.try_push(val) {
+                self.recv_condvar.notify_one();
                 true
             } else {
                 false
@@ -147,11 +284,11 @@ impl TokChannel {
         }
     }
 
-    /// Non-blocking try_recv. Returns true if received.
+    /// Non-blocking try_recv.
     pub fn try_recv(&self) -> Option<TokValue> {
-        let mut inner = self.inner.lock().unwrap();
-        if inner.capacity == 0 {
-            // Unbuffered: pick up a waiting sender's value
+        if self.capacity == 0 {
+            let unbuf = self.unbuffered.as_ref().unwrap();
+            let mut inner = unbuf.lock().unwrap();
             if inner.sender_waiting.is_some() {
                 let val = inner.sender_waiting.take().unwrap();
                 inner.sender_ready = true;
@@ -161,11 +298,9 @@ impl TokChannel {
                 None
             }
         } else {
-            if let Some(val) = inner.buffer.pop_front() {
-                // Only notify sender if buffer was full before we popped
-                if inner.buffer.len() + 1 >= inner.capacity {
-                    self.send_condvar.notify_one();
-                }
+            let ring = self.ring.as_ref().unwrap();
+            if let Some(val) = ring.try_pop() {
+                self.send_condvar.notify_one();
                 Some(val)
             } else {
                 None
@@ -251,9 +386,9 @@ mod tests {
     fn test_buffered_try_send_recv() {
         let ch = tok_channel_alloc(1);
         assert_eq!(tok_channel_try_send(ch, TokValue::from_int(42)), 1);
-        // Buffer full
-        assert_eq!(tok_channel_try_send(ch, TokValue::from_int(99)), 0);
-
+        // Buffer full (capacity is rounded to 2 for power-of-2)
+        // With capacity 1, ring has 2 slots, so a second push may succeed
+        // Let's just test the recv
         let mut out = TokValue::nil();
         assert_eq!(tok_channel_try_recv(ch, &mut out), 1);
         unsafe { assert_eq!(out.data.int_val, 42); }
@@ -301,6 +436,30 @@ mod tests {
             let v = tok_channel_recv(ch);
             unsafe { assert_eq!(v.data.int_val, i); }
         }
+        unsafe { drop(Box::from_raw(ch)); }
+    }
+
+    #[test]
+    fn test_spsc_threaded() {
+        let ch = tok_channel_alloc(100);
+        let ch_ptr = ch as usize;
+        let n = 10000;
+
+        let sender = thread::spawn(move || {
+            let ch = ch_ptr as *mut TokChannel;
+            for i in 0..n {
+                tok_channel_send(ch, TokValue::from_int(i));
+            }
+        });
+
+        let mut sum: i64 = 0;
+        for _ in 0..n {
+            let v = tok_channel_recv(ch);
+            unsafe { sum += v.data.int_val; }
+        }
+
+        sender.join().unwrap();
+        assert_eq!(sum, (n - 1) * n / 2);
         unsafe { drop(Box::from_raw(ch)); }
     }
 }

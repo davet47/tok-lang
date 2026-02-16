@@ -1,0 +1,44 @@
+// Standard library: @"math" module tests
+
+m=@"math"
+
+// --- Constants ---
+pl(m.pi)
+pl(m.e)
+pl(m.inf)
+
+// --- sqrt ---
+pl(m.sqrt(4.0))
+pl(m.sqrt(9))
+
+// --- Trig ---
+pl(m.sin(0.0))
+pl(m.cos(0.0))
+pl(m.tan(0.0))
+
+// --- floor/ceil/round ---
+pl(m.floor(3.7))
+pl(m.ceil(3.2))
+pl(m.round(3.5))
+pl(m.round(3.4))
+
+// --- abs ---
+pl(m.abs(-5))
+pl(m.abs(5))
+pl(m.abs(-3.14))
+
+// --- pow ---
+pl(m.pow(2.0 10.0))
+
+// --- log/exp ---
+pl(m.exp(0.0))
+pl(m.log(1.0))
+
+// --- min/max ---
+pl(m.min(3 5))
+pl(m.max(3 5))
+pl(m.min(1.5 2.5))
+
+// --- random ---
+r=m.random()
+pl(type(r))

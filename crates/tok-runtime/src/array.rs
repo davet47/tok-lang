@@ -207,8 +207,16 @@ pub extern "C" fn tok_array_join(arr: *mut TokArray, sep: *mut TokString) -> *mu
             return TokString::alloc(String::new());
         }
         // Direct-write: build result string without intermediate Vec<String>.
-        // For string elements, copy directly from TokString data without formatting.
-        let mut result = String::new();
+        // Pre-estimate capacity for string-only arrays to avoid reallocation.
+        let mut est_len = sep_str.len() * (data.len() - 1);
+        for v in data.iter() {
+            if v.tag == TAG_STRING && !v.data.string_ptr.is_null() {
+                est_len += (*v.data.string_ptr).data.len();
+            } else {
+                est_len += 16; // rough estimate for non-string values
+            }
+        }
+        let mut result = String::with_capacity(est_len);
         for (i, v) in data.iter().enumerate() {
             if i > 0 {
                 result.push_str(sep_str);

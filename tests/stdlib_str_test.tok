@@ -1,0 +1,55 @@
+// Standard library: @"str" module tests
+
+s=@"str"
+
+// --- upper/lower ---
+pl(s.upper("hello"))
+pl(s.lower("WORLD"))
+
+// --- trim ---
+pl(s.trim("  hello  "))
+pl(s.trim_left("  hello  "))
+pl(s.trim_right("  hello  "))
+
+// --- contains ---
+pl(s.contains("hello world" "world"))
+pl(s.contains("hello" "xyz"))
+
+// --- starts_with / ends_with ---
+pl(s.starts_with("hello" "hel"))
+pl(s.ends_with("hello" "llo"))
+pl(s.starts_with("hello" "xyz"))
+
+// --- index_of ---
+pl(s.index_of("hello" "ll"))
+pl(s.index_of("hello" "xyz"))
+
+// --- replace ---
+pl(s.replace("hello world" "world" "tok"))
+
+// --- repeat ---
+pl(s.repeat("ab" 3))
+
+// --- split ---
+pl(s.split("a,b,c" ","))
+
+// --- chars ---
+pl(s.chars("hi"))
+
+// --- rev ---
+pl(s.rev("hello"))
+
+// --- len ---
+pl(s.len("hello"))
+
+// --- substr ---
+pl(s.substr("hello world" 0 5))
+pl(s.substr("hello world" 6 11))
+
+// --- pad ---
+pl(s.pad_left("42" 5 "0"))
+pl(s.pad_right("hi" 5 "."))
+
+// --- bytes ---
+b=s.bytes("A")
+pl(b[0])

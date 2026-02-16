@@ -26,8 +26,11 @@ echo -e "${GREEN}done${NC}"
 for f in "$SCRIPT_DIR"/*.rs; do
     name=$(basename "$f" .rs)
     echo -n "  Rust ($name)... "
-    rustc -O -o "$BUILD_DIR/${name}_rust" "$f" 2>/dev/null
-    echo -e "${GREEN}done${NC}"
+    if rustc -O -o "$BUILD_DIR/${name}_rust" "$f" 2>/dev/null; then
+        echo -e "${GREEN}done${NC}"
+    else
+        echo -e "${YELLOW}skipped${NC} (missing deps)"
+    fi
 done
 
 # Compile Go benchmarks
@@ -42,7 +45,7 @@ echo ""
 echo -e "${YELLOW}=== Running Benchmarks ===${NC}"
 echo ""
 
-for num in 01 02 03 04 05 06 07 08; do
+for num in 01 02 03 04 05 06 07 08 09 10 11; do
     # Find the tok file for this benchmark number
     tok_file=$(ls "$SCRIPT_DIR"/${num}_*.tok 2>/dev/null | head -1 || true)
     if [ -z "$tok_file" ]; then continue; fi
@@ -53,7 +56,7 @@ for num in 01 02 03 04 05 06 07 08; do
 
     # Run Tok
     echo -e "  ${BLUE}Tok:${NC}"
-    "$TOK" "$tok_file" 2>&1 | sed 's/^/    /'
+    "$TOK" run "$tok_file" 2>&1 | grep -v '^ld:' | grep -v '^Built:' | sed 's/^/    /'
     echo ""
 
     # Run Rust

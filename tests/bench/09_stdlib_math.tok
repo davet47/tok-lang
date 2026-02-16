@@ -1,0 +1,48 @@
+// Benchmark 09: Stdlib Math — trigonometry, sqrt, pow, log
+// Measures overhead of calling stdlib closures from map lookups
+
+m=@"math"
+
+// Part A: Tight loop of sqrt calls
+n_sqrt=10000000
+t0=clock()
+total=m.sqrt(1.0)
+~(i:2..n_sqrt+1){
+  v=m.sqrt(i*1.0)
+  total=total+v
+}
+t1=clock()
+fl=m.floor(total)
+pl("[bench] math_sqrt: {n_sqrt} calls in {t1-t0} ms (result={fl})")
+
+// Part B: Trig — sin + cos for each angle
+n_trig=5000000
+t0=clock()
+sum=m.sin(0.0)
+cv=m.cos(0.0)
+sum=sum+cv
+~(i:1..n_trig){
+  x=i*0.001
+  sv=m.sin(x)
+  cv=m.cos(x)
+  sum=sum+sv+cv
+}
+t1=clock()
+fl2=m.floor(sum)
+pl("[bench] math_trig: {n_trig} sin+cos pairs in {t1-t0} ms (result={fl2})")
+
+// Part C: pow + log roundtrip
+n_powlog=5000000
+t0=clock()
+one=m.abs(1.0)
+pw=m.pow(2.0 one)
+acc=m.log(pw+one)
+~(i:2..n_powlog+1){
+  exp=m.abs(i%20*1.0)
+  pw=m.pow(2.0 exp)
+  lv=m.log(pw+one)
+  acc=acc+lv
+}
+t1=clock()
+fl3=m.floor(acc)
+pl("[bench] math_powlog: {n_powlog} pow+log calls in {t1-t0} ms (result={fl3})")

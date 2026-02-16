@@ -26,6 +26,11 @@ pub mod closure;
 pub mod channel;
 pub mod handle;
 pub mod builtins;
+pub mod stdlib_math;
+pub mod stdlib_str;
+pub mod stdlib_os;
+pub mod stdlib_io;
+pub mod stdlib_json;
 
 // Re-export core types for convenience
 pub use value::{TokValue, TokValueData};

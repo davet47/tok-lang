@@ -150,13 +150,23 @@ pub extern "C" fn tok_string_split(s: *mut TokString, delim: *mut TokString) -> 
     assert!(!s.is_null(), "tok_string_split: null string");
     assert!(!delim.is_null(), "tok_string_split: null delimiter");
     unsafe {
-        let parts: Vec<&str> = (*s).data.split(&(*delim).data as &str).collect();
-        let arr = TokArray::alloc();
-        for part in parts {
+        let src = &(*s).data;
+        let delim_str = &(*delim).data;
+
+        // Pre-count splits to allocate array with exact capacity
+        let count = src.matches(delim_str).count() + 1;
+        let mut data = Vec::with_capacity(count);
+
+        // Iterate directly without intermediate Vec<&str>
+        for part in src.split(delim_str) {
             let str_ptr = TokString::alloc(part.to_string());
-            let val = TokValue::from_string(str_ptr);
-            (*arr).data.push(val);
+            data.push(TokValue::from_string(str_ptr));
         }
+
+        let arr = Box::into_raw(Box::new(TokArray {
+            rc: std::sync::atomic::AtomicU32::new(1),
+            data,
+        }));
         arr
     }
 }
