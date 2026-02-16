@@ -12,13 +12,14 @@ This example demonstrates Tok’s core design goals in a single expression:
 
 ### Tok
 ```tok
-result =
-  spawn fetch(url1)
-  + spawn fetch(url2)
-  |> await
-  |> parse
-  |> validate
-  |> (ok err ? ok : log(err); nil)
+h1=go{fetch(url1)}
+h2=go{fetch(url2)}
+result=[<-h1 <-h2]
+  |>flat
+  |>parse
+  |>validate
+val err=result
+val??{pl(err);N}
 ```
 
 ### go
@@ -721,9 +722,12 @@ while True:
 
 ### Tok
 ```tok
+{sleep}=@"time"
+{random}=@"math"
+
 f producer(c n){
   ~(i:0..n){
-    sleep(rand()*100|>int)
+    sleep(random()*0.1)
     c<-i*i
   }
   c<-N     # signal done
@@ -809,7 +813,9 @@ print(matmul(a, b))
 ### Tok
 ```tok
 @"fs"
-fread("text.txt")|>split(" ")|>freq|>top(10)|>\(k v)=pl("{k}: {v}")
+words=fread("text.txt")|>split(" ")
+counts=freq(words)
+~(k v:counts){pl("{k}: {v}")}
 ```
 
 ### Python
@@ -826,26 +832,19 @@ for word, count in freq.most_common(10):
 
 ---
 
-## Example 15: Simple TCP Echo Server
+## Example 15: Simple HTTP Echo Server
 
 ### Tok
 ```tok
-@"net"
+@"http"
+@"json"
 
-srv=listen("tcp" ":9000")
 pl("Echo server on :9000")
-~{
-  conn e=srv.accept()?^
-  go{
-    ~{
-      data e=conn.read()
-      e?!
-      #data==0?!
-      conn.write(data)
-    }
-    conn.close()
-  }
-}
+serve(9000 {
+  "GET /":f(q)="echo server"
+  "POST /echo":f(q)=q.body
+  "GET /health":f(q)=jstr({status:"ok"})
+})
 ```
 
 ### Go
@@ -855,25 +854,22 @@ package main
 import (
     "fmt"
     "io"
-    "net"
+    "net/http"
 )
 
 func main() {
-    ln, err := net.Listen("tcp", ":9000")
-    if err != nil {
-        panic(err)
-    }
     fmt.Println("Echo server on :9000")
-    for {
-        conn, err := ln.Accept()
-        if err != nil {
-            continue
-        }
-        go func(c net.Conn) {
-            defer c.Close()
-            io.Copy(c, c)
-        }(conn)
-    }
+    http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+        fmt.Fprintf(w, "echo server")
+    })
+    http.HandleFunc("/echo", func(w http.ResponseWriter, r *http.Request) {
+        body, _ := io.ReadAll(r.Body)
+        w.Write(body)
+    })
+    http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+        fmt.Fprintf(w, `{"status":"ok"}`)
+    })
+    http.ListenAndServe(":9000", nil)
 }
 ```
 
@@ -918,7 +914,7 @@ All token counts measured with `cl100k_base` (GPT-4 / Claude tokenizer) via `tik
 3. **No commas** — arrays, params, maps all space-separated
 4. **Implicit returns** — no `return` keyword
 5. **Pipeline operators** — `|>` `?>` `/>` replace nested calls
-6. **Short stdlib names** — `pl` `p` `fread` `hget` `freq` `top`
+6. **Short stdlib names** — `pl` `p` `fread` `hget` `jparse` `freq`
 7. **No type annotations** — dynamic typing eliminates all type ceremony
 8. **Built-in concurrency** — `go{}` `<-` `chan()` vs verbose async patterns
 

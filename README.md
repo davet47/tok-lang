@@ -314,6 +314,9 @@ cargo run -- run tests/strings_pipes_test.tok
 cargo run -- run tests/maps_test.tok
 cargo run -- run tests/errors_tuples_test.tok
 cargo run -- run tests/concurrency_test.tok
+cargo run -- run tests/any_test.tok
+cargo run -- run tests/builtins_new_test.tok
+cargo run -- run tests/imports_test.tok
 
 # Standard library tests
 cargo run -- run tests/stdlib_math_test.tok
@@ -324,6 +327,7 @@ cargo run -- run tests/stdlib_os_test.tok
 cargo run -- run tests/stdlib_fs_test.tok
 cargo run -- run tests/stdlib_re_test.tok
 cargo run -- run tests/stdlib_time_test.tok
+cargo run -- run tests/stdlib_http_test.tok
 cargo run -- run tests/stdlib_destructure_test.tok
 
 # Benchmarks (Tok vs Go vs Rust)
@@ -335,6 +339,7 @@ bash tests/bench/run_benchmarks.sh
 ```
 tok-lang/
   Cargo.toml              # Workspace root
+  LICENSE                 # Apache 2.0
   tok-spec.md             # Language specification
   tok-grammar.ebnf        # Formal grammar
   tok-examples.md         # Example programs with comparisons
@@ -349,4 +354,7 @@ tok-lang/
   tests/
     *_test.tok            # End-to-end test files (21 test suites)
     bench/                # Benchmark programs (Tok vs Go vs Rust, 11 benchmarks)
+  examples/               # Runnable example programs
+  editors/
+    vscode-tok/           # VS Code syntax highlighting extension
 ```
