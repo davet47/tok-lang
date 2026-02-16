@@ -1,0 +1,74 @@
+# file_processor.tok — CSV parsing and data transformation
+#
+# Compile & run:   cargo run -- run examples/file_processor.tok
+
+j=@"json"
+
+# --- Sample CSV data (embedded) ---
+csv_data="name,age,city
+Alice,30,New York
+Bob,25,San Francisco
+Carol,35,Chicago
+Dave,28,Seattle
+Eve,32,Boston"
+
+pl("=== CSV Parser ===")
+pl("")
+
+# --- Parse CSV ---
+lines=split(csv_data "\n")
+header=split(lines[0] ",")
+pl("Columns: {header}")
+
+# Parse rows into maps
+rows=[]
+nlines=len(lines)
+~(i:1..nlines){
+  fields=split(lines[i] ",")
+  nf=len(fields)
+  nf==3?{rows=push(rows {
+    name: fields[0]
+    age: int(fields[1])
+    city: fields[2]
+  })}:N
+}
+
+nrows=len(rows)
+pl("Parsed {nrows} records")
+pl("")
+
+# --- Display all records ---
+pl("All records:")
+~(r:rows){
+  pl("  {r.name}, age {r.age}, from {r.city}")
+}
+
+# --- Filter: age >= 30 ---
+seniors=rows?>\(r)=r.age>=30
+pl("")
+ns=len(seniors)
+pl("People age >= 30 ({ns} found):")
+~(r:seniors){
+  pl("  {r.name} ({r.age}) from {r.city}")
+}
+
+# --- Compute stats ---
+ages=[]
+~(r:rows){ages=push(ages r.age)}
+pl("")
+pl("Age stats:")
+pl("  Min: {min(ages)}")
+pl("  Max: {max(ages)}")
+pl("  Sum: {sum(ages)}")
+avg=float(sum(ages))/float(len(ages))
+pl("  Avg: {avg}")
+
+# --- Output as JSON ---
+pl("")
+pl("=== JSON Output ===")
+output=j.jstr({
+  total: nrows
+  filtered: ns
+  avg_age: avg
+})
+pl(output)

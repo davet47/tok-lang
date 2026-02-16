@@ -1,0 +1,94 @@
+# concurrency.tok — Goroutines, channels, and parallel computation
+#
+# Compile & run:   cargo run -- run examples/concurrency.tok
+
+# --- Producer/Consumer with channels ---
+pl("=== Producer/Consumer ===")
+
+ch=chan(5)
+
+# Producer: send numbers 1-10
+producer=go{
+  ~(i:1..11){
+    ch<-i
+  }
+  ch<-(-1)
+}
+
+# Consumer: receive and sum
+consumer=go{
+  total=0
+  v=<-ch
+  ~(v>=0){
+    total=total+v
+    v=<-ch
+  }
+  total
+}
+
+result=<-consumer
+pl("Sum of 1..10 = {result}")
+
+# --- Parallel computation with pmap ---
+pl("")
+pl("=== Parallel Map ===")
+
+numbers=[1 2 3 4 5 6 7 8 9 10]
+squares=pmap(numbers \(n)=n*n)
+pl("Squares: {squares}")
+pl("Sum of squares: {sum(squares)}")
+
+# --- Fan-out with goroutines and channels ---
+pl("")
+pl("=== Fan-out Workers ===")
+
+results_ch=chan(10)
+
+# Spawn 5 goroutines that each compute a different value
+go{results_ch<-1*1}
+go{results_ch<-2*2}
+go{results_ch<-3*3}
+go{results_ch<-4*4}
+go{results_ch<-5*5}
+
+# Collect all results
+collected=[]
+~(i:0..5){
+  v=<-results_ch
+  collected=push(collected v)
+}
+pl("Results from 5 workers: {sort(collected)}")
+
+# --- Pipeline: producer -> transformer -> consumer ---
+pl("")
+pl("=== Pipeline ===")
+
+input_ch=chan(5)
+output_ch=chan(5)
+
+# Stage 1: produce numbers
+go{
+  ~(i:1..6){
+    input_ch<-i
+  }
+  input_ch<-(-1)
+}
+
+# Stage 2: double each number
+go{
+  v=<-input_ch
+  ~(v>=0){
+    output_ch<-v*2
+    v=<-input_ch
+  }
+  output_ch<-(-1)
+}
+
+# Stage 3: collect results
+pipeline_result=[]
+v=<-output_ch
+~(v>=0){
+  pipeline_result=push(pipeline_result v)
+  v=<-output_ch
+}
+pl("Pipeline [1..5] -> double: {pipeline_result}")

@@ -1,0 +1,186 @@
+# language_tour.tok — A tour of Tok language features
+#
+# Compile & run:   cargo run -- run examples/language_tour.tok
+
+st=@"str"
+
+pl("=== Basics ===")
+x=42
+pi=3.14159
+name="Tok"
+pl("x={x} pi={pi} name={name}")
+pl("T=T F=F N=N")
+
+# --- Arithmetic & Comparison ---
+pl("")
+pl("=== Arithmetic ===")
+pl("2+3={2+3}  10/3={10/3}  10%3={10%3}")
+pl("2.5*4={2.5*4}")
+cmp1=5>3
+cmp2=5==5
+cmp3=5!=3
+pl("5>3={cmp1}  5==5={cmp2}  5!=3={cmp3}")
+
+# --- Strings ---
+pl("")
+pl("=== Strings ===")
+greeting="Hello, {name}!"
+pl(greeting)
+pl("Length: {#greeting}")
+pl("Upper: {st.upper(greeting)}")
+pl("Reversed: {st.rev(greeting)}")
+words=split("the quick brown fox" " ")
+pl("Words: {words}")
+pl("Joined: {join(words "-")}")
+
+# --- Arrays ---
+pl("")
+pl("=== Arrays ===")
+arr=[5 3 1 4 2]
+pl("Array: {arr}")
+pl("Sorted: {sort(arr)}")
+pl("Reversed: {rev(arr)}")
+pl("Length: {#arr}")
+pl("Sum: {sum(arr)}  Min: {min(arr)}  Max: {max(arr)}")
+pl("First: {arr[0]}  Last: {arr[-1]}")
+
+# Spread
+left=[1 2 3]
+right=[4 5 6]
+merged=[..left ..right]
+pl("Merged: {merged}")
+
+# Filter & Reduce
+evens=arr?>\(x)=x%2==0
+pl("Evens: {evens}")
+total=arr/>0 \(acc x)=acc+x
+pl("Reduce sum: {total}")
+
+# --- Maps ---
+pl("")
+pl("=== Maps ===")
+person={name:"Alice" age:30 city:"NYC"}
+pl("Person: {person}")
+pl("Name: {person.name}  Age: {person.age}")
+pl("Keys: {keys(person)}")
+pl("Values: {vals(person)}")
+has_name=has(person "name")
+pl("Has name: {has_name}")
+
+# --- Functions ---
+pl("")
+pl("=== Functions ===")
+
+f greet(who)="Hello, {who}!"
+pl(greet("World"))
+
+f factorial(n)=n<=1?1:n*factorial(n-1)
+fact5=factorial(5)
+pl("5! = {fact5}")
+
+f fib(n)=n<=1?n:fib(n-1)+fib(n-2)
+fib10=fib(10)
+pl("fib(10) = {fib10}")
+
+# Lambdas
+double=\(x)=x*2
+d21=double(21)
+pl("double(21) = {d21}")
+
+# Pipe operator
+piped=5|>double|>\(x)=x+1
+pl("5 |> double |> +1 = {piped}")
+
+# --- Control Flow ---
+pl("")
+pl("=== Control Flow ===")
+
+# Ternary
+status=T?"active":"inactive"
+pl("Status: {status}")
+
+# Match
+f describe(n)=n?={
+  1: "one"
+  2: "two"
+  3: "three"
+  _: "many"
+}
+d1=describe(1)
+d2=describe(2)
+d99=describe(99)
+pl("1={d1} 2={d2} 99={d99}")
+
+# Loops
+pl("Counting:")
+s=""
+~(i:1..6){
+  s=s+str(i)+" "
+}
+pl(s)
+
+# FizzBuzz
+pl("FizzBuzz 1-20:")
+~(i:1..21){
+  r=i%15==0?"FizzBuzz":i%3==0?"Fizz":i%5==0?"Buzz":str(i)
+  p("{r} ")
+}
+pl("")
+
+# --- Tuples & Error Handling ---
+pl("")
+pl("=== Tuples & Error Handling ===")
+
+tup=(1 "hello" T)
+pl("Tuple: {tup}")
+pl("t.0={tup.0} t.1={tup.1} t.2={tup.2}")
+
+# Destructuring
+da db dc=(10 20 30)
+pl("Destructured: a={da} b={db} c={dc}")
+
+# Result tuples
+f safe_div(a b){
+  b==0?^(N "division by zero")
+  (a/b N)
+}
+
+val1 err1=safe_div(10 3)
+pl("10/3 = {val1} err={err1}")
+
+val2 err2=safe_div(10 0)
+pl("10/0 = {val2} err={err2}")
+
+# Nil coalesce
+nx=N
+nc=nx??42
+pl("N ?? 42 = {nc}")
+nc2=5??42
+pl("5 ?? 42 = {nc2}")
+
+# --- Higher-order Functions ---
+pl("")
+pl("=== Higher-order Functions ===")
+
+numbers=[1 2 3 4 5 6 7 8 9 10]
+
+squares=[]
+~(n:numbers){
+  squares=push(squares n*n)
+}
+pl("Squares: {squares}")
+
+# Unique & frequency
+data=["a" "b" "a" "c" "b" "a"]
+pl("Data: {data}")
+pl("Unique: {uniq(data)}")
+pl("Frequency: {freq(data)}")
+
+# Zip
+names=["Alice" "Bob" "Carol"]
+ages=[30 25 35]
+pairs=zip(names ages)
+pl("Zipped: {pairs}")
+
+pl("")
+pl("Done!")

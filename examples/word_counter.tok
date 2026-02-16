@@ -1,0 +1,50 @@
+# word_counter.tok — Text analysis tool
+#
+# Compile & run:   cargo run -- run examples/word_counter.tok
+
+st=@"str"
+
+text="the quick brown fox jumps over the lazy dog the fox the dog and the cat sat on the mat the quick brown fox"
+
+pl("=== Word Counter ===")
+pl("")
+pl("Text:")
+pl(text)
+pl("")
+
+# Split into words
+words=split(text " ")
+nw=len(words)
+nu=len(uniq(words))
+pl("Total words: {nw}")
+pl("Unique words: {nu}")
+
+# Frequency analysis
+counts=freq(words)
+pl("")
+pl("Word frequencies:")
+
+k=keys(counts)
+~(word:k){
+  count=counts[word]
+  pl("  {word}: {count}")
+}
+
+# Longest word
+longest=""
+~(w:words){
+  wl=len(w)
+  ll=len(longest)
+  wl>ll?{longest=w}:N
+}
+pl("")
+ll=len(longest)
+pl("Longest word: {longest} ({ll} chars)")
+
+# Average word length
+total_len=0
+~(w:words){
+  total_len=total_len+len(w)
+}
+avg=float(total_len)/float(nw)
+pl("Average word length: {avg}")

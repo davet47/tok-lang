@@ -1,0 +1,100 @@
+# math_and_algorithms.tok — Math stdlib + classic algorithms
+#
+# Compile & run:   cargo run -- run examples/math_and_algorithms.tok
+
+m=@"math"
+
+# --- Math constants ---
+pl("=== Math Constants ===")
+pl("pi   = {m.pi}")
+pl("e    = {m.e}")
+
+# --- Trigonometry ---
+pl("")
+pl("=== Trigonometry ===")
+pl("sin(pi/6) = {m.sin(m.pi/6)}")
+pl("cos(pi/3) = {m.cos(m.pi/3)}")
+pl("tan(pi/4) = {m.tan(m.pi/4)}")
+
+# --- Powers & Logs ---
+pl("")
+pl("=== Powers & Logs ===")
+pl("2^10 = {m.pow(2.0 10.0)}")
+pl("sqrt(144) = {m.sqrt(144.0)}")
+pl("log(e) = {m.log(m.e)}")
+pl("log2(1024) = {m.log2(1024.0)}")
+pl("log10(1000) = {m.log10(1000.0)}")
+
+# --- GCD & LCM ---
+pl("")
+pl("=== GCD & LCM ===")
+
+f gcd(a b)=b==0?a:gcd(b a%b)
+f lcm(a b)=a*b/gcd(a b)
+
+pl("gcd(48, 36) = {gcd(48 36)}")
+pl("lcm(12, 18) = {lcm(12 18)}")
+
+# --- Newton's method for square root ---
+pl("")
+pl("=== Newton's Method (sqrt) ===")
+
+f newton_sqrt(n){
+  guess=float(n)/2.0
+  ~(i:0..20){
+    guess=(guess+float(n)/guess)/2.0
+  }
+  guess
+}
+
+pl("newton_sqrt(2) = {newton_sqrt(2)}")
+pl("math.sqrt(2)   = {m.sqrt(2.0)}")
+pl("newton_sqrt(144) = {newton_sqrt(144)}")
+
+# --- Collatz conjecture ---
+pl("")
+pl("=== Collatz Sequence (starting at 27) ===")
+
+f collatz(n){
+  seq=[n]
+  ~(n!=1){
+    n=n%2==0?n/2:3*n+1
+    seq=push(seq n)
+  }
+  seq
+}
+
+seq=collatz(27)
+pl("Length: {#seq} steps")
+pl("Max value: {max(seq)}")
+pl("Sequence: {seq}")
+
+# --- Fibonacci sequence ---
+pl("")
+pl("=== Fibonacci ===")
+
+f fib(n)=n<=1?n:fib(n-1)+fib(n-2)
+
+fibs=[]
+~(i:0..15){
+  fibs=push(fibs fib(i))
+}
+pl("First 15: {fibs}")
+
+# --- Monte Carlo Pi estimation ---
+pl("")
+pl("=== Monte Carlo Pi Estimation ===")
+
+samples=40000
+inside=0
+~(i:0..samples){
+  x=m.random()
+  y=m.random()
+  dist=x*x+y*y
+  dist<=1.0?{inside=inside+1}:N
+}
+est=4.0*float(inside)/float(samples)
+pl("Estimate ({samples} samples): {est}")
+pl("Actual pi:                    {m.pi}")
+err=m.abs(est-m.pi)
+pl("Error:                        {err}")
