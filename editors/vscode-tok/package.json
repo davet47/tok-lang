@@ -1,0 +1,39 @@
+{
+  "name": "tok-lang",
+  "displayName": "Tok Language",
+  "description": "Syntax highlighting for the Tok programming language",
+  "version": "0.1.0",
+  "publisher": "tok-lang",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "tok",
+        "aliases": [
+          "Tok",
+          "tok"
+        ],
+        "extensions": [
+          ".tok"
+        ],
+        "configuration": "./language-configuration.json",
+        "icon": {
+          "light": "./icon.png",
+          "dark": "./icon.png"
+        }
+      }
+    ],
+    "grammars": [
+      {
+        "language": "tok",
+        "scopeName": "source.tok",
+        "path": "./syntaxes/tok.tmLanguage.json"
+      }
+    ]
+  }
+}

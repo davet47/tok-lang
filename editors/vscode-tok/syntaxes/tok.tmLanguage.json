@@ -1,0 +1,349 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Tok",
+  "scopeName": "source.tok",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#raw-strings" },
+    { "include": "#numbers" },
+    { "include": "#function-declaration" },
+    { "include": "#function-call" },
+    { "include": "#lambda" },
+    { "include": "#import" },
+    { "include": "#constants" },
+    { "include": "#keywords" },
+    { "include": "#builtins" },
+    { "include": "#type-annotations" },
+    { "include": "#operators" },
+    { "include": "#punctuation" },
+    { "include": "#identifiers" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "comment": "# at start of line is always a comment",
+          "name": "comment.line.hash.tok",
+          "match": "^\\s*#.*$"
+        },
+        {
+          "comment": "# after whitespace when not followed by identifier/paren/bracket (length operator)",
+          "name": "comment.line.hash.tok",
+          "match": "(?<=\\s)#(?![a-zA-Z_\\(\\[]).*$"
+        },
+        {
+          "name": "comment.line.double-slash.tok",
+          "match": "//.*$"
+        }
+      ]
+    },
+    "strings": {
+      "name": "string.quoted.double.tok",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        { "include": "#string-escape" },
+        { "include": "#string-interpolation" }
+      ]
+    },
+    "string-escape": {
+      "name": "constant.character.escape.tok",
+      "match": "\\\\(?:[nrt0\\\\\"\\{]|x[0-9a-fA-F]{2}|u\\{[0-9a-fA-F]{1,6}\\})"
+    },
+    "string-interpolation": {
+      "name": "meta.interpolation.tok",
+      "begin": "(?<!\\\\)\\{",
+      "end": "\\}",
+      "beginCaptures": {
+        "0": { "name": "punctuation.section.interpolation.begin.tok" }
+      },
+      "endCaptures": {
+        "0": { "name": "punctuation.section.interpolation.end.tok" }
+      },
+      "patterns": [
+        { "include": "source.tok" }
+      ]
+    },
+    "raw-strings": {
+      "name": "string.quoted.other.raw.tok",
+      "begin": "`",
+      "end": "`"
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.hex.tok",
+          "match": "\\b0[xX][0-9a-fA-F][0-9a-fA-F_]*\\b"
+        },
+        {
+          "name": "constant.numeric.binary.tok",
+          "match": "\\b0[bB][01][01_]*\\b"
+        },
+        {
+          "name": "constant.numeric.octal.tok",
+          "match": "\\b0[oO][0-7][0-7_]*\\b"
+        },
+        {
+          "name": "constant.numeric.float.tok",
+          "match": "\\b[0-9][0-9_]*\\.[0-9][0-9_]*(?:[eE][+-]?[0-9][0-9_]*)?\\b"
+        },
+        {
+          "name": "constant.numeric.float.tok",
+          "match": "\\.[0-9][0-9_]*(?:[eE][+-]?[0-9][0-9_]*)?\\b"
+        },
+        {
+          "name": "constant.numeric.float.tok",
+          "match": "\\b[0-9][0-9_]*[eE][+-]?[0-9][0-9_]*\\b"
+        },
+        {
+          "name": "constant.numeric.integer.tok",
+          "match": "\\b[0-9][0-9_]*\\b"
+        }
+      ]
+    },
+    "function-declaration": {
+      "comment": "f name( — keyword only when followed by identifier then paren",
+      "match": "\\b(f)\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\s*(?=\\(|\\{|=)",
+      "captures": {
+        "1": { "name": "keyword.declaration.function.tok" },
+        "2": { "name": "entity.name.function.tok" }
+      }
+    },
+    "function-call": {
+      "comment": "identifier followed by ( — highlight as function call",
+      "match": "\\b([a-zA-Z_][a-zA-Z0-9_]*)\\s*(?=\\()",
+      "captures": {
+        "1": { "name": "entity.name.function.call.tok" }
+      }
+    },
+    "lambda": {
+      "patterns": [
+        {
+          "match": "(\\\\)\\s*(?=\\()",
+          "captures": {
+            "1": { "name": "keyword.operator.lambda.tok" }
+          }
+        },
+        {
+          "match": "(\\\\)\\s*(?==)",
+          "captures": {
+            "1": { "name": "keyword.operator.lambda.tok" }
+          }
+        },
+        {
+          "match": "(\\\\)\\s*(?=\\{)",
+          "captures": {
+            "1": { "name": "keyword.operator.lambda.tok" }
+          }
+        }
+      ]
+    },
+    "import": {
+      "match": "(@)(\"[^\"]*\")",
+      "captures": {
+        "1": { "name": "keyword.control.import.tok" },
+        "2": { "name": "string.quoted.double.module.tok" }
+      }
+    },
+    "constants": {
+      "patterns": [
+        {
+          "name": "constant.language.boolean.true.tok",
+          "match": "\\bT\\b"
+        },
+        {
+          "name": "constant.language.boolean.false.tok",
+          "match": "\\bF\\b"
+        },
+        {
+          "name": "constant.language.nil.tok",
+          "match": "\\bN\\b"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.loop.tok",
+          "match": "~"
+        },
+        {
+          "name": "keyword.control.concurrency.go.tok",
+          "match": "\\bgo\\b"
+        },
+        {
+          "name": "keyword.control.concurrency.sel.tok",
+          "match": "\\bsel\\b"
+        },
+        {
+          "comment": "^ return, but not ^^ (bitwise xor)",
+          "name": "keyword.control.return.tok",
+          "match": "\\^(?!\\^)"
+        },
+        {
+          "name": "keyword.control.continue.tok",
+          "match": ">!"
+        },
+        {
+          "comment": "! break — only when not preceded by word chars or > (>! is continue)",
+          "name": "keyword.control.break.tok",
+          "match": "(?<![>a-zA-Z0-9_=])!"
+        }
+      ]
+    },
+    "builtins": {
+      "patterns": [
+        {
+          "name": "support.function.io.tok",
+          "match": "\\b(p|pl)(?=\\()"
+        },
+        {
+          "name": "support.function.conversion.tok",
+          "match": "\\b(int|float|str|bool)(?=\\()"
+        },
+        {
+          "name": "support.function.collection.tok",
+          "match": "\\b(sort|rev|push|pop|slice|flat|uniq|freq|zip|split|join|keys|vals|has|del|concat|filter|reduce|sum|min|max|map)(?=\\()"
+        },
+        {
+          "name": "support.function.utility.tok",
+          "match": "\\b(type|len|range|chan|pmap|error|assert)(?=\\()"
+        }
+      ]
+    },
+    "type-annotations": {
+      "patterns": [
+        {
+          "match": "(?<=:)([ifsba])\\b",
+          "captures": {
+            "1": { "name": "support.type.tok" }
+          }
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "comment": "Compound assignment: **= += -= *= /= %=",
+          "name": "keyword.operator.assignment.compound.tok",
+          "match": "\\*\\*=|\\+=|-=|\\*=|/=|%="
+        },
+        {
+          "comment": "Spread ... (must match before range ..)",
+          "name": "keyword.operator.spread.tok",
+          "match": "\\.\\.\\."
+        },
+        {
+          "comment": "Inclusive range ..=",
+          "name": "keyword.operator.range.tok",
+          "match": "\\.\\.="
+        },
+        {
+          "comment": "Range ..",
+          "name": "keyword.operator.range.tok",
+          "match": "\\.\\."
+        },
+        {
+          "comment": "Optional chain .?",
+          "name": "keyword.operator.optional-chain.tok",
+          "match": "\\.\\?"
+        },
+        {
+          "comment": "Pipeline |>",
+          "name": "keyword.operator.pipeline.tok",
+          "match": "\\|>"
+        },
+        {
+          "comment": "Filter ?>",
+          "name": "keyword.operator.filter.tok",
+          "match": "\\?>"
+        },
+        {
+          "comment": "Reduce />",
+          "name": "keyword.operator.reduce.tok",
+          "match": "/>"
+        },
+        {
+          "comment": "Channel send/receive <-",
+          "name": "keyword.operator.channel.tok",
+          "match": "<-"
+        },
+        {
+          "comment": "Match ?= error-propagation ?^ nil-coalesce ??",
+          "name": "keyword.operator.ternary.tok",
+          "match": "\\?=|\\?\\^|\\?\\?"
+        },
+        {
+          "comment": "Ternary ?",
+          "name": "keyword.operator.ternary.tok",
+          "match": "\\?"
+        },
+        {
+          "comment": "Exponentiation **",
+          "name": "keyword.operator.arithmetic.tok",
+          "match": "\\*\\*"
+        },
+        {
+          "comment": "Comparison == != <= >=",
+          "name": "keyword.operator.comparison.tok",
+          "match": "==|!=|<=|>="
+        },
+        {
+          "comment": "Comparison < > (not channel <-)",
+          "name": "keyword.operator.comparison.tok",
+          "match": "<(?!-)|>(?!!)"
+        },
+        {
+          "comment": "Bitwise && || ^^ << >>",
+          "name": "keyword.operator.bitwise.tok",
+          "match": "&&|\\|\\||\\^\\^|<<|>>"
+        },
+        {
+          "comment": "Logical AND &, OR |, NOT !",
+          "name": "keyword.operator.logical.tok",
+          "match": "&(?!&)|\\|(?![>|])|!(?!=)"
+        },
+        {
+          "comment": "Arithmetic + - * / %",
+          "name": "keyword.operator.arithmetic.tok",
+          "match": "[+\\-*/%]"
+        },
+        {
+          "comment": "Assignment =",
+          "name": "keyword.operator.assignment.tok",
+          "match": "(?<![<>=!])=(?![=])"
+        },
+        {
+          "comment": "Length operator # (followed by identifier, paren, or bracket)",
+          "name": "keyword.operator.length.tok",
+          "match": "#(?=[a-zA-Z_\\(\\[])"
+        }
+      ]
+    },
+    "punctuation": {
+      "patterns": [
+        {
+          "name": "punctuation.separator.colon.tok",
+          "match": ":"
+        },
+        {
+          "name": "punctuation.terminator.semicolon.tok",
+          "match": ";"
+        },
+        {
+          "name": "punctuation.accessor.dot.tok",
+          "match": "\\."
+        }
+      ]
+    },
+    "identifiers": {
+      "patterns": [
+        {
+          "name": "variable.other.tok",
+          "match": "\\b[a-zA-Z_][a-zA-Z0-9_]*\\b"
+        }
+      ]
+    }
+  }
+}
