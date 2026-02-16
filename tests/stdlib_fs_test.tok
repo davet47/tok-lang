@@ -1,0 +1,28 @@
+# Standard library: @"fs" module tests
+
+fs=@"fs"
+
+# --- fwrite / fread ---
+fs.fwrite("/tmp/tok_fs_test.txt" "hello from tok fs")
+pl(fs.fread("/tmp/tok_fs_test.txt"))
+
+# --- fappend ---
+fs.fappend("/tmp/tok_fs_test.txt" "\nline2")
+pl(fs.fread("/tmp/tok_fs_test.txt"))
+
+# --- fexists ---
+pl(fs.fexists("/tmp/tok_fs_test.txt"))
+pl(fs.fexists("/tmp/nonexistent_tok_file_12345"))
+
+# --- fmk / fls ---
+fs.fmk("/tmp/tok_fs_test_dir")
+fs.fwrite("/tmp/tok_fs_test_dir/a.txt" "aaa")
+fs.fwrite("/tmp/tok_fs_test_dir/b.txt" "bbb")
+files=fs.fls("/tmp/tok_fs_test_dir")
+pl(#files)
+
+# --- frm ---
+fs.frm("/tmp/tok_fs_test.txt")
+pl(fs.fexists("/tmp/tok_fs_test.txt"))
+fs.frm("/tmp/tok_fs_test_dir")
+pl(fs.fexists("/tmp/tok_fs_test_dir"))

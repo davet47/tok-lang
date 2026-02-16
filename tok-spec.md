@@ -722,6 +722,7 @@ results=[1 2 3 4 5]|>pmap(\(x)=heavy(x))
 | `float(x)` | Convert to float | `float(42)` → `42.0` |
 | `str(x)` | Convert to string | `str(42)` → `"42"` |
 | `type(x)` | Get type as string | `type(42)` → `"int"` |
+| `is(x t)` | Type check | `is(42 "int")` → `T` |
 | `sort(a)` | Sort array | `sort([3 1 2])` → `[1 2 3]` |
 | `rev(a)` | Reverse array | `rev([1 2 3])` → `[3 2 1]` |
 | `keys(m)` | Map keys | `keys({a:1})` → `["a"]` |
@@ -729,12 +730,16 @@ results=[1 2 3 4 5]|>pmap(\(x)=heavy(x))
 | `has(m k)` | Map has key | `has({a:1} "a")` → `T` |
 | `del(m k)` | Delete key from map | `del({a:1 b:2} "a")` → `{b:2}` |
 | `push(a x)` | Append to array | `push([1 2] 3)` → `[1 2 3]` |
+| `pop(a)` | Remove last | `pop([1 2 3])` → `([1 2] 3)` |
 | `join(a s)` | Join array to string | `join(["a" "b"] ",")` → `"a,b"` |
 | `split(s d)` | Split string | `split("a,b" ",")` → `["a" "b"]` |
 | `trim(s)` | Trim whitespace | `trim(" hi ")` → `"hi"` |
 | `slice(x i j)` | Slice array/string | `slice([1 2 3 4] 1 3)` → `[2 3]` |
 | `flat(a)` | Flatten nested array | `flat([[1 2] [3]])` → `[1 2 3]` |
 | `uniq(a)` | Unique elements | `uniq([1 1 2])` → `[1 2]` |
+| `freq(a)` | Frequency map | `freq([1 1 2])` → `{1:2 2:1}` |
+| `top(m n)` | Top n by value (descending) | `top({a:3 b:1} 1)` → `[("a" 3)]` |
+| `zip(a b)` | Zip two arrays | `zip([1 2] [3 4])` → `[(1 3) (2 4)]` |
 | `min(a)` | Minimum | `min([3 1 2])` → `1` |
 | `max(a)` | Maximum | `max([3 1 2])` → `3` |
 | `sum(a)` | Sum | `sum([1 2 3])` → `6` |
@@ -743,17 +748,108 @@ results=[1 2 3 4 5]|>pmap(\(x)=heavy(x))
 | `ceil(x)` | Ceiling | `ceil(3.2)` → `4` |
 | `rand()` | Random float 0..1 | `rand()` → `0.472...` |
 | `exit(n)` | Exit with code | `exit(0)` |
+| `args()` | CLI arguments | `args()` → `["arg1" "arg2"]` |
+| `env(k)` | Environment var | `env("HOME")` |
+| `len(x)` | Length (alias for `#`) | `len([1 2 3])` → `3` |
 | `clock()` | Current time (seconds) | `clock()` → `1234567.89` |
 | `chan(n)` | Create channel | `chan()` or `chan(10)` |
 | `pmap(a f)` | Parallel map | `pmap([1 2 3] \(x)=x*2)` |
 
-### 12.2 Standard Library Modules
+### 12.2 I/O Module (`@"io"`)
+| Function | Description |
+|----------|-------------|
+| `input()` | Read line from stdin |
+| `input(prompt)` | Read with prompt |
+| `readall()` | Read all stdin |
 
-- `@"math"` — `sqrt`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `log`, `log2`, `log10`, `exp`, `pow`, `abs`, `floor`, `ceil`, `round`, `min`, `max`, `random`, `pi`, `e`, `inf`, `nan`
-- `@"str"` — `upper`, `lower`, `trim`, `trim_left`, `trim_right`, `len`, `contains`, `starts_with`, `ends_with`, `index_of`, `substr`, `replace`, `split`, `repeat`, `chars`, `bytes`, `rev`, `pad_left`, `pad_right`
-- `@"io"` — `read_file`, `write_file`, `append_file`, `read_line`, `exists`, `is_file`, `is_dir`, `mkdir`, `ls`, `rm`
-- `@"json"` — `parse`, `stringify`, `pretty`
-- `@"os"` — `args`, `env`, `set_env`, `cwd`, `pid`, `time`, `sleep`, `exec`, `exit`
+### 12.3 Filesystem Module (`@"fs"`)
+| Function | Description |
+|----------|-------------|
+| `fread(path)` | Read file to string |
+| `fwrite(path data)` | Write string to file |
+| `fappend(path data)` | Append to file |
+| `fexists(path)` | Check if file exists |
+| `fls(path)` | List directory |
+| `fmk(path)` | Create directory |
+| `frm(path)` | Remove file/dir |
+
+### 12.4 HTTP Module (`@"http"`)
+| Function | Description |
+|----------|-------------|
+| `hget(url)` | HTTP GET, returns `(body err)` |
+| `hpost(url body)` | HTTP POST |
+| `hput(url body)` | HTTP PUT |
+| `hdel(url)` | HTTP DELETE |
+| `serve(port routes)` | Start HTTP server |
+
+### 12.5 JSON Module (`@"json"`)
+| Function | Description |
+|----------|-------------|
+| `jparse(s)` | Parse JSON string to value |
+| `jstr(v)` | Value to JSON string |
+| `jpretty(v)` | Value to pretty-printed JSON string |
+
+### 12.6 Regex Module (`@"re"`)
+| Function | Description |
+|----------|-------------|
+| `rmatch(s pat)` | Test if string matches |
+| `rfind(s pat)` | Find first match |
+| `rall(s pat)` | Find all matches |
+| `rsub(s pat rep)` | Replace matches |
+
+### 12.7 Time Module (`@"time"`)
+| Function | Description |
+|----------|-------------|
+| `now()` | Current unix timestamp (float) |
+| `sleep(ms)` | Sleep for milliseconds |
+| `fmt(ts pat)` | Format timestamp (`%Y` `%m` `%d` `%H` `%M` `%S`) |
+
+### 12.8 Math Module (`@"math"`)
+
+Constants: `pi`, `e`, `inf`, `nan`
+
+| Function | Description |
+|----------|-------------|
+| `sqrt(x)` | Square root |
+| `sin(x)` `cos(x)` `tan(x)` | Trigonometric |
+| `asin(x)` `acos(x)` `atan(x)` | Inverse trig |
+| `atan2(y x)` | Two-argument arctangent |
+| `log(x)` `log2(x)` `log10(x)` | Logarithms |
+| `exp(x)` | e^x |
+| `pow(x y)` | x^y |
+| `floor(x)` `ceil(x)` `round(x)` | Rounding |
+| `abs(x)` | Absolute value |
+| `min(a b)` `max(a b)` | Min/max of two values |
+| `random()` | Random float 0..1 |
+
+### 12.9 String Module (`@"str"`)
+| Function | Description |
+|----------|-------------|
+| `upper(s)` `lower(s)` | Case conversion |
+| `trim(s)` `trim_left(s)` `trim_right(s)` | Whitespace trimming |
+| `contains(s sub)` | Check if substring exists |
+| `starts_with(s pre)` `ends_with(s suf)` | Prefix/suffix test |
+| `index_of(s sub)` | Find substring index (-1 if not found) |
+| `replace(s old new)` | Replace all occurrences |
+| `split(s delim)` | Split string into array |
+| `repeat(s n)` | Repeat string n times |
+| `substr(s start len)` | Extract substring |
+| `pad_left(s n ch)` `pad_right(s n ch)` | Pad to width |
+| `chars(s)` | Split into character array |
+| `bytes(s)` | Get byte values as array |
+| `rev(s)` | Reverse string |
+| `len(s)` | String length |
+
+### 12.10 OS Module (`@"os"`)
+| Function | Description |
+|----------|-------------|
+| `args()` | CLI arguments (all, including program) |
+| `env(name)` | Get environment variable |
+| `set_env(name val)` | Set environment variable |
+| `cwd()` | Current working directory |
+| `pid()` | Current process ID |
+| `exec(cmd)` | Run shell command, returns `(stdout exit_code)` |
+| `exit(code)` | Exit process |
 
 ---
 

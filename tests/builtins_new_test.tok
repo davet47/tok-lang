@@ -1,0 +1,40 @@
+# Tests for new core builtins: is, pop, freq, top, zip, args, env
+
+# --- is(x, type_str) ---
+pl(is(42 "int"))
+pl(is(3.14 "float"))
+pl(is("hi" "string"))
+pl(is(T "bool"))
+pl(is(N "nil"))
+pl(is([1 2] "array"))
+pl(is({a:1} "map"))
+pl(is(42 "string"))
+
+# --- pop(arr) ---
+pl(pop([1 2 3]))
+pl(pop([42]))
+pl(pop([]))
+
+# --- freq(arr) ---
+m=freq([1 1 2 3 3 3])
+pl(m)
+
+# --- zip(a, b) ---
+z=zip([1 2 3] ["a" "b" "c"])
+pl(z)
+
+# --- zip with different lengths ---
+z2=zip([1 2] ["a" "b" "c"])
+pl(z2)
+
+# --- top(map, n) ---
+t=top({a:3 b:1 c:5 d:2} 2)
+pl(t)
+
+# --- args() ---
+a=args()
+pl(type(a))
+
+# --- env(key) ---
+pl(type(env("HOME")))
+pl(env("TOK_NONEXISTENT_VAR_99999"))

@@ -1,12 +1,12 @@
 //! Standard library: `@"os"` module.
 //!
-//! Provides OS-level functions: args, env, cwd, pid, exit, time, sleep.
+//! Provides OS-level functions: args, env, set_env, cwd, pid, exit, exec.
 
 use crate::array::TokArray;
 use crate::closure::TokClosure;
 use crate::map::TokMap;
 use crate::string::TokString;
-use crate::value::{TokValue, TAG_FLOAT, TAG_INT, TAG_STRING};
+use crate::value::{TokValue, TAG_INT, TAG_STRING};
 
 // ═══════════════════════════════════════════════════════════════
 // Helpers
@@ -21,15 +21,6 @@ unsafe fn arg_to_str<'a>(tag: i64, data: i64) -> &'a str {
         }
     }
     ""
-}
-
-#[inline]
-fn arg_to_f64(tag: i64, data: i64) -> f64 {
-    match tag as u8 {
-        TAG_FLOAT => f64::from_bits(data as u64),
-        TAG_INT => data as f64,
-        _ => 0.0,
-    }
 }
 
 #[inline]
@@ -101,25 +92,6 @@ pub extern "C" fn tok_os_exit_t(_env: *mut u8, tag: i64, data: i64) -> TokValue 
     std::process::exit(code);
 }
 
-/// time() -> Float (unix timestamp in seconds)
-#[no_mangle]
-pub extern "C" fn tok_os_time_t(_env: *mut u8) -> TokValue {
-    let dur = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap();
-    TokValue::from_float(dur.as_secs_f64())
-}
-
-/// sleep(seconds) -> Nil
-#[no_mangle]
-pub extern "C" fn tok_os_sleep_t(_env: *mut u8, tag: i64, data: i64) -> TokValue {
-    let secs = arg_to_f64(tag, data);
-    if secs > 0.0 {
-        std::thread::sleep(std::time::Duration::from_secs_f64(secs));
-    }
-    TokValue::nil()
-}
-
 /// exec(cmd) -> (stdout, exit_code)
 #[no_mangle]
 pub extern "C" fn tok_os_exec_t(_env: *mut u8, tag: i64, data: i64) -> TokValue {
@@ -170,12 +142,10 @@ pub extern "C" fn tok_stdlib_os() -> *mut TokMap {
     insert_func(m, "args",  tok_os_args_t  as *const u8, 0);
     insert_func(m, "cwd",   tok_os_cwd_t   as *const u8, 0);
     insert_func(m, "pid",   tok_os_pid_t   as *const u8, 0);
-    insert_func(m, "time",  tok_os_time_t  as *const u8, 0);
 
     // 1-arg functions
     insert_func(m, "env",   tok_os_env_t   as *const u8, 1);
     insert_func(m, "exit",  tok_os_exit_t  as *const u8, 1);
-    insert_func(m, "sleep", tok_os_sleep_t as *const u8, 1);
     insert_func(m, "exec",  tok_os_exec_t  as *const u8, 1);
 
     // 2-arg functions

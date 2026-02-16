@@ -178,6 +178,11 @@ fn insert_func(m: *mut TokMap, name: &str, fn_ptr: *const u8, arity: u32) {
 pub extern "C" fn tok_stdlib_json() -> *mut TokMap {
     let m = TokMap::alloc();
 
+    // New names (spec v0.1)
+    insert_func(m, "jparse",    tok_json_parse_t     as *const u8, 1);
+    insert_func(m, "jstr",      tok_json_stringify_t as *const u8, 1);
+    insert_func(m, "jpretty",   tok_json_pretty_t    as *const u8, 1);
+    // Legacy names for backward compatibility
     insert_func(m, "parse",     tok_json_parse_t     as *const u8, 1);
     insert_func(m, "stringify", tok_json_stringify_t  as *const u8, 1);
     insert_func(m, "pretty",    tok_json_pretty_t    as *const u8, 1);

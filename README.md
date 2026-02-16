@@ -25,7 +25,7 @@ f qsort(a){
 ## Design Principles
 
 - **Every character earns its place** -- no boilerplate, no ceremony
-- **Symbols over words** -- 5 keywords total: `f` `T` `F` `N` `go`
+- **Symbols over words** -- 6 keywords total: `f` `T` `F` `N` `go` `sel`
 - **Implicit over explicit** -- returns, types, and scope are inferred
 - **Composition over nesting** -- pipelines replace deeply nested calls
 - **No commas** -- spaces separate elements everywhere
@@ -138,15 +138,19 @@ m=@"str"                    # import as namespace
 pl(sqrt(pow(2 8)))          # 16.0
 ```
 
-Five standard library modules:
+Nine standard library modules:
 
 | Module | Functions |
 |---|---|
 | `@"math"` | `sqrt` `sin` `cos` `tan` `asin` `acos` `atan` `atan2` `log` `log2` `log10` `exp` `pow` `abs` `floor` `ceil` `round` `min` `max` `random` + constants `pi` `e` `inf` `nan` |
 | `@"str"` | `upper` `lower` `trim` `trim_left` `trim_right` `len` `contains` `starts_with` `ends_with` `index_of` `substr` `replace` `split` `repeat` `chars` `bytes` `rev` `pad_left` `pad_right` |
-| `@"io"` | `read_file` `write_file` `append_file` `read_line` `exists` `is_file` `is_dir` `mkdir` `ls` `rm` |
-| `@"json"` | `parse` `stringify` `pretty` |
-| `@"os"` | `args` `env` `set_env` `cwd` `pid` `time` `sleep` `exec` `exit` |
+| `@"io"` | `input` `readall` |
+| `@"fs"` | `fread` `fwrite` `fappend` `fexists` `fls` `fmk` `frm` |
+| `@"http"` | `hget` `hpost` `hput` `hdel` `serve` |
+| `@"json"` | `jparse` `jstr` `jpretty` |
+| `@"re"` | `rmatch` `rfind` `rall` `rsub` |
+| `@"time"` | `now` `sleep` `fmt` |
+| `@"os"` | `args` `env` `set_env` `cwd` `pid` `exec` `exit` |
 
 ## Architecture
 
@@ -244,7 +248,7 @@ The C-ABI runtime library linked into every compiled binary. All heap types are 
 | **Math** | abs, floor, ceil, rand + dynamic-dispatch variants |
 | **Conversions** | int, float, str, type_of, to_string |
 | **Dynamic ops** | add, sub, mul, div, mod, negate, eq, lt, truthiness (for `Any` type) |
-| **Stdlib** | math, str, io, json, os module constructors |
+| **Stdlib** | math, str, io, fs, http, json, re, time, os module constructors |
 
 ### Value Representation
 
@@ -287,7 +291,7 @@ All 9 phases of the language spec are complete:
 
 **Compiler backend**: Cranelift AOT compilation to native binaries. All language features compile to native code, including concurrency primitives.
 
-**Standard library**: 5 modules (math, str, io, json, os) with 66 functions total, accessible via all import forms.
+**Standard library**: 9 modules (math, str, io, fs, http, json, re, time, os) accessible via all import forms. Stdlib calls are optimized with direct dispatch (no map lookup or indirect call overhead).
 
 ## Limitations
 
@@ -317,6 +321,9 @@ cargo run -- run tests/stdlib_str_test.tok
 cargo run -- run tests/stdlib_io_test.tok
 cargo run -- run tests/stdlib_json_test.tok
 cargo run -- run tests/stdlib_os_test.tok
+cargo run -- run tests/stdlib_fs_test.tok
+cargo run -- run tests/stdlib_re_test.tok
+cargo run -- run tests/stdlib_time_test.tok
 cargo run -- run tests/stdlib_destructure_test.tok
 
 # Benchmarks (Tok vs Go vs Rust)
@@ -340,6 +347,6 @@ tok-lang/
     tok-runtime/          # C-ABI runtime library
     tok-driver/           # CLI binary
   tests/
-    *_test.tok            # End-to-end test files (16 test suites)
+    *_test.tok            # End-to-end test files (21 test suites)
     bench/                # Benchmark programs (Tok vs Go vs Rust, 11 benchmarks)
 ```

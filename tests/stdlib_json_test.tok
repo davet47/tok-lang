@@ -34,5 +34,8 @@ parsed=j.parse(original)
 back=j.stringify(parsed)
 pl(back)
 
-// --- pretty ---
+// --- pretty (legacy name) ---
 pl(j.pretty({x:1 y:2}))
+
+// --- jpretty (new name) ---
+pl(j.jpretty({a:1}))

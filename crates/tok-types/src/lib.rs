@@ -285,6 +285,15 @@ fn register_builtins(env: &mut TypeEnv) {
         // Utility
         ("clock", func_type(&[], Type::Int)),
         ("exit", func_type(&[Type::Int], Type::Nil)),
+
+        // New builtins (spec v0.1)
+        ("is", func_type(&[Type::Any, Type::Str], Type::Bool)),
+        ("pop", func_type(&[arr_any.clone()], Type::Any)),
+        ("freq", func_type(&[arr_any.clone()], map_any.clone())),
+        ("top", func_type(&[map_any.clone(), Type::Int], arr_any.clone())),
+        ("zip", func_type(&[arr_any.clone(), arr_any.clone()], arr_any.clone())),
+        ("args", func_type(&[], arr_any.clone())),
+        ("env", func_type(&[Type::Str], Type::Any)),
     ];
 
     for (name, ty) in builtins {

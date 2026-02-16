@@ -1,0 +1,10 @@
+# Standard library: @"http" module tests
+# Note: HTTP tests need network access
+
+h=@"http"
+
+# --- hget ---
+# Use httpbin.org for testing (http only, no TLS)
+body err=h.hget("http://httpbin.org/get")
+pl(type(body))
+pl(err)

@@ -374,12 +374,131 @@ impl Compiler {
         self.declare_runtime_func("tok_clock", &[], &[types::I64]);
         self.declare_runtime_func("tok_exit", &[types::I64], &[]);
 
+        // New core builtins
+        self.declare_runtime_func("tok_is", &[PTR, types::I64, PTR], &[types::I8]); // TokValue + string ptr -> bool
+        self.declare_runtime_func("tok_array_pop", &[PTR], &[PTR, types::I64]); // arr -> TokValue (tuple)
+        self.declare_runtime_func("tok_array_freq", &[PTR], &[PTR]); // arr -> map
+        self.declare_runtime_func("tok_array_zip", &[PTR, PTR], &[PTR]); // arr, arr -> arr
+        self.declare_runtime_func("tok_map_top", &[PTR, types::I64], &[PTR]); // map, n -> arr
+        self.declare_runtime_func("tok_args", &[], &[PTR]); // -> arr
+        self.declare_runtime_func("tok_env", &[PTR], &[PTR, types::I64]); // str -> TokValue
+
         // Stdlib module constructors — each returns *mut TokMap
         self.declare_runtime_func("tok_stdlib_math", &[], &[PTR]);
         self.declare_runtime_func("tok_stdlib_str", &[], &[PTR]);
         self.declare_runtime_func("tok_stdlib_os", &[], &[PTR]);
         self.declare_runtime_func("tok_stdlib_io", &[], &[PTR]);
         self.declare_runtime_func("tok_stdlib_json", &[], &[PTR]);
+        self.declare_runtime_func("tok_stdlib_fs", &[], &[PTR]);
+        self.declare_runtime_func("tok_stdlib_http", &[], &[PTR]);
+        self.declare_runtime_func("tok_stdlib_re", &[], &[PTR]);
+        self.declare_runtime_func("tok_stdlib_time", &[], &[PTR]);
+
+        // ── Stdlib trampoline direct-call declarations ──────────────
+        // Signature conventions:
+        //   0-arg: (env: PTR) -> (I64, I64)
+        //   1-arg: (env: PTR, tag: I64, data: I64) -> (I64, I64)
+        //   2-arg: (env: PTR, t1: I64, d1: I64, t2: I64, d2: I64) -> (I64, I64)
+        //   3-arg: (env: PTR, t1-d1, t2-d2, t3-d3) -> (I64, I64)
+        let sig0 = &[PTR];
+        let sig1 = &[PTR, types::I64, types::I64];
+        let sig2 = &[PTR, types::I64, types::I64, types::I64, types::I64];
+        let sig3 = &[PTR, types::I64, types::I64, types::I64, types::I64, types::I64, types::I64];
+        let ret = &[types::I64, types::I64];
+
+        // @"math" — 1-arg
+        for name in &[
+            "tok_math_sqrt_t", "tok_math_sin_t", "tok_math_cos_t", "tok_math_tan_t",
+            "tok_math_asin_t", "tok_math_acos_t", "tok_math_atan_t",
+            "tok_math_log_t", "tok_math_log2_t", "tok_math_log10_t", "tok_math_exp_t",
+            "tok_math_floor_t", "tok_math_ceil_t", "tok_math_round_t", "tok_math_abs_t",
+        ] {
+            self.declare_runtime_func(name, sig1, ret);
+        }
+        // @"math" — 2-arg
+        for name in &["tok_math_pow_t", "tok_math_min_t", "tok_math_max_t", "tok_math_atan2_t"] {
+            self.declare_runtime_func(name, sig2, ret);
+        }
+        // @"math" — 0-arg
+        self.declare_runtime_func("tok_math_random_t", sig0, ret);
+
+        // @"str" — 1-arg
+        for name in &[
+            "tok_str_upper_t", "tok_str_lower_t", "tok_str_trim_t",
+            "tok_str_trim_left_t", "tok_str_trim_right_t",
+            "tok_str_chars_t", "tok_str_bytes_t", "tok_str_rev_t", "tok_str_len_t",
+        ] {
+            self.declare_runtime_func(name, sig1, ret);
+        }
+        // @"str" — 2-arg
+        for name in &[
+            "tok_str_contains_t", "tok_str_starts_with_t", "tok_str_ends_with_t",
+            "tok_str_index_of_t", "tok_str_repeat_t", "tok_str_split_t",
+        ] {
+            self.declare_runtime_func(name, sig2, ret);
+        }
+        // @"str" — 3-arg
+        for name in &[
+            "tok_str_replace_t", "tok_str_pad_left_t", "tok_str_pad_right_t", "tok_str_substr_t",
+        ] {
+            self.declare_runtime_func(name, sig3, ret);
+        }
+
+        // @"json" — 1-arg
+        for name in &["tok_json_parse_t", "tok_json_stringify_t", "tok_json_pretty_t"] {
+            self.declare_runtime_func(name, sig1, ret);
+        }
+
+        // @"os" — 0-arg
+        for name in &["tok_os_args_t", "tok_os_cwd_t", "tok_os_pid_t"] {
+            self.declare_runtime_func(name, sig0, ret);
+        }
+        // @"os" — 1-arg
+        for name in &["tok_os_env_t", "tok_os_exit_t", "tok_os_exec_t"] {
+            self.declare_runtime_func(name, sig1, ret);
+        }
+        // @"os" — 2-arg
+        self.declare_runtime_func("tok_os_set_env_t", sig2, ret);
+
+        // @"io" — 0-arg
+        self.declare_runtime_func("tok_io_readall_t", sig0, ret);
+        // @"io" — 1-arg (input with prompt; handles empty prompt for 0-arg case)
+        self.declare_runtime_func("tok_io_input_1_t", sig1, ret);
+
+        // @"fs" — 1-arg
+        for name in &[
+            "tok_fs_fread_t", "tok_fs_fexists_t", "tok_fs_fls_t",
+            "tok_fs_fmk_t", "tok_fs_frm_t",
+        ] {
+            self.declare_runtime_func(name, sig1, ret);
+        }
+        // @"fs" — 2-arg
+        for name in &["tok_fs_fwrite_t", "tok_fs_fappend_t"] {
+            self.declare_runtime_func(name, sig2, ret);
+        }
+
+        // @"http" — 1-arg
+        for name in &["tok_http_hget_t", "tok_http_hdel_t"] {
+            self.declare_runtime_func(name, sig1, ret);
+        }
+        // @"http" — 2-arg
+        for name in &["tok_http_hpost_t", "tok_http_hput_t", "tok_http_serve_t"] {
+            self.declare_runtime_func(name, sig2, ret);
+        }
+
+        // @"re" — 2-arg
+        for name in &["tok_re_rmatch_t", "tok_re_rfind_t", "tok_re_rall_t"] {
+            self.declare_runtime_func(name, sig2, ret);
+        }
+        // @"re" — 3-arg
+        self.declare_runtime_func("tok_re_rsub_t", sig3, ret);
+
+        // @"time" — 0-arg
+        self.declare_runtime_func("tok_time_now_t", sig0, ret);
+        // @"time" — 1-arg
+        self.declare_runtime_func("tok_time_sleep_t", sig1, ret);
+        // @"time" — 2-arg
+        self.declare_runtime_func("tok_time_fmt_t", sig2, ret);
     }
 
     /// Declare a string literal as a data object, returning a DataId.
@@ -461,6 +580,8 @@ struct FuncCtx<'a> {
     ret_type: Type,
     /// Closures assigned to local variables where we know the FuncId at compile time.
     known_closures: HashMap<String, KnownClosure>,
+    /// Variables that hold stdlib module imports: var_name → module_name (e.g. "m" → "math").
+    stdlib_imports: HashMap<String, String>,
     /// Set by Lambda compilation so the enclosing Assign can record it in known_closures.
     last_lambda_info: Option<(FuncId, Value, usize)>, // (func_id, env_ptr, pending_idx)
     /// Parameter names (should not be RC dec'd at function exit — caller owns them).
@@ -610,6 +731,7 @@ fn compile_function(
         is_any_return,
         ret_type: ret_type.clone(),
         known_closures: HashMap::new(),
+            stdlib_imports: HashMap::new(),
         last_lambda_info: None,
         param_names: HashSet::new(),
         closure_sig_cache: HashMap::new(),
@@ -861,6 +983,7 @@ fn compile_lambda_body(compiler: &mut Compiler, lambda: &PendingLambda) {
         is_any_return: true, // lambdas always return (tag, data)
         ret_type: lambda.ret_type.clone(),
         known_closures: HashMap::new(),
+            stdlib_imports: HashMap::new(),
         last_lambda_info: None,
         param_names: HashSet::new(),
         closure_sig_cache: HashMap::new(),
@@ -976,6 +1099,7 @@ fn compile_specialized_lambda_body(compiler: &mut Compiler, lambda: &PendingLamb
         is_any_return: false, // specialized: single native return
         ret_type: lambda.ret_type.clone(),
         known_closures: HashMap::new(),
+            stdlib_imports: HashMap::new(),
         last_lambda_info: None,
         param_names: HashSet::new(),
         closure_sig_cache: HashMap::new(),
@@ -1101,6 +1225,7 @@ fn compile_main(compiler: &mut Compiler, stmts: &[HirStmt]) {
         is_any_return: false,
         ret_type: Type::Nil,
         known_closures: HashMap::new(),
+            stdlib_imports: HashMap::new(),
         last_lambda_info: None,
         param_names: HashSet::new(),
         closure_sig_cache: HashMap::new(),
@@ -1265,6 +1390,18 @@ fn compile_stmt(ctx: &mut FuncCtx, stmt: &HirStmt) -> Option<Value> {
             } else {
                 // Variable reassigned to non-lambda — invalidate
                 ctx.known_closures.remove(name.as_str());
+            }
+            // Track stdlib module imports for direct-call optimization
+            if let HirExprKind::RuntimeCall { name: ref call_name, ref args } = value.kind {
+                if call_name == "tok_import" {
+                    if let Some(arg) = args.first() {
+                        if let HirExprKind::Str(module_name) = &arg.kind {
+                            ctx.stdlib_imports.insert(name.clone(), module_name.clone());
+                        }
+                    }
+                }
+            } else {
+                ctx.stdlib_imports.remove(name.as_str());
             }
             if let Some(v) = val {
                 if let Some((var, existing_ty)) = ctx.vars.get(name).cloned() {
@@ -1699,6 +1836,16 @@ fn compile_expr(ctx: &mut FuncCtx, expr: &HirExpr) -> Option<Value> {
         }
 
         HirExprKind::Member { target, field } => {
+            // ── Stdlib constant inlining (e.g. m.pi, m.e, m.inf, m.nan) ──
+            if let HirExprKind::Ident(var_name) = &target.kind {
+                if let Some(module_name) = ctx.stdlib_imports.get(var_name.as_str()).cloned() {
+                    if let Some(const_val) = get_stdlib_const(&module_name, field) {
+                        let f_val = ctx.builder.ins().f64const(const_val);
+                        let (tag, data) = to_tokvalue(ctx, f_val, &Type::Float);
+                        return Some(from_tokvalue(ctx, tag, data, &expr.ty));
+                    }
+                }
+            }
             let target_val = compile_expr(ctx, target).unwrap();
             // Allocate field name as string, call map_get
             let (data_id, len) = ctx.compiler.declare_string_data(field);
@@ -1755,7 +1902,11 @@ fn compile_expr(ctx: &mut FuncCtx, expr: &HirExpr) -> Option<Value> {
                             "os"   => "tok_stdlib_os",
                             "io"   => "tok_stdlib_io",
                             "json" => "tok_stdlib_json",
-                            other  => panic!("Unknown module: @\"{}\" — only stdlib modules (math, str, os, io, json) are supported in compiled mode", other),
+                            "fs"   => "tok_stdlib_fs",
+                            "http" => "tok_stdlib_http",
+                            "re"   => "tok_stdlib_re",
+                            "time" => "tok_stdlib_time",
+                            other  => panic!("Unknown module: @\"{}\" — only stdlib modules (math, str, os, io, json, fs, http, re, time) are supported in compiled mode", other),
                         };
                         let func_ref = ctx.get_runtime_func_ref(constructor);
                         let call = ctx.builder.ins().call(func_ref, &[]);
@@ -2567,12 +2718,160 @@ fn compile_unaryop(
 
 // ─── Function calls ───────────────────────────────────────────────────
 
+/// Look up a stdlib function's trampoline name and arity.
+/// Returns `Some((trampoline_symbol, arity))` for known stdlib module functions.
+fn get_stdlib_func(module: &str, field: &str) -> Option<(&'static str, usize)> {
+    match (module, field) {
+        // @"math" — 1-arg
+        ("math", "sqrt")  => Some(("tok_math_sqrt_t", 1)),
+        ("math", "sin")   => Some(("tok_math_sin_t", 1)),
+        ("math", "cos")   => Some(("tok_math_cos_t", 1)),
+        ("math", "tan")   => Some(("tok_math_tan_t", 1)),
+        ("math", "asin")  => Some(("tok_math_asin_t", 1)),
+        ("math", "acos")  => Some(("tok_math_acos_t", 1)),
+        ("math", "atan")  => Some(("tok_math_atan_t", 1)),
+        ("math", "log")   => Some(("tok_math_log_t", 1)),
+        ("math", "log2")  => Some(("tok_math_log2_t", 1)),
+        ("math", "log10") => Some(("tok_math_log10_t", 1)),
+        ("math", "exp")   => Some(("tok_math_exp_t", 1)),
+        ("math", "floor") => Some(("tok_math_floor_t", 1)),
+        ("math", "ceil")  => Some(("tok_math_ceil_t", 1)),
+        ("math", "round") => Some(("tok_math_round_t", 1)),
+        ("math", "abs")   => Some(("tok_math_abs_t", 1)),
+        // @"math" — 2-arg
+        ("math", "pow")   => Some(("tok_math_pow_t", 2)),
+        ("math", "min")   => Some(("tok_math_min_t", 2)),
+        ("math", "max")   => Some(("tok_math_max_t", 2)),
+        ("math", "atan2") => Some(("tok_math_atan2_t", 2)),
+        // @"math" — 0-arg
+        ("math", "random") => Some(("tok_math_random_t", 0)),
+
+        // @"str" — 1-arg
+        ("str", "upper")      => Some(("tok_str_upper_t", 1)),
+        ("str", "lower")      => Some(("tok_str_lower_t", 1)),
+        ("str", "trim")       => Some(("tok_str_trim_t", 1)),
+        ("str", "trim_left")  => Some(("tok_str_trim_left_t", 1)),
+        ("str", "trim_right") => Some(("tok_str_trim_right_t", 1)),
+        ("str", "chars")      => Some(("tok_str_chars_t", 1)),
+        ("str", "bytes")      => Some(("tok_str_bytes_t", 1)),
+        ("str", "rev")        => Some(("tok_str_rev_t", 1)),
+        ("str", "len")        => Some(("tok_str_len_t", 1)),
+        // @"str" — 2-arg
+        ("str", "contains")    => Some(("tok_str_contains_t", 2)),
+        ("str", "starts_with") => Some(("tok_str_starts_with_t", 2)),
+        ("str", "ends_with")   => Some(("tok_str_ends_with_t", 2)),
+        ("str", "index_of")    => Some(("tok_str_index_of_t", 2)),
+        ("str", "repeat")      => Some(("tok_str_repeat_t", 2)),
+        ("str", "split")       => Some(("tok_str_split_t", 2)),
+        // @"str" — 3-arg
+        ("str", "replace")   => Some(("tok_str_replace_t", 3)),
+        ("str", "pad_left")  => Some(("tok_str_pad_left_t", 3)),
+        ("str", "pad_right") => Some(("tok_str_pad_right_t", 3)),
+        ("str", "substr")    => Some(("tok_str_substr_t", 3)),
+
+        // @"json" — 1-arg
+        ("json", "jparse")    => Some(("tok_json_parse_t", 1)),
+        ("json", "jstr")      => Some(("tok_json_stringify_t", 1)),
+        ("json", "jpretty")   => Some(("tok_json_pretty_t", 1)),
+        ("json", "parse")     => Some(("tok_json_parse_t", 1)),
+        ("json", "stringify") => Some(("tok_json_stringify_t", 1)),
+        ("json", "pretty")    => Some(("tok_json_pretty_t", 1)),
+
+        // @"os" — 0-arg
+        ("os", "args") => Some(("tok_os_args_t", 0)),
+        ("os", "cwd")  => Some(("tok_os_cwd_t", 0)),
+        ("os", "pid")  => Some(("tok_os_pid_t", 0)),
+        // @"os" — 1-arg
+        ("os", "env")  => Some(("tok_os_env_t", 1)),
+        ("os", "exit") => Some(("tok_os_exit_t", 1)),
+        ("os", "exec") => Some(("tok_os_exec_t", 1)),
+        // @"os" — 2-arg
+        ("os", "set_env") => Some(("tok_os_set_env_t", 2)),
+
+        // @"io" — 0-arg
+        ("io", "readall") => Some(("tok_io_readall_t", 0)),
+        // @"io" — 1-arg (input with prompt)
+        ("io", "input")   => Some(("tok_io_input_1_t", 1)),
+
+        // @"fs" — 1-arg
+        ("fs", "fread")   => Some(("tok_fs_fread_t", 1)),
+        ("fs", "fexists") => Some(("tok_fs_fexists_t", 1)),
+        ("fs", "fls")     => Some(("tok_fs_fls_t", 1)),
+        ("fs", "fmk")     => Some(("tok_fs_fmk_t", 1)),
+        ("fs", "frm")     => Some(("tok_fs_frm_t", 1)),
+        // @"fs" — 2-arg
+        ("fs", "fwrite")  => Some(("tok_fs_fwrite_t", 2)),
+        ("fs", "fappend") => Some(("tok_fs_fappend_t", 2)),
+
+        // @"http" — 1-arg
+        ("http", "hget") => Some(("tok_http_hget_t", 1)),
+        ("http", "hdel") => Some(("tok_http_hdel_t", 1)),
+        // @"http" — 2-arg
+        ("http", "hpost")  => Some(("tok_http_hpost_t", 2)),
+        ("http", "hput")   => Some(("tok_http_hput_t", 2)),
+        ("http", "serve")  => Some(("tok_http_serve_t", 2)),
+
+        // @"re" — 2-arg
+        ("re", "rmatch") => Some(("tok_re_rmatch_t", 2)),
+        ("re", "rfind")  => Some(("tok_re_rfind_t", 2)),
+        ("re", "rall")   => Some(("tok_re_rall_t", 2)),
+        // @"re" — 3-arg
+        ("re", "rsub")   => Some(("tok_re_rsub_t", 3)),
+
+        // @"time" — 0-arg
+        ("time", "now")   => Some(("tok_time_now_t", 0)),
+        // @"time" — 1-arg
+        ("time", "sleep") => Some(("tok_time_sleep_t", 1)),
+        // @"time" — 2-arg
+        ("time", "fmt")   => Some(("tok_time_fmt_t", 2)),
+
+        _ => None,
+    }
+}
+
+/// Look up a stdlib constant value (e.g. math.pi).
+fn get_stdlib_const(module: &str, field: &str) -> Option<f64> {
+    match (module, field) {
+        ("math", "pi")  => Some(std::f64::consts::PI),
+        ("math", "e")   => Some(std::f64::consts::E),
+        ("math", "inf") => Some(f64::INFINITY),
+        ("math", "nan") => Some(f64::NAN),
+        _ => None,
+    }
+}
+
 fn compile_call(
     ctx: &mut FuncCtx,
     func_expr: &HirExpr,
     args: &[HirExpr],
     result_ty: &Type,
 ) -> Option<Value> {
+    // ── Stdlib direct-call optimization ─────────────────────────
+    // Detect m.func(args) where m is a known stdlib import.
+    // Emit a direct call to the trampoline, bypassing map lookup + indirect dispatch.
+    if let HirExprKind::Member { target, field } = &func_expr.kind {
+        if let HirExprKind::Ident(var_name) = &target.kind {
+            if let Some(module_name) = ctx.stdlib_imports.get(var_name.as_str()).cloned() {
+                if let Some((trampoline, _arity)) = get_stdlib_func(&module_name, field) {
+                    let func_ref = ctx.get_runtime_func_ref(trampoline);
+                    let null_env = ctx.builder.ins().iconst(PTR, 0i64);
+                    let mut call_args = vec![null_env];
+                    for arg in args {
+                        let v = compile_expr(ctx, arg).unwrap_or_else(|| {
+                            ctx.builder.ins().iconst(types::I64, 0)
+                        });
+                        let (tag, data) = to_tokvalue(ctx, v, &arg.ty);
+                        call_args.push(tag);
+                        call_args.push(data);
+                    }
+                    let call = ctx.builder.ins().call(func_ref, &call_args);
+                    let results = ctx.builder.inst_results(call);
+                    return Some(from_tokvalue(ctx, results[0], results[1], result_ty));
+                }
+            }
+        }
+    }
+
     // Check if this is a call to a known function name
     if let HirExprKind::Ident(name) = &func_expr.kind {
         // User-defined functions take priority over builtins
@@ -2959,6 +3258,80 @@ fn compile_call(
                     let func_ref = ctx.get_runtime_func_ref("tok_pmap");
                     let call = ctx.builder.ins().call(func_ref, &[arr, closure_ptr]);
                     return Some(ctx.builder.inst_results(call)[0]);
+                }
+            }
+            "is" => {
+                if args.len() >= 2 {
+                    // compile_expr returns None for Nil, so handle that
+                    let val_opt = compile_expr(ctx, &args[0]);
+                    let (tag, data) = if let Some(val) = val_opt {
+                        to_tokvalue(ctx, val, &args[0].ty)
+                    } else {
+                        // Nil value
+                        let tag = ctx.builder.ins().iconst(types::I64, 0); // TAG_NIL
+                        let data = ctx.builder.ins().iconst(types::I64, 0);
+                        (tag, data)
+                    };
+                    let type_str = compile_expr(ctx, &args[1]).unwrap();
+                    let str_ptr = unwrap_any_ptr(ctx, type_str, &args[1].ty);
+                    let func_ref = ctx.get_runtime_func_ref("tok_is");
+                    let call = ctx.builder.ins().call(func_ref, &[tag, data, str_ptr]);
+                    return Some(ctx.builder.inst_results(call)[0]);
+                }
+            }
+            "pop" => {
+                if let Some(arg) = args.first() {
+                    let val = compile_expr(ctx, arg).unwrap();
+                    let ptr = unwrap_any_ptr(ctx, val, &arg.ty);
+                    let func_ref = ctx.get_runtime_func_ref("tok_array_pop");
+                    let call = ctx.builder.ins().call(func_ref, &[ptr]);
+                    let results = ctx.builder.inst_results(call);
+                    return Some(from_tokvalue(ctx, results[0], results[1], result_ty));
+                }
+            }
+            "freq" => {
+                if let Some(arg) = args.first() {
+                    let val = compile_expr(ctx, arg).unwrap();
+                    let ptr = unwrap_any_ptr(ctx, val, &arg.ty);
+                    let func_ref = ctx.get_runtime_func_ref("tok_array_freq");
+                    let call = ctx.builder.ins().call(func_ref, &[ptr]);
+                    return Some(ctx.builder.inst_results(call)[0]);
+                }
+            }
+            "zip" => {
+                if args.len() >= 2 {
+                    let a_raw = compile_expr(ctx, &args[0]).unwrap();
+                    let a = unwrap_any_ptr(ctx, a_raw, &args[0].ty);
+                    let b_raw = compile_expr(ctx, &args[1]).unwrap();
+                    let b = unwrap_any_ptr(ctx, b_raw, &args[1].ty);
+                    let func_ref = ctx.get_runtime_func_ref("tok_array_zip");
+                    let call = ctx.builder.ins().call(func_ref, &[a, b]);
+                    return Some(ctx.builder.inst_results(call)[0]);
+                }
+            }
+            "top" => {
+                if args.len() >= 2 {
+                    let map_raw = compile_expr(ctx, &args[0]).unwrap();
+                    let map = unwrap_any_ptr(ctx, map_raw, &args[0].ty);
+                    let n = compile_expr(ctx, &args[1]).unwrap();
+                    let func_ref = ctx.get_runtime_func_ref("tok_map_top");
+                    let call = ctx.builder.ins().call(func_ref, &[map, n]);
+                    return Some(ctx.builder.inst_results(call)[0]);
+                }
+            }
+            "args" => {
+                let func_ref = ctx.get_runtime_func_ref("tok_args");
+                let call = ctx.builder.ins().call(func_ref, &[]);
+                return Some(ctx.builder.inst_results(call)[0]);
+            }
+            "env" => {
+                if let Some(arg) = args.first() {
+                    let val = compile_expr(ctx, arg).unwrap();
+                    let ptr = unwrap_any_ptr(ctx, val, &arg.ty);
+                    let func_ref = ctx.get_runtime_func_ref("tok_env");
+                    let call = ctx.builder.ins().call(func_ref, &[ptr]);
+                    let results = ctx.builder.inst_results(call);
+                    return Some(from_tokvalue(ctx, results[0], results[1], result_ty));
                 }
             }
             _ => {

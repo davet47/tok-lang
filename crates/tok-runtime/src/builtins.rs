@@ -664,6 +664,173 @@ pub extern "C" fn tok_value_not(a: TokValue) -> i8 {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// Type check: is(value, type_string)
+// ═══════════════════════════════════════════════════════════════
+
+/// is(val, type_str) -> Bool
+/// Checks if the value's type matches the given type string.
+#[no_mangle]
+pub extern "C" fn tok_is(val: TokValue, type_str: *mut TokString) -> i8 {
+    if type_str.is_null() {
+        return 0;
+    }
+    let expected = unsafe { &(*type_str).data };
+    if val.type_name() == expected.as_str() { 1 } else { 0 }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Array: pop, freq, zip
+// ═══════════════════════════════════════════════════════════════
+
+/// pop(arr) -> (shortened_array, last_element)
+/// Returns a tuple of (array without last element, last element).
+#[no_mangle]
+pub extern "C" fn tok_array_pop(arr: *mut crate::array::TokArray) -> TokValue {
+    assert!(!arr.is_null(), "tok_array_pop: null array");
+    unsafe {
+        let src = &(*arr).data;
+        if src.is_empty() {
+            // Return ([], N)
+            let new_arr = crate::array::TokArray::alloc();
+            let elems = vec![
+                TokValue::from_array(new_arr),
+                TokValue::nil(),
+            ];
+            return TokValue::from_tuple(crate::tuple::TokTuple::alloc(elems));
+        }
+        let last = src[src.len() - 1];
+        last.rc_inc();
+        let new_arr = crate::array::TokArray::alloc();
+        for i in 0..src.len() - 1 {
+            src[i].rc_inc();
+            (*new_arr).data.push(src[i]);
+        }
+        let elems = vec![
+            TokValue::from_array(new_arr),
+            last,
+        ];
+        TokValue::from_tuple(crate::tuple::TokTuple::alloc(elems))
+    }
+}
+
+/// freq(arr) -> Map  {element: count}
+/// Counts occurrences of each element. Keys are stringified values.
+#[no_mangle]
+pub extern "C" fn tok_array_freq(arr: *mut crate::array::TokArray) -> *mut crate::map::TokMap {
+    assert!(!arr.is_null(), "tok_array_freq: null array");
+    unsafe {
+        let m = crate::map::TokMap::alloc();
+        for val in &(*arr).data {
+            let key = format!("{}", val);
+            if let Some(existing) = (*m).data.get_mut(&key) {
+                // Increment count
+                if existing.tag == TAG_INT {
+                    *existing = TokValue::from_int(existing.data.int_val + 1);
+                }
+            } else {
+                (*m).data.insert(key, TokValue::from_int(1));
+            }
+        }
+        m
+    }
+}
+
+/// zip(a, b) -> Array<Tuple>
+/// Zips two arrays into an array of tuples.
+#[no_mangle]
+pub extern "C" fn tok_array_zip(
+    a: *mut crate::array::TokArray,
+    b: *mut crate::array::TokArray,
+) -> *mut crate::array::TokArray {
+    assert!(!a.is_null(), "tok_array_zip: null array a");
+    assert!(!b.is_null(), "tok_array_zip: null array b");
+    unsafe {
+        let result = crate::array::TokArray::alloc();
+        let len = std::cmp::min((*a).data.len(), (*b).data.len());
+        for i in 0..len {
+            let va = (*a).data[i];
+            let vb = (*b).data[i];
+            va.rc_inc();
+            vb.rc_inc();
+            let tup = crate::tuple::TokTuple::alloc(vec![va, vb]);
+            (*result).data.push(TokValue::from_tuple(tup));
+        }
+        result
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Map: top(m, n)
+// ═══════════════════════════════════════════════════════════════
+
+/// top(map, n) -> Array<Tuple>
+/// Returns the top N entries by value (descending), as array of (key, value) tuples.
+#[no_mangle]
+pub extern "C" fn tok_map_top(m: *mut crate::map::TokMap, n: i64) -> *mut crate::array::TokArray {
+    assert!(!m.is_null(), "tok_map_top: null map");
+    unsafe {
+        let mut entries: Vec<(&String, &TokValue)> = (*m).data.iter().collect();
+        // Sort by value descending
+        entries.sort_by(|a, b| {
+            let va = match a.1.tag {
+                TAG_INT => a.1.data.int_val as f64,
+                TAG_FLOAT => a.1.data.float_val,
+                _ => 0.0,
+            };
+            let vb = match b.1.tag {
+                TAG_INT => b.1.data.int_val as f64,
+                TAG_FLOAT => b.1.data.float_val,
+                _ => 0.0,
+            };
+            vb.partial_cmp(&va).unwrap_or(std::cmp::Ordering::Equal)
+        });
+        let result = crate::array::TokArray::alloc();
+        let take = std::cmp::min(n as usize, entries.len());
+        for (k, v) in entries.into_iter().take(take) {
+            v.rc_inc();
+            let tup = crate::tuple::TokTuple::alloc(vec![
+                TokValue::from_string(TokString::alloc(k.clone())),
+                *v,
+            ]);
+            (*result).data.push(TokValue::from_tuple(tup));
+        }
+        result
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// OS builtins promoted to core: args(), env(k)
+// ═══════════════════════════════════════════════════════════════
+
+/// args() -> Array<Str>
+/// Returns command-line arguments (excluding the program name).
+#[no_mangle]
+pub extern "C" fn tok_args() -> *mut crate::array::TokArray {
+    let arr = crate::array::TokArray::alloc();
+    // Skip the first arg (program name) to match typical scripting language behavior
+    for arg in std::env::args().skip(1) {
+        let s = TokString::alloc(arg);
+        unsafe { (*arr).data.push(TokValue::from_string(s)); }
+    }
+    arr
+}
+
+/// env(name) -> Str | Nil
+/// Returns the value of an environment variable, or Nil if not set.
+#[no_mangle]
+pub extern "C" fn tok_env(name: *mut TokString) -> TokValue {
+    if name.is_null() {
+        return TokValue::nil();
+    }
+    unsafe {
+        match std::env::var(&(*name).data) {
+            Ok(val) => TokValue::from_string(TokString::alloc(val)),
+            Err(_) => TokValue::nil(),
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
 // Tests
 // ═══════════════════════════════════════════════════════════════
 

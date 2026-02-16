@@ -10,10 +10,6 @@ pl(type(pid))
 cwd=os.cwd()
 pl(type(cwd))
 
-// --- time ---
-t=os.time()
-pl(type(t))
-
 // --- args ---
 args=os.args()
 pl(type(args))

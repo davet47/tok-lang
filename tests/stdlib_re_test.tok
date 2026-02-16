@@ -1,0 +1,20 @@
+# Standard library: @"re" module tests
+
+re=@"re"
+
+# --- rmatch ---
+pl(re.rmatch("hello world" "hello"))
+pl(re.rmatch("hello world" "^world"))
+pl(re.rmatch("abc123" "[0-9]+"))
+
+# --- rfind ---
+pl(re.rfind("abc 123 def 456" "[0-9]+"))
+pl(re.rfind("no digits here" "[0-9]+"))
+
+# --- rall ---
+pl(re.rall("abc 123 def 456" "[0-9]+"))
+pl(re.rall("no match" "[0-9]+"))
+
+# --- rsub ---
+pl(re.rsub("hello 123 world 456" "[0-9]+" "NUM"))
+pl(re.rsub("no match" "[0-9]+" "NUM"))
