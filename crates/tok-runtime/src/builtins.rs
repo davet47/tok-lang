@@ -2,8 +2,9 @@
 //!
 //! These are called directly by Cranelift-generated machine code.
 
-use crate::string::TokString;
-use crate::value::{format_float, TokValue, TAG_BOOL, TAG_FLOAT, TAG_INT, TAG_NIL, TAG_STRING};
+use crate::array::tok_array_slice;
+use crate::string::{TokString, tok_string_slice};
+use crate::value::{format_float, TokValue, TAG_ARRAY, TAG_BOOL, TAG_FLOAT, TAG_INT, TAG_NIL, TAG_STRING};
 
 // ═══════════════════════════════════════════════════════════════
 // Reference counting (generic)
@@ -248,6 +249,24 @@ pub extern "C" fn tok_value_ceil(val: TokValue) -> TokValue {
             TAG_FLOAT => TokValue::from_int(val.data.float_val.ceil() as i64),
             TAG_INT => val,
             _ => val,
+        }
+    }
+}
+
+// slice() for Any-typed values: dispatches by tag (array or string), returns TokValue.
+#[no_mangle]
+pub extern "C" fn tok_value_slice(val: TokValue, start: i64, end: i64) -> TokValue {
+    unsafe {
+        match val.tag {
+            TAG_ARRAY => {
+                let result = tok_array_slice(val.data.array_ptr, start, end);
+                TokValue::from_array(result)
+            }
+            TAG_STRING => {
+                let result = tok_string_slice(val.data.string_ptr, start, end);
+                TokValue::from_string(result)
+            }
+            _ => TokValue::nil(),
         }
     }
 }

@@ -347,6 +347,7 @@ impl Compiler {
         self.declare_runtime_func("tok_value_floor", &[PTR, types::I64], &[PTR, types::I64]);
         self.declare_runtime_func("tok_ceil", &[types::F64], &[types::I64]);
         self.declare_runtime_func("tok_value_ceil", &[PTR, types::I64], &[PTR, types::I64]);
+        self.declare_runtime_func("tok_value_slice", &[PTR, types::I64, types::I64, types::I64], &[PTR, types::I64]);
         self.declare_runtime_func("tok_rand", &[], &[types::F64]);
         self.declare_runtime_func("tok_pow_f64", &[types::F64, types::F64], &[types::F64]);
         self.declare_runtime_func("tok_pow_int", &[types::I64, types::I64], &[types::I64]);
@@ -2921,17 +2922,32 @@ fn compile_call(
             }
             "slice" => {
                 if args.len() >= 3 {
-                    let target = compile_expr(ctx, &args[0]).unwrap();
+                    let target_raw = compile_expr(ctx, &args[0]).unwrap();
                     let start = compile_expr(ctx, &args[1]).unwrap();
                     let end = compile_expr(ctx, &args[2]).unwrap();
-                    let func_name = match &args[0].ty {
-                        Type::Array(_) => "tok_array_slice",
-                        Type::Str => "tok_string_slice",
+                    if matches!(args[0].ty, Type::Any) {
+                        // Fully dynamic: dispatch at runtime by tag
+                        let (tag, data) = to_tokvalue(ctx, target_raw, &args[0].ty);
+                        let func_ref = ctx.get_runtime_func_ref("tok_value_slice");
+                        let call = ctx.builder.ins().call(func_ref, &[tag, data, start, end]);
+                        let results = ctx.builder.inst_results(call);
+                        return Some(from_tokvalue(ctx, results[0], results[1], result_ty));
+                    }
+                    let target = unwrap_any_ptr(ctx, target_raw, &args[0].ty);
+                    let (func_name, tag_const) = match &args[0].ty {
+                        Type::Array(_) => ("tok_array_slice", TAG_ARRAY),
+                        Type::Str => ("tok_string_slice", TAG_STRING),
                         _ => return None,
                     };
                     let func_ref = ctx.get_runtime_func_ref(func_name);
                     let call = ctx.builder.ins().call(func_ref, &[target, start, end]);
-                    return Some(ctx.builder.inst_results(call)[0]);
+                    let raw = ctx.builder.inst_results(call)[0];
+                    // Wrap as TokValue if caller expects Any
+                    if matches!(result_ty, Type::Any) {
+                        let tag = ctx.builder.ins().iconst(types::I64, tag_const as i64);
+                        return Some(alloc_tokvalue_on_stack(ctx, tag, raw));
+                    }
+                    return Some(raw);
                 }
             }
             "pmap" => {
