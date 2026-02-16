@@ -127,13 +127,26 @@ val=<-ch                    # receive from channel
 results=pmap(items \(x)=process(x))  # parallel map
 ```
 
-### Modules
+### Modules & Standard Library
 
 ```tok
-@"utils"                    # import and merge into scope
-m=@"helpers"                # import as map
-pl(m.some_func(42))
+@"math"                     # import and merge into scope
+m=@"str"                    # import as namespace
+{parse stringify}=@"json"  # destructured import
+
+{sqrt pi pow}=@"math"
+pl(sqrt(pow(2 8)))          # 16.0
 ```
+
+Five standard library modules:
+
+| Module | Functions |
+|---|---|
+| `@"math"` | `sqrt` `sin` `cos` `tan` `asin` `acos` `atan` `atan2` `log` `log2` `log10` `exp` `pow` `abs` `floor` `ceil` `round` `min` `max` `random` + constants `pi` `e` `inf` `nan` |
+| `@"str"` | `upper` `lower` `trim` `trim_left` `trim_right` `len` `contains` `starts_with` `ends_with` `index_of` `substr` `replace` `split` `repeat` `chars` `bytes` `rev` `pad_left` `pad_right` |
+| `@"io"` | `read_file` `write_file` `append_file` `read_line` `exists` `is_file` `is_dir` `mkdir` `ls` `rm` |
+| `@"json"` | `parse` `stringify` `pretty` |
+| `@"os"` | `args` `env` `set_env` `cwd` `pid` `time` `sleep` `exec` `exit` |
 
 ## Architecture
 
@@ -231,6 +244,7 @@ The C-ABI runtime library linked into every compiled binary. All heap types are 
 | **Math** | abs, floor, ceil, rand + dynamic-dispatch variants |
 | **Conversions** | int, float, str, type_of, to_string |
 | **Dynamic ops** | add, sub, mul, div, mod, negate, eq, lt, truthiness (for `Any` type) |
+| **Stdlib** | math, str, io, json, os module constructors |
 
 ### Value Representation
 
@@ -255,7 +269,7 @@ The `Any` type uses `TokValue`, a 16-byte tagged union (`#[repr(C)]`):
 
 Tags: 0=Nil, 1=Int, 2=Float, 3=Bool, 4=String, 5=Array, 6=Map, 7=Tuple, 8=Func, 9=Channel, 10=Handle.
 
-## What's Implemented
+## Implementation Status
 
 All 9 phases of the language spec are complete:
 
@@ -267,22 +281,24 @@ All 9 phases of the language spec are complete:
 | 4 | Strings, interpolation, escape sequences | Done |
 | 5 | Pipes (`\|>`), filter (`?>`), reduce (`/>`) | Done |
 | 6 | Maps, member access, nested maps, builtins (sort, rev, keys, vals, etc.) | Done |
-| 7 | Modules (`@"path"`), circular import detection | Done |
+| 7 | Modules (`@"path"`), destructured imports (`{a b}=@"path"`) | Done |
 | 8 | Tuples, destructuring, error propagation (`?^`), nil coalesce (`??`), optional chain (`.?`) | Done |
 | 9 | Goroutines (`go`), channels, select (`sel`), parallel map (`pmap`) | Done |
 
-**Compiler backend**: Cranelift AOT compilation to native binaries. All 7 end-to-end test suites pass.
+**Compiler backend**: Cranelift AOT compilation to native binaries. All language features compile to native code, including concurrency primitives.
 
-## What's Not Yet Implemented
+**Standard library**: 5 modules (math, str, io, json, os) with 66 functions total, accessible via all import forms.
 
-- **Interpreter mode**: The project currently only has the native compiler path; no `eval`/REPL
-- **Concurrency in codegen**: `go`, channels, `sel`, and `pmap` work in the interpreter but are not yet compiled to native code
-- **Garbage collection**: Currently uses reference counting only (no cycle detection)
+## Limitations
+
+- **No REPL/interpreter mode** -- all programs must be compiled to native binaries
+- **Reference counting only** -- no cycle detection, so reference cycles will leak memory
+- **File-based imports in compiled mode** -- only stdlib modules (`@"math"`, etc.) work; `@"file.tok"` imports are not yet supported in the compiler
 
 ## Tests
 
 ```bash
-# Unit tests (246 tests across all crates)
+# Unit tests (247 tests across all crates)
 cargo test --workspace
 
 # End-to-end compiler tests (compile + run each test file)
@@ -293,6 +309,18 @@ cargo run -- run tests/arrays_lambdas_test.tok
 cargo run -- run tests/strings_pipes_test.tok
 cargo run -- run tests/maps_test.tok
 cargo run -- run tests/errors_tuples_test.tok
+cargo run -- run tests/concurrency_test.tok
+
+# Standard library tests
+cargo run -- run tests/stdlib_math_test.tok
+cargo run -- run tests/stdlib_str_test.tok
+cargo run -- run tests/stdlib_io_test.tok
+cargo run -- run tests/stdlib_json_test.tok
+cargo run -- run tests/stdlib_os_test.tok
+cargo run -- run tests/stdlib_destructure_test.tok
+
+# Benchmarks (Tok vs Go vs Rust)
+bash tests/bench/run_benchmarks.sh
 ```
 
 ## Project Structure
@@ -312,6 +340,6 @@ tok-lang/
     tok-runtime/          # C-ABI runtime library
     tok-driver/           # CLI binary
   tests/
-    *_test.tok            # End-to-end test files
-    bench/                # Benchmark programs (Tok vs Go vs Rust)
+    *_test.tok            # End-to-end test files (16 test suites)
+    bench/                # Benchmark programs (Tok vs Go vs Rust, 11 benchmarks)
 ```
