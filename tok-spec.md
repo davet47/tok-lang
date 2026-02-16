@@ -652,19 +652,20 @@ f sub(a b)=a-b               # exported
 _cache={}                     # private
 ```
 
-### 10.3 Standard Module Paths (Planned)
-These standard library modules are planned but not yet implemented:
+### 10.3 Standard Library Modules
 ```
-@"io"                         # I/O operations
-@"fs"                         # filesystem
-@"net"                        # networking
-@"http"                       # HTTP client/server
-@"json"                       # JSON encode/decode
-@"math"                       # math functions
-@"str"                        # string utilities
-@"os"                         # OS interaction
-@"time"                       # time/date
-@"re"                         # regex
+@"math"                       # math functions + constants (pi, e, sqrt, sin, cos, pow, etc.)
+@"str"                        # string utilities (upper, lower, trim, split, replace, etc.)
+@"io"                         # file I/O (read_file, write_file, mkdir, ls, rm, etc.)
+@"json"                       # JSON encode/decode (parse, stringify, pretty)
+@"os"                         # OS interaction (exec, env, cwd, pid, sleep, etc.)
+```
+
+All import forms work with stdlib modules:
+```
+@"math"                       # merge all exports into scope
+m=@"math"                     # namespace import
+{sqrt pi}=@"math"            # destructured import
 ```
 
 File-based modules (`@"path/to/file"`) work fully, including circular import detection.
@@ -746,21 +747,13 @@ results=[1 2 3 4 5]|>pmap(\(x)=heavy(x))
 | `chan(n)` | Create channel | `chan()` or `chan(10)` |
 | `pmap(a f)` | Parallel map | `pmap([1 2 3] \(x)=x*2)` |
 
-### 12.2 Standard Library Modules (Not Yet Implemented)
+### 12.2 Standard Library Modules
 
-The following module interfaces are planned but not yet available:
-
-- `@"io"` — stdin/stdout operations (`input`, `readall`)
-- `@"fs"` — filesystem (`fread`, `fwrite`, `fexists`, `fls`, etc.)
-- `@"http"` — HTTP client/server (`hget`, `hpost`, `serve`, etc.)
-- `@"json"` — JSON encode/decode (`jparse`, `jstr`)
-- `@"re"` — regex (`rmatch`, `rfind`, `rall`, `rsub`)
-- `@"time"` — time/date (`now`, `sleep`, `fmt`)
-- `@"math"` — extended math functions
-- `@"str"` — extended string utilities
-- `@"os"` — OS interaction
-
-Additional builtins planned but not yet implemented: `is(x t)`, `args()`, `env(k)`, `pop(a)`, `freq(a)`, `top(m n)`, `zip(a b)`.
+- `@"math"` — `sqrt`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `log`, `log2`, `log10`, `exp`, `pow`, `abs`, `floor`, `ceil`, `round`, `min`, `max`, `random`, `pi`, `e`, `inf`, `nan`
+- `@"str"` — `upper`, `lower`, `trim`, `trim_left`, `trim_right`, `len`, `contains`, `starts_with`, `ends_with`, `index_of`, `substr`, `replace`, `split`, `repeat`, `chars`, `bytes`, `rev`, `pad_left`, `pad_right`
+- `@"io"` — `read_file`, `write_file`, `append_file`, `read_line`, `exists`, `is_file`, `is_dir`, `mkdir`, `ls`, `rm`
+- `@"json"` — `parse`, `stringify`, `pretty`
+- `@"os"` — `args`, `env`, `set_env`, `cwd`, `pid`, `time`, `sleep`, `exec`, `exit`
 
 ---
 

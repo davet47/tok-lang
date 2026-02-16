@@ -1,0 +1,130 @@
+// Destructured imports from stdlib modules
+// Note: names that collide with builtins (len, trim, split, rev, abs,
+// floor, ceil, min, max, keys, vals, has, del, sort, push, join, etc.)
+// are shadowed by the builtin at compile time — use namespace access for those.
+
+// === Math: extract functions and constants ===
+{sqrt pi pow sin cos tan log exp round}=@"math"
+pl(sqrt(25))
+// expect: 5.0
+pl(pi)
+// expect: 3.141592653589793
+pl(pow(2 10))
+// expect: 1024.0
+pl(sin(0))
+// expect: 0.0
+pl(cos(0))
+// expect: 1.0
+pl(round(3.5))
+// expect: 4
+
+// === Math: trig and log functions ===
+{atan asin acos log2 log10}=@"math"
+pl(atan(0))
+// expect: 0.0
+pl(asin(0))
+// expect: 0.0
+pl(acos(1))
+// expect: 0.0
+pl(log2(8))
+// expect: 3.0
+pl(log10(1000))
+// expect: 3.0
+
+// === Math: constants ===
+{pi e inf nan}=@"math"
+pl(pi > 3)
+// expect: T
+pl(e > 2)
+// expect: T
+pl(inf > 999999)
+// expect: T
+
+// === Str: extract non-builtin string functions ===
+{upper lower contains starts_with ends_with replace}=@"str"
+pl(upper("hello"))
+// expect: HELLO
+pl(lower("WORLD"))
+// expect: world
+pl(contains("hello world" "world"))
+// expect: T
+pl(starts_with("hello" "hel"))
+// expect: T
+pl(ends_with("hello" "llo"))
+// expect: T
+pl(replace("foo bar foo" "foo" "baz"))
+// expect: baz bar baz
+
+// === Str: more non-builtin functions ===
+{substr repeat index_of pad_left pad_right}=@"str"
+pl(substr("hello" 1 3))
+// expect: el
+pl(repeat("ab" 3))
+// expect: ababab
+pl(index_of("hello" "ll"))
+// expect: 2
+pl(pad_left("hi" 5 "."))
+// expect: ...hi
+pl(pad_right("hi" 5 "."))
+// expect: hi...
+
+// === JSON: parse and stringify ===
+{parse stringify pretty}=@"json"
+data=parse("[1,2,3]")
+pl(data)
+// expect: [1 2 3]
+pl(stringify({x:1 y:2}))
+// expect: {"x":1,"y":2}
+obj=parse(`{"name":"tok","version":1}`)
+pl(obj.name)
+// expect: tok
+pl(obj.version)
+// expect: 1
+
+// === JSON: pretty print (multiline output) ===
+out=pretty({a:1})
+pl(type(out))
+// expect: string
+
+// === OS: system functions ===
+{pid cwd}=@"os"
+pl(type(pid()))
+// expect: int
+pl(type(cwd()))
+// expect: string
+
+// === IO: file functions ===
+{exists is_file is_dir}=@"io"
+pl(exists("/tmp"))
+// expect: T
+pl(is_dir("/tmp"))
+// expect: T
+pl(is_file("/tmp"))
+// expect: F
+
+// === Missing key gives Nil ===
+{sqrt nonexistent}=@"math"
+pl(nonexistent)
+// expect: N
+
+// === Single key extraction ===
+{stringify}=@"json"
+pl(stringify([10 20 30]))
+// expect: [10,20,30]
+
+// === Extracted functions can be called in expressions ===
+{sqrt pow}=@"math"
+pl(sqrt(pow(2 8)))
+// expect: 16.0
+
+// === Multiple destructures from same module ===
+{sin}=@"math"
+{cos}=@"math"
+pl(sin(0) + cos(0))
+// expect: 1.0
+
+// === Namespace + destructure on same module ===
+m=@"math"
+{sqrt}=@"math"
+pl(sqrt(m.pi))
+// expect: 1.7724538509055159

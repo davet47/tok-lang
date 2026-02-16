@@ -276,8 +276,6 @@ All 9 phases of the language spec are complete:
 ## What's Not Yet Implemented
 
 - **`slice` builtin** in the compiler (works in interpreter, not yet in codegen)
-- **Destructured imports**: `{a b c}=@"path"` syntax
-- **Standard library modules**: `@"io"`, `@"math"`, `@"http"`, `@"json"`, etc.
 - **Interpreter mode**: The project currently only has the native compiler path; no `eval`/REPL
 - **Concurrency in codegen**: `go`, channels, `sel`, and `pmap` work in the interpreter but are not yet compiled to native code
 - **Garbage collection**: Currently uses reference counting only (no cycle detection)
