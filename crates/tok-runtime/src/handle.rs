@@ -43,10 +43,7 @@ impl TokHandle {
     pub fn join(&self) -> TokValue {
         let mut guard = self.handle.lock().unwrap();
         match guard.take() {
-            Some(h) => match h.join() {
-                Ok(val) => val,
-                Err(_) => TokValue::nil(),
-            },
+            Some(h) => h.join().unwrap_or_default(),
             None => TokValue::nil(), // Already joined
         }
     }

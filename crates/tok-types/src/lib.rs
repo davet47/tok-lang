@@ -251,10 +251,22 @@ fn register_builtins(env: &mut TypeEnv) {
             "push",
             func_type(&[arr_any.clone(), Type::Any], arr_any.clone()),
         ),
-        ("sort", func_type(&[arr_any.clone()], arr_any.clone())),
-        ("rev", func_type(&[arr_any.clone()], arr_any.clone())),
-        ("flat", func_type(&[arr_any.clone()], arr_any.clone())),
-        ("uniq", func_type(&[arr_any.clone()], arr_any.clone())),
+        (
+            "sort",
+            func_type(std::slice::from_ref(&arr_any), arr_any.clone()),
+        ),
+        (
+            "rev",
+            func_type(std::slice::from_ref(&arr_any), arr_any.clone()),
+        ),
+        (
+            "flat",
+            func_type(std::slice::from_ref(&arr_any), arr_any.clone()),
+        ),
+        (
+            "uniq",
+            func_type(std::slice::from_ref(&arr_any), arr_any.clone()),
+        ),
         // Overloaded (string or array)
         (
             "slice",
@@ -272,9 +284,9 @@ fn register_builtins(env: &mut TypeEnv) {
         ),
         ("trim", func_type(&[Type::Str], Type::Str)),
         // Numeric array operations
-        ("min", func_type(&[arr_any.clone()], Type::Any)),
-        ("max", func_type(&[arr_any.clone()], Type::Any)),
-        ("sum", func_type(&[arr_any.clone()], Type::Any)),
+        ("min", func_type(std::slice::from_ref(&arr_any), Type::Any)),
+        ("max", func_type(std::slice::from_ref(&arr_any), Type::Any)),
+        ("sum", func_type(std::slice::from_ref(&arr_any), Type::Any)),
         ("abs", func_type(&[Type::Any], Type::Any)),
         // Math
         ("floor", func_type(&[Type::Float], Type::Int)),
@@ -287,9 +299,15 @@ fn register_builtins(env: &mut TypeEnv) {
         // Map operations
         (
             "keys",
-            func_type(&[map_any.clone()], Type::Array(Box::new(Type::Str))),
+            func_type(
+                std::slice::from_ref(&map_any),
+                Type::Array(Box::new(Type::Str)),
+            ),
         ),
-        ("vals", func_type(&[map_any.clone()], arr_any.clone())),
+        (
+            "vals",
+            func_type(std::slice::from_ref(&map_any), arr_any.clone()),
+        ),
         ("has", func_type(&[map_any.clone(), Type::Str], Type::Bool)),
         (
             "del",
@@ -309,8 +327,11 @@ fn register_builtins(env: &mut TypeEnv) {
         ("exit", func_type(&[Type::Int], Type::Nil)),
         // New builtins (spec v0.1)
         ("is", func_type(&[Type::Any, Type::Str], Type::Bool)),
-        ("pop", func_type(&[arr_any.clone()], Type::Any)),
-        ("freq", func_type(&[arr_any.clone()], map_any.clone())),
+        ("pop", func_type(std::slice::from_ref(&arr_any), Type::Any)),
+        (
+            "freq",
+            func_type(std::slice::from_ref(&arr_any), map_any.clone()),
+        ),
         (
             "top",
             func_type(&[map_any.clone(), Type::Int], arr_any.clone()),
@@ -454,7 +475,7 @@ impl TypeChecker {
                     .map(|t| self.resolve_type_expr(t))
                     .unwrap_or(Type::Any),
             ),
-            variadic: params.last().map_or(false, |p| p.variadic),
+            variadic: params.last().is_some_and(|p| p.variadic),
         }
     }
 

@@ -1,4 +1,4 @@
-/// AST node types for the Tok language.
+//! AST node types for the Tok language.
 
 /// A program is a sequence of statements.
 pub type Program = Vec<Stmt>;

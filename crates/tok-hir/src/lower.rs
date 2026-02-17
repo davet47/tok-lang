@@ -193,7 +193,7 @@ impl<'a> Lowerer<'a> {
                 Type::Func(tok_types::FuncType {
                     params: param_types,
                     ret: Box::new(ret),
-                    variadic: params.last().map_or(false, |p| p.variadic),
+                    variadic: params.last().is_some_and(|p| p.variadic),
                 })
             }
             Expr::Ternary {

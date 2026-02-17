@@ -542,10 +542,10 @@ impl<'a> Lexer<'a> {
                     } else if self.peek() == Some(b'?') {
                         self.advance();
                         self.tokens.push(Token::DotQuestion);
-                    } else if self.peek().map_or(false, |c| c.is_ascii_digit()) {
+                    } else if self.peek().is_some_and(|c| c.is_ascii_digit()) {
                         // Leading-dot float like .5
                         // But NOT after an expression (then it's member access + int)
-                        let is_after_expr = self.last_meaningful_token().map_or(false, |t| {
+                        let is_after_expr = self.last_meaningful_token().is_some_and(|t| {
                             matches!(
                                 t,
                                 Token::Ident(_)
@@ -596,7 +596,7 @@ impl<'a> Lexer<'a> {
                     };
                     self.advance();
                     for _ in 0..extra {
-                        if self.peek().map_or(false, |b| (0x80..0xC0).contains(&b)) {
+                        if self.peek().is_some_and(|b| (0x80..0xC0).contains(&b)) {
                             self.advance();
                         }
                     }
@@ -652,14 +652,11 @@ impl<'a> Lexer<'a> {
 
         // Check for float: decimal point
         // GOTCHA: suppress float parsing when previous token was Dot (for `t.1.1`)
-        let prev_was_dot = self
-            .tokens
-            .last()
-            .map_or(false, |t| matches!(t, Token::Dot));
+        let prev_was_dot = self.tokens.last().is_some_and(|t| matches!(t, Token::Dot));
 
         if !prev_was_dot
             && self.peek() == Some(b'.')
-            && self.peek_at(1).map_or(false, |c| c.is_ascii_digit())
+            && self.peek_at(1).is_some_and(|c| c.is_ascii_digit())
         {
             // It's a float
             self.advance(); // consume .

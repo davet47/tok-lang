@@ -3686,17 +3686,13 @@ fn expr_contains_return(expr: &HirExpr) -> bool {
         } => {
             expr_contains_return(cond)
                 || then_body.iter().any(stmt_contains_return)
-                || then_expr
-                    .as_ref()
-                    .map_or(false, |e| expr_contains_return(e))
+                || then_expr.as_ref().is_some_and(|e| expr_contains_return(e))
                 || else_body.iter().any(stmt_contains_return)
-                || else_expr
-                    .as_ref()
-                    .map_or(false, |e| expr_contains_return(e))
+                || else_expr.as_ref().is_some_and(|e| expr_contains_return(e))
         }
         HirExprKind::Block { stmts, expr: e } => {
             stmts.iter().any(stmt_contains_return)
-                || e.as_ref().map_or(false, |e| expr_contains_return(e))
+                || e.as_ref().is_some_and(|e| expr_contains_return(e))
         }
         HirExprKind::BinOp { left, right, .. } => {
             expr_contains_return(left) || expr_contains_return(right)
@@ -3732,10 +3728,7 @@ fn compile_inline_user_func(
     args: &[HirExpr],
     result_ty: &Type,
 ) -> Option<Value> {
-    let (params, _ret_type, body) = match ctx.compiler.func_bodies.get(name).cloned() {
-        Some(v) => v,
-        None => return None,
-    };
+    let (params, _ret_type, body) = ctx.compiler.func_bodies.get(name).cloned()?;
     if params.len() != args.len() {
         return None;
     }
@@ -4187,11 +4180,11 @@ fn contains_self_call(expr: &HirExpr, name: &str) -> bool {
                 || then_body.iter().any(|s| stmt_contains_self_call(s, name))
                 || then_expr
                     .as_ref()
-                    .map_or(false, |e| contains_self_call(e, name))
+                    .is_some_and(|e| contains_self_call(e, name))
                 || else_body.iter().any(|s| stmt_contains_self_call(s, name))
                 || else_expr
                     .as_ref()
-                    .map_or(false, |e| contains_self_call(e, name))
+                    .is_some_and(|e| contains_self_call(e, name))
         }
         HirExprKind::Index { target, index } => {
             contains_self_call(target, name) || contains_self_call(index, name)
@@ -4237,10 +4230,10 @@ fn is_tail_call_expr(expr: &HirExpr, name: &str) -> bool {
             // return normally.
             let then_tail = then_expr
                 .as_ref()
-                .map_or(false, |e| is_tail_call_expr(e, name));
+                .is_some_and(|e| is_tail_call_expr(e, name));
             let else_tail = else_expr
                 .as_ref()
-                .map_or(false, |e| is_tail_call_expr(e, name));
+                .is_some_and(|e| is_tail_call_expr(e, name));
             then_tail || else_tail
         }
         _ => false,
@@ -4808,8 +4801,8 @@ fn compile_if(
     // internally because the Any branch might hold a different runtime type.
     let then_ty = then_expr.as_ref().map(|e| &e.ty);
     let else_ty = else_expr.as_ref().map(|e| &e.ty);
-    let any_branch = then_ty.map_or(false, |t| matches!(t, Type::Any))
-        || else_ty.map_or(false, |t| matches!(t, Type::Any));
+    let any_branch = then_ty.is_some_and(|t| matches!(t, Type::Any))
+        || else_ty.is_some_and(|t| matches!(t, Type::Any));
     let needs_any_upgrade = any_branch && !matches!(result_ty, Type::Any | Type::Nil | Type::Never);
     let merge_ty = if needs_any_upgrade {
         &Type::Any
@@ -4959,9 +4952,9 @@ fn expr_safe_to_unroll(expr: &HirExpr) -> bool {
         } => {
             expr_safe_to_unroll(cond)
                 && then_body.iter().all(stmt_safe_to_unroll)
-                && then_expr.as_ref().map_or(true, |e| expr_safe_to_unroll(e))
+                && then_expr.as_ref().is_none_or(|e| expr_safe_to_unroll(e))
                 && else_body.iter().all(stmt_safe_to_unroll)
-                && else_expr.as_ref().map_or(true, |e| expr_safe_to_unroll(e))
+                && else_expr.as_ref().is_none_or(|e| expr_safe_to_unroll(e))
         }
         Index { target, index } => expr_safe_to_unroll(target) && expr_safe_to_unroll(index),
         Member { target, .. } => expr_safe_to_unroll(target),
@@ -4970,7 +4963,7 @@ fn expr_safe_to_unroll(expr: &HirExpr) -> bool {
         Tuple(elems) => elems.iter().all(expr_safe_to_unroll),
         Block { stmts, expr } => {
             stmts.iter().all(stmt_safe_to_unroll)
-                && expr.as_ref().map_or(true, |e| expr_safe_to_unroll(e))
+                && expr.as_ref().is_none_or(|e| expr_safe_to_unroll(e))
         }
         Length(e) => expr_safe_to_unroll(e),
         Range { start, end, .. } => expr_safe_to_unroll(start) && expr_safe_to_unroll(end),
@@ -5690,13 +5683,13 @@ fn retype_expr(expr: &HirExpr, type_map: &HashMap<String, Type>) -> HirExpr {
             }
         }
         HirExprKind::BinOp { left, right, op } => {
-            *left = Box::new(retype_expr(left, type_map));
-            *right = Box::new(retype_expr(right, type_map));
+            **left = retype_expr(left, type_map);
+            **right = retype_expr(right, type_map);
             // Propagate: infer result type from children
             e.ty = infer_binop_type(&left.ty, &right.ty, *op);
         }
         HirExprKind::UnaryOp { operand, op: _ } => {
-            *operand = Box::new(retype_expr(operand, type_map));
+            **operand = retype_expr(operand, type_map);
             // Neg preserves type, Not → Bool
             e.ty = match &operand.ty {
                 Type::Int => Type::Int,
@@ -5705,7 +5698,7 @@ fn retype_expr(expr: &HirExpr, type_map: &HashMap<String, Type>) -> HirExpr {
             };
         }
         HirExprKind::Call { func, args } => {
-            *func = Box::new(retype_expr(func, type_map));
+            **func = retype_expr(func, type_map);
             for arg in args.iter_mut() {
                 *arg = retype_expr(arg, type_map);
             }

@@ -268,9 +268,7 @@ pub extern "C" fn tok_str_pad_left_t(
         if char_count >= width {
             TokValue::from_string(TokString::alloc(s.to_string()))
         } else {
-            let padding: String = std::iter::repeat(pad_char)
-                .take(width - char_count)
-                .collect();
+            let padding: String = std::iter::repeat_n(pad_char, width - char_count).collect();
             TokValue::from_string(TokString::alloc(format!("{}{}", padding, s)))
         }
     }
@@ -295,9 +293,7 @@ pub extern "C" fn tok_str_pad_right_t(
         if char_count >= width {
             TokValue::from_string(TokString::alloc(s.to_string()))
         } else {
-            let padding: String = std::iter::repeat(pad_char)
-                .take(width - char_count)
-                .collect();
+            let padding: String = std::iter::repeat_n(pad_char, width - char_count).collect();
             TokValue::from_string(TokString::alloc(format!("{}{}", s, padding)))
         }
     }

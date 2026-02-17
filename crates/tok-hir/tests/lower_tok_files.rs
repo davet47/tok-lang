@@ -24,7 +24,7 @@ fn test_dir(dir: &str) {
     for entry in fs::read_dir(dir_path).unwrap() {
         let entry = entry.unwrap();
         let path = entry.path();
-        if path.extension().map_or(false, |ext| ext == "tok") {
+        if path.extension().is_some_and(|ext| ext == "tok") {
             lower_file(&path);
         }
     }
