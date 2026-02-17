@@ -94,7 +94,7 @@ bitwise_and    = comparison { "&&" comparison } ;
 comparison     = shift { comp_op shift } ;
 comp_op        = "==" | "!=" | ">" | "<" | ">=" | "<=" ;
 
-shift          = additive { ( "<<" | ">>" ) additive } ;
+shift          = additive { ( "<<" | ">>" ) additive } ;  (* << is append, >> is shift right *)
 additive       = multiplicative { ( "+" | "-" ) multiplicative } ;
 multiplicative = power { ( "*" | "/" | "%" ) power } ;
 power          = unary [ "**" power ] ;                (* right-assoc *)
@@ -239,7 +239,7 @@ ident_list     = IDENT { IDENT } ;
 (*  10  *  /  %           (left)   multiplicative               *)
 (*   9  +  -              (left)   additive                     *)
 (*   8  ..  ..=           (none)   range                        *)
-(*   7  <<  >>            (left)   bitwise shift                *)
+(*   7  <<  >>            (left)   append / shift right          *)
 (*   6  &&                (left)   bitwise and                  *)
 (*   5  ^^                (left)   bitwise xor                  *)
 (*   4  ||                (left)   bitwise or                   *)

@@ -14,7 +14,7 @@ seed=42
   score=seed%100
   cat=score%4
   category=cat?={0:"alpha"; 1:"beta"; 2:"gamma"; _:"delta"}
-  records=push(records {name:"item"+str(i) score:score category:category})
+  records<<={name:"item"+str(i) score:score category:category}
 }
 t_build1=clock()
 build_ms=t_build1-t_build0
@@ -30,7 +30,7 @@ t_trans0=clock()
 transformed=[]
 ~(r:high_scores){
   new_score=r.score*2
-  transformed=push(transformed {name:r.name score:new_score category:r.category})
+  transformed<<={name:r.name score:new_score category:r.category}
 }
 t_trans1=clock()
 trans_ms=t_trans1-t_trans0
@@ -41,8 +41,7 @@ groups={}
 ~(r:transformed){
   key=r.category
   has(groups key)?{
-    existing=groups[key]
-    groups[key]=push(existing r.score)
+    groups[key]<<=r.score
   }:{
     groups[key]=[r.score]
   }

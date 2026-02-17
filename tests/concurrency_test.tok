@@ -656,7 +656,7 @@ fifo=chan(10)
 out=[]
 ~(i:1..6){
   v=<-fifo
-  out=push(out v)
+  out<<=v
 }
 pl(out)
 // expect: [1 2 3 4 5]

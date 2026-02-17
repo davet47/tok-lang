@@ -26,11 +26,11 @@ nlines=len(lines)
 ~(i:1..nlines){
   fields=split(lines[i] ",")
   nf=len(fields)
-  nf==3?{rows=push(rows {
+  nf==3?{rows<<={
     name: fields[0]
     age: int(fields[1])
     city: fields[2]
-  })}:N
+  }}:N
 }
 
 nrows=len(rows)
@@ -54,7 +54,7 @@ pl("People age >= 30 ({ns} found):")
 
 # --- Compute stats ---
 ages=[]
-~(r:rows){ages=push(ages r.age)}
+~(r:rows){ages<<=r.age}
 pl("")
 pl("Age stats:")
 pl("  Min: {min(ages)}")

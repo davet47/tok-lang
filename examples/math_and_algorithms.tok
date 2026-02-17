@@ -59,7 +59,7 @@ f collatz(n){
   seq=[n]
   ~(n!=1){
     n=n%2==0?n/2:3*n+1
-    seq=push(seq n)
+    seq<<=n
   }
   seq
 }
@@ -77,7 +77,7 @@ f fib(n)=n<=1?n:fib(n-1)+fib(n-2)
 
 fibs=[]
 ~(i:0..15){
-  fibs=push(fibs fib(i))
+  fibs<<=fib(i)
 }
 pl("First 15: {fibs}")
 

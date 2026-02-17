@@ -5,7 +5,7 @@
 n_build=2000000
 t0=clock()
 a=[]
-~(i:0..n_build){a=push(a i)}
+~(i:0..n_build){a<<=i}
 t1=clock()
 pl("[bench] array_build: {n_build} elements in {t1-t0} ms")
 

@@ -166,7 +166,7 @@ numbers=[1 2 3 4 5 6 7 8 9 10]
 
 squares=[]
 ~(n:numbers){
-  squares=push(squares n*n)
+  squares<<=n*n
 }
 pl("Squares: {squares}")
 

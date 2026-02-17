@@ -91,6 +91,7 @@ grade=?={score>=90:"A";score>=80:"B";score>=70:"C";_:"F"}
 nums|>sort|>rev           # pipeline: x|>f  =  f(x)
 evens=nums?>\(x)=x%2==0  # filter
 total=nums/>0 \(a x)=a+x # reduce with init value
+arr<<=item                # append to array (also arr<<item)
 #arr                      # length
 ..arr                     # spread
 x??default                # nil coalesce

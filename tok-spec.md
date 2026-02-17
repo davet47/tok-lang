@@ -67,9 +67,10 @@ No multi-line comment syntax. LLMs generating code rarely need comments.
 =  +  -  *  /  %  **
 == != > < >= <=
 & | !
-&& || ^^ << >>
+&& || ^^ >>
 ?  ?= ?: ?^ ??
 ~ ^ .? ..
+<< <<=
 |> ?> />
 # @
 <- ->
@@ -223,6 +224,7 @@ x*=2
 x/=2
 x%=2
 x**=3
+a<<=item              # append item to array a
 ```
 
 ### 4.5 Scoping
@@ -446,7 +448,7 @@ This replaces list comprehensions with no extra syntax.
 | 10 | `*` `/` `%` | left | multiplicative |
 | 9 | `+` `-` | left | additive |
 | 8 | `..` `..=` | none | range |
-| 7 | `<<` `>>` | left | bitwise shift |
+| 7 | `<<` `>>` | left | append, bitwise shift-right |
 | 6 | `&&` | left | bitwise and |
 | 5 | `^^` | left | bitwise xor |
 | 4 | `\|\|` | left | bitwise or |
@@ -476,10 +478,20 @@ a|b    # or (short-circuit)
 
 ### 7.5 Bitwise
 ```
-a&&b   a||b   a^^b   a<<b   a>>b
+a&&b   a||b   a^^b   a>>b
 ```
 
 Note: `&&` and `||` are bitwise; `&` and `|` are logical. This is the reverse of C/Java convention but saves tokens (logical ops are far more common, so they get the shorter symbol).
+
+### 7.12 Append: `<<`
+Operator form of `push()`. Appends an element to an array, returning a new array.
+```
+[1 2 3]<<4            # [1 2 3 4]
+a=[1 2]
+a<<=3                 # a is now [1 2 3] (append-assign)
+```
+
+`<<=` is the compound assignment form — equivalent to `a=a<<x` but modifies in place.
 
 ### 7.6 Pipeline: `|>`
 ```
@@ -729,7 +741,7 @@ results=[1 2 3 4 5]|>pmap(\(x)=heavy(x))
 | `vals(m)` | Map values | `vals({a:1})` → `[1]` |
 | `has(m k)` | Map has key | `has({a:1} "a")` → `T` |
 | `del(m k)` | Delete key from map | `del({a:1 b:2} "a")` → `{b:2}` |
-| `push(a x)` | Append to array | `push([1 2] 3)` → `[1 2 3]` |
+| `push(a x)` | Append to array (operator form: `a<<x`) | `push([1 2] 3)` → `[1 2 3]` |
 | `pop(a)` | Remove last | `pop([1 2 3])` → `([1 2] 3)` |
 | `join(a s)` | Join array to string | `join(["a" "b"] ",")` → `"a,b"` |
 | `split(s d)` | Split string | `split("a,b" ",")` → `["a" "b"]` |
@@ -925,7 +937,7 @@ expr?={pat:res _:def}        # match
 # Operators
 |> pipe   ?> filter   /> reduce
 #  length  .. spread  ?? nil-coalesce
-^  return  !  break   >! continue
+<< append  ^  return  !  break  >! continue
 
 # Concurrency
 h=go{expr}; v=<-h            # spawn & await

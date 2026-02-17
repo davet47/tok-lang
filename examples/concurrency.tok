@@ -55,7 +55,7 @@ go{results_ch<-5*5}
 collected=[]
 ~(i:0..5){
   v=<-results_ch
-  collected=push(collected v)
+  collected<<=v
 }
 pl("Results from 5 workers: {sort(collected)}")
 
@@ -88,7 +88,7 @@ go{
 pipeline_result=[]
 v=<-output_ch
 ~(v>=0){
-  pipeline_result=push(pipeline_result v)
+  pipeline_result<<=v
   v=<-output_ch
 }
 pl("Pipeline [1..5] -> double: {pipeline_result}")

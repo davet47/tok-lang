@@ -214,7 +214,7 @@ serve(8080 {
   }
   "POST /users":f(q){
     u=jparse(q.body)
-    push(users u)
+    users<<=u
     (201 jstr(u))
   }
 })
@@ -368,7 +368,7 @@ f hd(lst)=lst.val
 f tl(lst)=lst.next
 f len(lst){n=0;c=lst;~(c!=N){n+=1;c=c.next};n}
 f nth(lst n){c=lst;~(i:0..n){c=c.next};c.val}
-f toarr(lst){r=[];c=lst;~(c!=N){push(r c.val);c=c.next};r}
+f toarr(lst){r=[];c=lst;~(c!=N){r<<=c.val;c=c.next};r}
 f fromarr(a){lst=N;~(i:#a-1..=0){lst=cons(a[i] lst)};lst}
 f map(lst fn){lst==N?^N;cons(fn(lst.val) map(lst.next fn))}
 f filter(lst fn){lst==N?^N;fn(lst.val)?cons(lst.val filter(lst.next fn)):filter(lst.next fn)}
@@ -547,7 +547,7 @@ f parseargs(raw){
       a[0]=="-":{
         ~(c:slice(a 1 #a)){opts[str(c)]=T}
       }
-      _:push(positional a)
+      _:positional<<=a
     }
   }
   {opts:opts pos:positional}
