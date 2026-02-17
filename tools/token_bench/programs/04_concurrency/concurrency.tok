@@ -1,0 +1,16 @@
+f fib(n)=n<2?n:fib(n-1)+fib(n-2)
+
+h1=go{fib(27)}
+h2=go{fib(27)}
+h3=go{fib(27)}
+h4=go{fib(27)}
+r=<-h1+<-h2+<-h3+<-h4
+pl("parallel: {r}")
+
+results=pmap([27 27 27 27] fib)
+total=results/>0 \(a x)=a+x
+pl("pmap: {total}")
+
+ch=chan(10)
+go{~(i:0..10){ch<-i*i}}
+~(i:0..10){pl(<-ch)}

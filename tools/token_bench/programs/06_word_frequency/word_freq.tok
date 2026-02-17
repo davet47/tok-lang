@@ -1,0 +1,14 @@
+text="the quick brown fox jumps over the lazy dog the fox the dog and the cat sat on the mat the quick brown fox"
+
+words=split(text " ")
+pl("Total: {#words}")
+pl("Unique: {#uniq(words)}")
+
+counts=freq(words)
+~(w:keys(counts)){pl("{w}: {counts[w]}")}
+
+longest=words/>words[0] \(a w)=#w>#a?w:a
+pl("Longest: {longest} ({#longest} chars)")
+
+total_len=words/>0 \(a w)=a+#w
+pl("Avg length: {float(total_len)/float(#words)}")
