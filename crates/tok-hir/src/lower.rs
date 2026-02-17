@@ -293,12 +293,10 @@ impl<'a> Lowerer<'a> {
                 Type::Bool
             }
             BinOp::And | BinOp::Or => Type::Bool,
-            BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor | BinOp::Shr => {
-                match (lt, rt) {
-                    (Type::Int, Type::Int) => Type::Int,
-                    _ => Type::Any,
-                }
-            }
+            BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor | BinOp::Shr => match (lt, rt) {
+                (Type::Int, Type::Int) => Type::Int,
+                _ => Type::Any,
+            },
             BinOp::Append => match lt {
                 Type::Array(inner) => Type::Array(inner.clone()),
                 _ => Type::Array(Box::new(Type::Any)),
