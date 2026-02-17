@@ -7,21 +7,21 @@ seed=42
   score=seed%100
   cat=score%4
   category=cat?={0:"alpha"; 1:"beta"; 2:"gamma"; _:"delta"}
-  records=push(records {name:"item"+str(i) score:score category:category})
+  records<<={name:"item"+str(i) score:score category:category}
 }
 
 high_scores=records?>\(r)=r.score>=50
 
 transformed=[]
 ~(r:high_scores){
-  transformed=push(transformed {name:r.name score:r.score*2 category:r.category})
+  transformed<<={name:r.name score:r.score*2 category:r.category}
 }
 
 groups={}
 ~(r:transformed){
   key=r.category
   has(groups key)?{
-    groups[key]=push(groups[key] r.score)
+    groups[key]<<= r.score
   }:{
     groups[key]=[r.score]
   }

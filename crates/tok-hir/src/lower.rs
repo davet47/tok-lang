@@ -293,12 +293,16 @@ impl<'a> Lowerer<'a> {
                 Type::Bool
             }
             BinOp::And | BinOp::Or => Type::Bool,
-            BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor | BinOp::Shl | BinOp::Shr => {
+            BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor | BinOp::Shr => {
                 match (lt, rt) {
                     (Type::Int, Type::Int) => Type::Int,
                     _ => Type::Any,
                 }
             }
+            BinOp::Append => match lt {
+                Type::Array(inner) => Type::Array(inner.clone()),
+                _ => Type::Array(Box::new(Type::Any)),
+            },
         }
     }
 
@@ -339,7 +343,7 @@ impl<'a> Lowerer<'a> {
             BinOp::BitAnd => HirBinOp::BitAnd,
             BinOp::BitOr => HirBinOp::BitOr,
             BinOp::BitXor => HirBinOp::BitXor,
-            BinOp::Shl => HirBinOp::Shl,
+            BinOp::Append => unreachable!("Append is desugared to RuntimeCall"),
             BinOp::Shr => HirBinOp::Shr,
         }
     }
@@ -434,24 +438,34 @@ impl<'a> Lowerer<'a> {
                 });
             }
 
-            // Desugar: x += 1 -> x = x + 1
+            // Desugar: x += 1 -> x = x + 1  (or x <<= v -> x = push(x, v))
             Stmt::CompoundAssign { name, op, value } => {
                 let hir_value = self.lower_expr(value);
                 let var_ty = self.var_type(name);
                 let result_ty = self.infer_binop_type(op, &var_ty, &hir_value.ty);
                 let ident = HirExpr::new(HirExprKind::Ident(name.clone()), var_ty);
-                let binop = HirExpr::new(
-                    HirExprKind::BinOp {
-                        op: self.lower_binop(op),
-                        left: Box::new(ident),
-                        right: Box::new(hir_value),
-                    },
-                    result_ty.clone(),
-                );
+                let rhs = if matches!(op, BinOp::Append) {
+                    HirExpr::new(
+                        HirExprKind::RuntimeCall {
+                            name: "tok_array_push".to_string(),
+                            args: vec![ident, hir_value],
+                        },
+                        result_ty.clone(),
+                    )
+                } else {
+                    HirExpr::new(
+                        HirExprKind::BinOp {
+                            op: self.lower_binop(op),
+                            left: Box::new(ident),
+                            right: Box::new(hir_value),
+                        },
+                        result_ty.clone(),
+                    )
+                };
                 out.push(HirStmt::Assign {
                     name: name.clone(),
                     ty: result_ty,
-                    value: binop,
+                    value: rhs,
                 });
             }
 
@@ -474,18 +488,28 @@ impl<'a> Lowerer<'a> {
                     Type::Any,
                 );
                 let result_ty = self.infer_binop_type(op, &current.ty, &hir_value.ty);
-                let binop = HirExpr::new(
-                    HirExprKind::BinOp {
-                        op: self.lower_binop(op),
-                        left: Box::new(current),
-                        right: Box::new(hir_value),
-                    },
-                    result_ty,
-                );
+                let rhs = if matches!(op, BinOp::Append) {
+                    HirExpr::new(
+                        HirExprKind::RuntimeCall {
+                            name: "tok_array_push".to_string(),
+                            args: vec![current, hir_value],
+                        },
+                        result_ty,
+                    )
+                } else {
+                    HirExpr::new(
+                        HirExprKind::BinOp {
+                            op: self.lower_binop(op),
+                            left: Box::new(current),
+                            right: Box::new(hir_value),
+                        },
+                        result_ty,
+                    )
+                };
                 out.push(HirStmt::IndexAssign {
                     target: hir_target,
                     index: hir_index,
-                    value: binop,
+                    value: rhs,
                 });
             }
 
@@ -507,18 +531,28 @@ impl<'a> Lowerer<'a> {
                     Type::Any,
                 );
                 let result_ty = self.infer_binop_type(op, &current.ty, &hir_value.ty);
-                let binop = HirExpr::new(
-                    HirExprKind::BinOp {
-                        op: self.lower_binop(op),
-                        left: Box::new(current),
-                        right: Box::new(hir_value),
-                    },
-                    result_ty,
-                );
+                let rhs = if matches!(op, BinOp::Append) {
+                    HirExpr::new(
+                        HirExprKind::RuntimeCall {
+                            name: "tok_array_push".to_string(),
+                            args: vec![current, hir_value],
+                        },
+                        result_ty,
+                    )
+                } else {
+                    HirExpr::new(
+                        HirExprKind::BinOp {
+                            op: self.lower_binop(op),
+                            left: Box::new(current),
+                            right: Box::new(hir_value),
+                        },
+                        result_ty,
+                    )
+                };
                 out.push(HirStmt::MemberAssign {
                     target: hir_target,
                     field: field.clone(),
-                    value: binop,
+                    value: rhs,
                 });
             }
 
@@ -740,6 +774,18 @@ impl<'a> Lowerer<'a> {
 
             // Binary ops
             Expr::BinOp { op, left, right } => {
+                if matches!(op, BinOp::Append) {
+                    let hir_left = self.lower_expr(left);
+                    let hir_right = self.lower_expr(right);
+                    let ty = self.infer_binop_type(op, &hir_left.ty, &hir_right.ty);
+                    return HirExpr::new(
+                        HirExprKind::RuntimeCall {
+                            name: "tok_array_push".to_string(),
+                            args: vec![hir_left, hir_right],
+                        },
+                        ty,
+                    );
+                }
                 let hir_left = self.lower_expr(left);
                 let hir_right = self.lower_expr(right);
                 let ty = self.infer_binop_type(op, &hir_left.ty, &hir_right.ty);

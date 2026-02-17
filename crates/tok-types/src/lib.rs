@@ -1089,12 +1089,18 @@ impl TypeChecker {
             BinOp::And | BinOp::Or => Type::Bool,
 
             // Bitwise — int
-            BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor | BinOp::Shl | BinOp::Shr => {
+            BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor | BinOp::Shr => {
                 match (lt, rt) {
                     (Type::Int, Type::Int) => Type::Int,
                     _ => Type::Any,
                 }
             }
+
+            // Append — array
+            BinOp::Append => match lt {
+                Type::Array(inner) => Type::Array(inner.clone()),
+                _ => Type::Array(Box::new(Type::Any)),
+            },
         }
     }
 

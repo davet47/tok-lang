@@ -275,6 +275,7 @@ impl Parser {
                 | Token::SlashEq
                 | Token::PercentEq
                 | Token::StarStarEq
+                | Token::LtLtEq
         )
     }
 
@@ -341,7 +342,8 @@ impl Parser {
             | Token::StarEq
             | Token::SlashEq
             | Token::PercentEq
-            | Token::StarStarEq => {
+            | Token::StarStarEq
+            | Token::LtLtEq => {
                 let tok = self.advance();
                 let op = self.compound_op_to_binop(&tok);
                 let value = self.parse_expr()?;
@@ -386,6 +388,7 @@ impl Parser {
             Token::SlashEq => BinOp::Div,
             Token::PercentEq => BinOp::Mod,
             Token::StarStarEq => BinOp::Pow,
+            Token::LtLtEq => BinOp::Append,
             _ => unreachable!(),
         }
     }
@@ -1036,12 +1039,12 @@ impl Parser {
         Ok(expr)
     }
 
-    /// Prec 7: Shift `<< >>`
+    /// Prec 7: Append/Shift `<< >>`
     fn parse_shift(&mut self) -> Result<Expr, ParseError> {
         let mut expr = self.parse_range()?;
         loop {
             let op = match self.peek() {
-                Token::LtLt => BinOp::Shl,
+                Token::LtLt => BinOp::Append,
                 Token::GtGt => BinOp::Shr,
                 _ => break,
             };

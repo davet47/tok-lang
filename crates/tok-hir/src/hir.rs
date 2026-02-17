@@ -189,7 +189,6 @@ pub enum HirBinOp {
     BitAnd,
     BitOr,
     BitXor,
-    Shl,
     Shr,
 }
 

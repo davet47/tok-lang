@@ -2812,7 +2812,6 @@ fn compile_int_binop(ctx: &mut FuncCtx, op: HirBinOp, lv: Value, rv: Value) -> O
         HirBinOp::BitAnd => ctx.builder.ins().band(lv, rv),
         HirBinOp::BitOr => ctx.builder.ins().bor(lv, rv),
         HirBinOp::BitXor => ctx.builder.ins().bxor(lv, rv),
-        HirBinOp::Shl => ctx.builder.ins().ishl(lv, rv),
         HirBinOp::Shr => ctx.builder.ins().sshr(lv, rv),
         HirBinOp::And | HirBinOp::Or => unreachable!("handled by short-circuit"),
     })
@@ -5725,7 +5724,7 @@ fn infer_binop_type(left: &Type, right: &Type, op: HirBinOp) -> Type {
         // Logical ops return Bool
         And | Or => Type::Bool,
         // Arithmetic: Int op Int → Int, Float involved → Float
-        Add | Sub | Mul | Div | Mod | Pow | BitAnd | BitOr | BitXor | Shl | Shr => {
+        Add | Sub | Mul | Div | Mod | Pow | BitAnd | BitOr | BitXor | Shr => {
             match (left, right) {
                 (Type::Int, Type::Int) => Type::Int,
                 (Type::Float, Type::Float) => Type::Float,

@@ -292,7 +292,7 @@ pub enum BinOp {
     BitAnd,
     BitOr,
     BitXor,
-    Shl,
+    Append,
     Shr,
 }
 

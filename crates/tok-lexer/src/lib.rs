@@ -56,7 +56,8 @@ pub enum Token {
     AmpAmp,     // && (bitwise and)
     PipePipe,   // || (bitwise or)
     CaretCaret, // ^^ (bitwise xor)
-    LtLt,       // << (shift left)
+    LtLt,       // << (append)
+    LtLtEq,     // <<= (append-assign)
     GtGt,       // >> (shift right)
 
     // Operators — control/special
@@ -468,7 +469,12 @@ impl<'a> Lexer<'a> {
                         self.tokens.push(Token::LtEq);
                     } else if self.peek() == Some(b'<') {
                         self.advance();
-                        self.tokens.push(Token::LtLt);
+                        if self.peek() == Some(b'=') {
+                            self.advance();
+                            self.tokens.push(Token::LtLtEq);
+                        } else {
+                            self.tokens.push(Token::LtLt);
+                        }
                     } else if self.peek() == Some(b'-') {
                         self.advance();
                         self.tokens.push(Token::ArrowLeft);
