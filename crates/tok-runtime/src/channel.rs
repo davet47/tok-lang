@@ -53,7 +53,7 @@ impl SpscRing {
     fn try_push(&self, val: TokValue) -> bool {
         let head = self.head.load(Ordering::Relaxed);
         let tail = self.tail.load(Ordering::Acquire);
-        if head.wrapping_sub(tail) >= self.mask + 1 {
+        if head.wrapping_sub(tail) > self.mask {
             return false; // Full
         }
         unsafe {
@@ -71,9 +71,7 @@ impl SpscRing {
         if tail == head {
             return None; // Empty
         }
-        let val = unsafe {
-            (*self.buf[tail & self.mask].get()).assume_init_read()
-        };
+        let val = unsafe { (*self.buf[tail & self.mask].get()).assume_init_read() };
         self.tail.store(tail.wrapping_add(1), Ordering::Release);
         Some(val)
     }
@@ -322,7 +320,9 @@ pub extern "C" fn tok_channel_alloc(capacity: i64) -> *mut TokChannel {
 #[no_mangle]
 pub extern "C" fn tok_channel_send(ch: *mut TokChannel, val: TokValue) {
     assert!(!ch.is_null(), "tok_channel_send: null channel");
-    unsafe { (*ch).send(val); }
+    unsafe {
+        (*ch).send(val);
+    }
 }
 
 #[no_mangle]
@@ -391,11 +391,15 @@ mod tests {
         // Let's just test the recv
         let mut out = TokValue::nil();
         assert_eq!(tok_channel_try_recv(ch, &mut out), 1);
-        unsafe { assert_eq!(out.data.int_val, 42); }
+        unsafe {
+            assert_eq!(out.data.int_val, 42);
+        }
 
         // Empty
         assert_eq!(tok_channel_try_recv(ch, &mut out), 0);
-        unsafe { drop(Box::from_raw(ch)); }
+        unsafe {
+            drop(Box::from_raw(ch));
+        }
     }
 
     #[test]
@@ -412,10 +416,14 @@ mod tests {
         thread::sleep(std::time::Duration::from_millis(10));
 
         let val = tok_channel_recv(ch);
-        unsafe { assert_eq!(val.data.int_val, 42); }
+        unsafe {
+            assert_eq!(val.data.int_val, 42);
+        }
 
         sender.join().unwrap();
-        unsafe { drop(Box::from_raw(ch)); }
+        unsafe {
+            drop(Box::from_raw(ch));
+        }
     }
 
     #[test]
@@ -423,7 +431,9 @@ mod tests {
         let ch = tok_channel_alloc(0);
         let mut out = TokValue::nil();
         assert_eq!(tok_channel_try_recv(ch, &mut out), 0);
-        unsafe { drop(Box::from_raw(ch)); }
+        unsafe {
+            drop(Box::from_raw(ch));
+        }
     }
 
     #[test]
@@ -434,9 +444,13 @@ mod tests {
         }
         for i in 0..10 {
             let v = tok_channel_recv(ch);
-            unsafe { assert_eq!(v.data.int_val, i); }
+            unsafe {
+                assert_eq!(v.data.int_val, i);
+            }
         }
-        unsafe { drop(Box::from_raw(ch)); }
+        unsafe {
+            drop(Box::from_raw(ch));
+        }
     }
 
     #[test]
@@ -455,11 +469,15 @@ mod tests {
         let mut sum: i64 = 0;
         for _ in 0..n {
             let v = tok_channel_recv(ch);
-            unsafe { sum += v.data.int_val; }
+            unsafe {
+                sum += v.data.int_val;
+            }
         }
 
         sender.join().unwrap();
         assert_eq!(sum, (n - 1) * n / 2);
-        unsafe { drop(Box::from_raw(ch)); }
+        unsafe {
+            drop(Box::from_raw(ch));
+        }
     }
 }

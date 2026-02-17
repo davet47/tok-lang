@@ -1,11 +1,11 @@
 //! Ordered map (string keys → TokValue values) for the Tok runtime.
 
-use std::sync::atomic::{AtomicU32, Ordering};
 use indexmap::IndexMap;
+use std::sync::atomic::{AtomicU32, Ordering};
 
-use crate::value::TokValue;
-use crate::string::TokString;
 use crate::array::TokArray;
+use crate::string::TokString;
+use crate::value::TokValue;
 
 // ═══════════════════════════════════════════════════════════════
 // TokMap
@@ -15,6 +15,12 @@ use crate::array::TokArray;
 pub struct TokMap {
     pub rc: AtomicU32,
     pub data: IndexMap<String, TokValue>,
+}
+
+impl Default for TokMap {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl TokMap {
@@ -81,7 +87,11 @@ pub extern "C" fn tok_map_has(m: *mut TokMap, key: *mut TokString) -> i8 {
     assert!(!key.is_null(), "tok_map_has: null key");
     unsafe {
         let key_str = &(*key).data;
-        if (*m).data.contains_key(key_str) { 1 } else { 0 }
+        if (*m).data.contains_key(key_str) {
+            1
+        } else {
+            0
+        }
     }
 }
 
@@ -150,7 +160,9 @@ mod tests {
     fn test_alloc_empty() {
         let m = tok_map_alloc();
         assert_eq!(tok_map_len(m), 0);
-        unsafe { drop(Box::from_raw(m)); }
+        unsafe {
+            drop(Box::from_raw(m));
+        }
     }
 
     #[test]

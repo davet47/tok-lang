@@ -111,6 +111,8 @@ mod tests {
         tok_tuple_set(t, 0, TokValue::from_int(42));
         let v = tok_tuple_get(t, 5);
         assert_eq!(v.tag, 0); // NIL
-        unsafe { drop(Box::from_raw(t)); }
+        unsafe {
+            drop(Box::from_raw(t));
+        }
     }
 }

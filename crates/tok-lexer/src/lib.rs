@@ -12,8 +12,8 @@ pub enum Token {
     // Literals
     Int(i64),
     Float(f64),
-    Str(String),         // plain string, no interpolation
-    RawStr(String),      // backtick string
+    Str(String),    // plain string, no interpolation
+    RawStr(String), // backtick string
     True,
     False,
     Nil,
@@ -27,9 +27,9 @@ pub enum Token {
     Ident(String),
 
     // Keywords
-    Func,     // f (as keyword, at statement start before ident)
-    Go,       // go
-    Sel,      // sel
+    Func, // f (as keyword, at statement start before ident)
+    Go,   // go
+    Sel,  // sel
 
     // Operators — arithmetic
     Plus,     // +
@@ -40,48 +40,48 @@ pub enum Token {
     StarStar, // **
 
     // Operators — comparison
-    EqEq,     // ==
-    BangEq,   // !=
-    Gt,       // >
-    Lt,       // <
-    GtEq,     // >=
-    LtEq,     // <=
+    EqEq,   // ==
+    BangEq, // !=
+    Gt,     // >
+    Lt,     // <
+    GtEq,   // >=
+    LtEq,   // <=
 
     // Operators — logical
-    Amp,      // & (logical and)
-    Pipe,     // | (logical or)
-    Bang,     // ! (not / break)
+    Amp,  // & (logical and)
+    Pipe, // | (logical or)
+    Bang, // ! (not / break)
 
     // Operators — bitwise
-    AmpAmp,   // && (bitwise and)
-    PipePipe, // || (bitwise or)
+    AmpAmp,     // && (bitwise and)
+    PipePipe,   // || (bitwise or)
     CaretCaret, // ^^ (bitwise xor)
-    LtLt,     // << (shift left)
-    GtGt,     // >> (shift right)
+    LtLt,       // << (shift left)
+    GtGt,       // >> (shift right)
 
     // Operators — control/special
-    Question,     // ?
-    QuestionEq,   // ?=
-    QuestionCaret, // ?^
+    Question,         // ?
+    QuestionEq,       // ?=
+    QuestionCaret,    // ?^
     QuestionQuestion, // ??
-    QuestionGt,   // ?>
-    Tilde,        // ~
-    Caret,        // ^ (early return)
-    DotQuestion,  // .?
-    DotDot,       // ..
-    DotDotEq,     // ..=
+    QuestionGt,       // ?>
+    Tilde,            // ~
+    Caret,            // ^ (early return)
+    DotQuestion,      // .?
+    DotDot,           // ..
+    DotDotEq,         // ..=
 
     // Operators — pipe/reduce
-    PipeGt,   // |>
-    SlashGt,  // />
+    PipeGt,  // |>
+    SlashGt, // />
 
     // Operators — assignment
-    Eq,       // =
-    PlusEq,   // +=
-    MinusEq,  // -=
-    StarEq,   // *=
-    SlashEq,  // /=
-    PercentEq, // %=
+    Eq,         // =
+    PlusEq,     // +=
+    MinusEq,    // -=
+    StarEq,     // *=
+    SlashEq,    // /=
+    PercentEq,  // %=
     StarStarEq, // **=
 
     // Operators — channel
@@ -89,24 +89,24 @@ pub enum Token {
     ArrowRight, // -> (unused currently but reserved)
 
     // Operators — other
-    Hash,     // # (length prefix)
-    At,       // @
-    GtBang,   // >! (continue)
+    Hash,   // # (length prefix)
+    At,     // @
+    GtBang, // >! (continue)
 
     // Structural
-    LParen,   // (
-    RParen,   // )
-    LBracket, // [
-    RBracket, // ]
-    LBrace,   // {
-    RBrace,   // }
-    Semi,     // ;
-    Colon,    // :
-    Dot,      // .
+    LParen,    // (
+    RParen,    // )
+    LBracket,  // [
+    RBracket,  // ]
+    LBrace,    // {
+    RBrace,    // }
+    Semi,      // ;
+    Colon,     // :
+    Dot,       // .
     Backslash, // \
 
     // Separators
-    Newline,  // significant newline
+    Newline, // significant newline
 
     // End
     Eof,
@@ -233,7 +233,10 @@ impl<'a> Lexer<'a> {
     }
 
     fn last_meaningful_token(&self) -> Option<&Token> {
-        self.tokens.iter().rev().find(|t| !matches!(t, Token::Newline))
+        self.tokens
+            .iter()
+            .rev()
+            .find(|t| !matches!(t, Token::Newline))
     }
 
     fn hash_is_comment(&self) -> bool {
@@ -247,12 +250,7 @@ impl<'a> Lexer<'a> {
         }
         match self.last_meaningful_token() {
             None => true,
-            Some(tok) => matches!(
-                tok,
-                Token::Semi
-                    | Token::LBrace
-                    | Token::Newline
-            ),
+            Some(tok) => matches!(tok, Token::Semi | Token::LBrace | Token::Newline),
         }
     }
 
@@ -314,16 +312,46 @@ impl<'a> Lexer<'a> {
                     self.lex_raw_string()?;
                 }
 
-                b'(' => { self.advance(); self.tokens.push(Token::LParen); }
-                b')' => { self.advance(); self.tokens.push(Token::RParen); }
-                b'[' => { self.advance(); self.tokens.push(Token::LBracket); }
-                b']' => { self.advance(); self.tokens.push(Token::RBracket); }
-                b'{' => { self.advance(); self.tokens.push(Token::LBrace); }
-                b'}' => { self.advance(); self.tokens.push(Token::RBrace); }
-                b':' => { self.advance(); self.tokens.push(Token::Colon); }
-                b'@' => { self.advance(); self.tokens.push(Token::At); }
-                b'\\' => { self.advance(); self.tokens.push(Token::Backslash); }
-                b'~' => { self.advance(); self.tokens.push(Token::Tilde); }
+                b'(' => {
+                    self.advance();
+                    self.tokens.push(Token::LParen);
+                }
+                b')' => {
+                    self.advance();
+                    self.tokens.push(Token::RParen);
+                }
+                b'[' => {
+                    self.advance();
+                    self.tokens.push(Token::LBracket);
+                }
+                b']' => {
+                    self.advance();
+                    self.tokens.push(Token::RBracket);
+                }
+                b'{' => {
+                    self.advance();
+                    self.tokens.push(Token::LBrace);
+                }
+                b'}' => {
+                    self.advance();
+                    self.tokens.push(Token::RBrace);
+                }
+                b':' => {
+                    self.advance();
+                    self.tokens.push(Token::Colon);
+                }
+                b'@' => {
+                    self.advance();
+                    self.tokens.push(Token::At);
+                }
+                b'\\' => {
+                    self.advance();
+                    self.tokens.push(Token::Backslash);
+                }
+                b'~' => {
+                    self.advance();
+                    self.tokens.push(Token::Tilde);
+                }
 
                 b'+' => {
                     self.advance();
@@ -559,14 +587,20 @@ impl<'a> Lexer<'a> {
                 c if c > 127 => {
                     // Non-ASCII UTF-8 byte — skip the full codepoint
                     // UTF-8: 110xxxxx = 2 bytes, 1110xxxx = 3 bytes, 11110xxx = 4 bytes
-                    let extra = if c >= 0xF0 { 3 } else if c >= 0xE0 { 2 } else { 1 };
+                    let extra = if c >= 0xF0 {
+                        3
+                    } else if c >= 0xE0 {
+                        2
+                    } else {
+                        1
+                    };
                     self.advance();
                     for _ in 0..extra {
-                        if self.peek().map_or(false, |b| b >= 0x80 && b < 0xC0) {
+                        if self.peek().map_or(false, |b| (0x80..0xC0).contains(&b)) {
                             self.advance();
                         }
                     }
-                    return Err(self.err(format!("unexpected non-ASCII character")));
+                    return Err(self.err("unexpected non-ASCII character".to_string()));
                 }
 
                 _ => {
@@ -618,9 +652,15 @@ impl<'a> Lexer<'a> {
 
         // Check for float: decimal point
         // GOTCHA: suppress float parsing when previous token was Dot (for `t.1.1`)
-        let prev_was_dot = self.tokens.last().map_or(false, |t| matches!(t, Token::Dot));
+        let prev_was_dot = self
+            .tokens
+            .last()
+            .map_or(false, |t| matches!(t, Token::Dot));
 
-        if !prev_was_dot && self.peek() == Some(b'.') && self.peek_at(1).map_or(false, |c| c.is_ascii_digit()) {
+        if !prev_was_dot
+            && self.peek() == Some(b'.')
+            && self.peek_at(1).map_or(false, |c| c.is_ascii_digit())
+        {
             // It's a float
             self.advance(); // consume .
             while let Some(ch) = self.peek() {
@@ -649,7 +689,9 @@ impl<'a> Lexer<'a> {
                 .filter(|&&c| c != b'_')
                 .map(|&c| c as char)
                 .collect();
-            let val: f64 = text.parse().map_err(|_| self.err(format!("invalid float: {}", text)))?;
+            let val: f64 = text
+                .parse()
+                .map_err(|_| self.err(format!("invalid float: {}", text)))?;
             self.tokens.push(Token::Float(val));
         } else if !prev_was_dot && matches!(self.peek(), Some(b'e') | Some(b'E')) {
             // Scientific notation without decimal: 1e10
@@ -669,7 +711,9 @@ impl<'a> Lexer<'a> {
                 .filter(|&&c| c != b'_')
                 .map(|&c| c as char)
                 .collect();
-            let val: f64 = text.parse().map_err(|_| self.err(format!("invalid float: {}", text)))?;
+            let val: f64 = text
+                .parse()
+                .map_err(|_| self.err(format!("invalid float: {}", text)))?;
             self.tokens.push(Token::Float(val));
         } else {
             // Integer
@@ -678,7 +722,9 @@ impl<'a> Lexer<'a> {
                 .filter(|&&c| c != b'_')
                 .map(|&c| c as char)
                 .collect();
-            let val: i64 = text.parse().map_err(|_| self.err(format!("invalid integer: {}", text)))?;
+            let val: i64 = text
+                .parse()
+                .map_err(|_| self.err(format!("invalid integer: {}", text)))?;
             self.tokens.push(Token::Int(val));
         }
 
@@ -784,7 +830,8 @@ impl<'a> Lexer<'a> {
             .map(|&c| c as char)
             .collect();
         let full = format!("0.{}", text);
-        full.parse().map_err(|_| self.err(format!("invalid float: .{}", text)))
+        full.parse()
+            .map_err(|_| self.err(format!("invalid float: .{}", text)))
     }
 
     fn lex_identifier(&mut self) {
@@ -797,7 +844,10 @@ impl<'a> Lexer<'a> {
             }
         }
 
-        let text: String = self.source[start..self.pos].iter().map(|&c| c as char).collect();
+        let text: String = self.source[start..self.pos]
+            .iter()
+            .map(|&c| c as char)
+            .collect();
 
         let token = match text.as_str() {
             "T" => Token::True,
@@ -810,10 +860,14 @@ impl<'a> Lexer<'a> {
             "f" => {
                 // Look ahead past whitespace
                 let mut look = self.pos;
-                while look < self.source.len() && (self.source[look] == b' ' || self.source[look] == b'\t') {
+                while look < self.source.len()
+                    && (self.source[look] == b' ' || self.source[look] == b'\t')
+                {
                     look += 1;
                 }
-                if look < self.source.len() && (self.source[look].is_ascii_alphabetic() || self.source[look] == b'_') {
+                if look < self.source.len()
+                    && (self.source[look].is_ascii_alphabetic() || self.source[look] == b'_')
+                {
                     Token::Func
                 } else {
                     Token::Ident(text)
@@ -883,8 +937,12 @@ impl<'a> Lexer<'a> {
             Some(b'{') => Ok('{'),
             Some(b'0') => Ok('\0'),
             Some(b'x') => {
-                let h1 = self.advance().ok_or_else(|| self.err("incomplete \\x escape"))?;
-                let h2 = self.advance().ok_or_else(|| self.err("incomplete \\x escape"))?;
+                let h1 = self
+                    .advance()
+                    .ok_or_else(|| self.err("incomplete \\x escape"))?;
+                let h2 = self
+                    .advance()
+                    .ok_or_else(|| self.err("incomplete \\x escape"))?;
                 let hex = format!("{}{}", h1 as char, h2 as char);
                 let code = u8::from_str_radix(&hex, 16)
                     .map_err(|_| self.err(format!("invalid hex escape: \\x{}", hex)))?;
@@ -910,7 +968,8 @@ impl<'a> Lexer<'a> {
                 }
                 let code = u32::from_str_radix(&hex, 16)
                     .map_err(|_| self.err(format!("invalid unicode escape: \\u{{{}}}", hex)))?;
-                char::from_u32(code).ok_or_else(|| self.err(format!("invalid unicode codepoint: {}", code)))
+                char::from_u32(code)
+                    .ok_or_else(|| self.err(format!("invalid unicode codepoint: {}", code)))
             }
             Some(c) => Err(self.err(format!("unknown escape: \\{}", c as char))),
         }
@@ -952,11 +1011,26 @@ impl<'a> Lexer<'a> {
                     // Re-use main lexer logic for everything else
                     let ch = self.peek().unwrap();
                     match ch {
-                        b'(' => { self.advance(); self.tokens.push(Token::LParen); }
-                        b')' => { self.advance(); self.tokens.push(Token::RParen); }
-                        b'[' => { self.advance(); self.tokens.push(Token::LBracket); }
-                        b']' => { self.advance(); self.tokens.push(Token::RBracket); }
-                        b':' => { self.advance(); self.tokens.push(Token::Colon); }
+                        b'(' => {
+                            self.advance();
+                            self.tokens.push(Token::LParen);
+                        }
+                        b')' => {
+                            self.advance();
+                            self.tokens.push(Token::RParen);
+                        }
+                        b'[' => {
+                            self.advance();
+                            self.tokens.push(Token::LBracket);
+                        }
+                        b']' => {
+                            self.advance();
+                            self.tokens.push(Token::RBracket);
+                        }
+                        b':' => {
+                            self.advance();
+                            self.tokens.push(Token::Colon);
+                        }
                         b'+' => {
                             self.advance();
                             if self.peek() == Some(b'=') {
@@ -984,8 +1058,14 @@ impl<'a> Lexer<'a> {
                                 self.tokens.push(Token::Star);
                             }
                         }
-                        b'/' => { self.advance(); self.tokens.push(Token::Slash); }
-                        b'%' => { self.advance(); self.tokens.push(Token::Percent); }
+                        b'/' => {
+                            self.advance();
+                            self.tokens.push(Token::Slash);
+                        }
+                        b'%' => {
+                            self.advance();
+                            self.tokens.push(Token::Percent);
+                        }
                         b'=' => {
                             self.advance();
                             if self.peek() == Some(b'=') {
@@ -1022,7 +1102,10 @@ impl<'a> Lexer<'a> {
                                 self.tokens.push(Token::Lt);
                             }
                         }
-                        b'&' => { self.advance(); self.tokens.push(Token::Amp); }
+                        b'&' => {
+                            self.advance();
+                            self.tokens.push(Token::Amp);
+                        }
                         b'|' => {
                             self.advance();
                             if self.peek() == Some(b'>') {
@@ -1086,12 +1169,15 @@ mod tests {
     #[test]
     fn test_basic_tokens() {
         let tokens = lex("x=5").unwrap();
-        assert_eq!(tokens, vec![
-            Token::Ident("x".into()),
-            Token::Eq,
-            Token::Int(5),
-            Token::Eof,
-        ]);
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Ident("x".into()),
+                Token::Eq,
+                Token::Int(5),
+                Token::Eof,
+            ]
+        );
     }
 
     #[test]
@@ -1139,42 +1225,49 @@ mod tests {
     #[test]
     fn test_string_interpolation() {
         let tokens = lex(r#""hello {name}""#).unwrap();
-        assert_eq!(tokens, vec![
-            Token::StringStart("hello ".into()),
-            Token::Ident("name".into()),
-            Token::StringEnd("".into()),
-            Token::Eof,
-        ]);
+        assert_eq!(
+            tokens,
+            vec![
+                Token::StringStart("hello ".into()),
+                Token::Ident("name".into()),
+                Token::StringEnd("".into()),
+                Token::Eof,
+            ]
+        );
     }
 
     #[test]
     fn test_string_interpolation_expr() {
         let tokens = lex(r#""2+2={2+2}""#).unwrap();
-        assert_eq!(tokens, vec![
-            Token::StringStart("2+2=".into()),
-            Token::Int(2),
-            Token::Plus,
-            Token::Int(2),
-            Token::StringEnd("".into()),
-            Token::Eof,
-        ]);
+        assert_eq!(
+            tokens,
+            vec![
+                Token::StringStart("2+2=".into()),
+                Token::Int(2),
+                Token::Plus,
+                Token::Int(2),
+                Token::StringEnd("".into()),
+                Token::Eof,
+            ]
+        );
     }
 
     #[test]
     fn test_raw_string() {
         let tokens = lex(r#"`raw {not interpolated}`"#).unwrap();
-        assert_eq!(tokens, vec![Token::RawStr("raw {not interpolated}".into()), Token::Eof]);
+        assert_eq!(
+            tokens,
+            vec![Token::RawStr("raw {not interpolated}".into()), Token::Eof]
+        );
     }
 
     #[test]
     fn test_keywords() {
         let tokens = lex("T F N").unwrap();
-        assert_eq!(tokens, vec![
-            Token::True,
-            Token::False,
-            Token::Nil,
-            Token::Eof,
-        ]);
+        assert_eq!(
+            tokens,
+            vec![Token::True, Token::False, Token::Nil, Token::Eof,]
+        );
     }
 
     #[test]
@@ -1194,158 +1287,253 @@ mod tests {
     #[test]
     fn test_operators() {
         let tokens = lex("+ - * / % **").unwrap();
-        assert_eq!(tokens, vec![
-            Token::Plus, Token::Minus, Token::Star, Token::Slash,
-            Token::Percent, Token::StarStar, Token::Eof,
-        ]);
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Plus,
+                Token::Minus,
+                Token::Star,
+                Token::Slash,
+                Token::Percent,
+                Token::StarStar,
+                Token::Eof,
+            ]
+        );
     }
 
     #[test]
     fn test_comparison() {
         let tokens = lex("== != > < >= <=").unwrap();
-        assert_eq!(tokens, vec![
-            Token::EqEq, Token::BangEq, Token::Gt, Token::Lt,
-            Token::GtEq, Token::LtEq, Token::Eof,
-        ]);
+        assert_eq!(
+            tokens,
+            vec![
+                Token::EqEq,
+                Token::BangEq,
+                Token::Gt,
+                Token::Lt,
+                Token::GtEq,
+                Token::LtEq,
+                Token::Eof,
+            ]
+        );
     }
 
     #[test]
     fn test_bitwise() {
         let tokens = lex("&& || ^^ << >>").unwrap();
-        assert_eq!(tokens, vec![
-            Token::AmpAmp, Token::PipePipe, Token::CaretCaret,
-            Token::LtLt, Token::GtGt, Token::Eof,
-        ]);
+        assert_eq!(
+            tokens,
+            vec![
+                Token::AmpAmp,
+                Token::PipePipe,
+                Token::CaretCaret,
+                Token::LtLt,
+                Token::GtGt,
+                Token::Eof,
+            ]
+        );
     }
 
     #[test]
     fn test_pipe_filter_reduce() {
         let tokens = lex("|> ?> />").unwrap();
-        assert_eq!(tokens, vec![
-            Token::PipeGt, Token::QuestionGt, Token::SlashGt, Token::Eof,
-        ]);
+        assert_eq!(
+            tokens,
+            vec![Token::PipeGt, Token::QuestionGt, Token::SlashGt, Token::Eof,]
+        );
     }
 
     #[test]
     fn test_channel_ops() {
         let tokens = lex("<- ->").unwrap();
-        assert_eq!(tokens, vec![Token::ArrowLeft, Token::ArrowRight, Token::Eof]);
+        assert_eq!(
+            tokens,
+            vec![Token::ArrowLeft, Token::ArrowRight, Token::Eof]
+        );
     }
 
     #[test]
     fn test_question_variants() {
         let tokens = lex("? ?= ?^ ?? ?>").unwrap();
-        assert_eq!(tokens, vec![
-            Token::Question, Token::QuestionEq, Token::QuestionCaret,
-            Token::QuestionQuestion, Token::QuestionGt, Token::Eof,
-        ]);
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Question,
+                Token::QuestionEq,
+                Token::QuestionCaret,
+                Token::QuestionQuestion,
+                Token::QuestionGt,
+                Token::Eof,
+            ]
+        );
     }
 
     #[test]
     fn test_dot_variants() {
         let tokens = lex(". .. ..= .?").unwrap();
-        assert_eq!(tokens, vec![
-            Token::Dot, Token::DotDot, Token::DotDotEq, Token::DotQuestion, Token::Eof,
-        ]);
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Dot,
+                Token::DotDot,
+                Token::DotDotEq,
+                Token::DotQuestion,
+                Token::Eof,
+            ]
+        );
     }
 
     #[test]
     fn test_compound_assignment() {
         let tokens = lex("+= -= *= /= %= **=").unwrap();
-        assert_eq!(tokens, vec![
-            Token::PlusEq, Token::MinusEq, Token::StarEq,
-            Token::SlashEq, Token::PercentEq, Token::StarStarEq, Token::Eof,
-        ]);
+        assert_eq!(
+            tokens,
+            vec![
+                Token::PlusEq,
+                Token::MinusEq,
+                Token::StarEq,
+                Token::SlashEq,
+                Token::PercentEq,
+                Token::StarStarEq,
+                Token::Eof,
+            ]
+        );
     }
 
     #[test]
     fn test_comment() {
         let tokens = lex("# this is a comment\nx=5").unwrap();
-        assert_eq!(tokens, vec![
-            Token::Ident("x".into()),
-            Token::Eq,
-            Token::Int(5),
-            Token::Eof,
-        ]);
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Ident("x".into()),
+                Token::Eq,
+                Token::Int(5),
+                Token::Eof,
+            ]
+        );
     }
 
     #[test]
     fn test_hash_length_operator() {
         let tokens = lex("x=#arr").unwrap();
-        assert_eq!(tokens, vec![
-            Token::Ident("x".into()),
-            Token::Eq,
-            Token::Hash,
-            Token::Ident("arr".into()),
-            Token::Eof,
-        ]);
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Ident("x".into()),
+                Token::Eq,
+                Token::Hash,
+                Token::Ident("arr".into()),
+                Token::Eof,
+            ]
+        );
     }
 
     #[test]
     fn test_newline_collapsing() {
         let tokens = lex("x=1\n\n\ny=2").unwrap();
-        assert_eq!(tokens, vec![
-            Token::Ident("x".into()), Token::Eq, Token::Int(1),
-            Token::Newline,
-            Token::Ident("y".into()), Token::Eq, Token::Int(2),
-            Token::Eof,
-        ]);
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Ident("x".into()),
+                Token::Eq,
+                Token::Int(1),
+                Token::Newline,
+                Token::Ident("y".into()),
+                Token::Eq,
+                Token::Int(2),
+                Token::Eof,
+            ]
+        );
     }
 
     #[test]
     fn test_semicolons_as_newlines() {
         let tokens = lex("x=1;y=2").unwrap();
-        assert_eq!(tokens, vec![
-            Token::Ident("x".into()), Token::Eq, Token::Int(1),
-            Token::Newline,
-            Token::Ident("y".into()), Token::Eq, Token::Int(2),
-            Token::Eof,
-        ]);
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Ident("x".into()),
+                Token::Eq,
+                Token::Int(1),
+                Token::Newline,
+                Token::Ident("y".into()),
+                Token::Eq,
+                Token::Int(2),
+                Token::Eof,
+            ]
+        );
     }
 
     #[test]
     fn test_tuple_access_no_float() {
         // t.1.1 should NOT produce Float(1.1)
         let tokens = lex("t.1.1").unwrap();
-        assert_eq!(tokens, vec![
-            Token::Ident("t".into()),
-            Token::Dot,
-            Token::Int(1),
-            Token::Dot,
-            Token::Int(1),
-            Token::Eof,
-        ]);
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Ident("t".into()),
+                Token::Dot,
+                Token::Int(1),
+                Token::Dot,
+                Token::Int(1),
+                Token::Eof,
+            ]
+        );
     }
 
     #[test]
     fn test_array_literal() {
         let tokens = lex("[1 2 3]").unwrap();
-        assert_eq!(tokens, vec![
-            Token::LBracket, Token::Int(1), Token::Int(2), Token::Int(3),
-            Token::RBracket, Token::Eof,
-        ]);
+        assert_eq!(
+            tokens,
+            vec![
+                Token::LBracket,
+                Token::Int(1),
+                Token::Int(2),
+                Token::Int(3),
+                Token::RBracket,
+                Token::Eof,
+            ]
+        );
     }
 
     #[test]
     fn test_map_literal() {
         let tokens = lex("{a:1 b:2}").unwrap();
-        assert_eq!(tokens, vec![
-            Token::LBrace,
-            Token::Ident("a".into()), Token::Colon, Token::Int(1),
-            Token::Ident("b".into()), Token::Colon, Token::Int(2),
-            Token::RBrace,
-            Token::Eof,
-        ]);
+        assert_eq!(
+            tokens,
+            vec![
+                Token::LBrace,
+                Token::Ident("a".into()),
+                Token::Colon,
+                Token::Int(1),
+                Token::Ident("b".into()),
+                Token::Colon,
+                Token::Int(2),
+                Token::RBrace,
+                Token::Eof,
+            ]
+        );
     }
 
     #[test]
     fn test_lambda() {
         let tokens = lex(r#"\(x)=x*2"#).unwrap();
-        assert_eq!(tokens, vec![
-            Token::Backslash, Token::LParen, Token::Ident("x".into()), Token::RParen,
-            Token::Eq, Token::Ident("x".into()), Token::Star, Token::Int(2),
-            Token::Eof,
-        ]);
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Backslash,
+                Token::LParen,
+                Token::Ident("x".into()),
+                Token::RParen,
+                Token::Eq,
+                Token::Ident("x".into()),
+                Token::Star,
+                Token::Int(2),
+                Token::Eof,
+            ]
+        );
     }
 
     #[test]
@@ -1385,8 +1573,9 @@ mod tests {
     #[test]
     fn test_at_import() {
         let tokens = lex(r#"@"math""#).unwrap();
-        assert_eq!(tokens, vec![
-            Token::At, Token::Str("math".into()), Token::Eof,
-        ]);
+        assert_eq!(
+            tokens,
+            vec![Token::At, Token::Str("math".into()), Token::Eof,]
+        );
     }
 }

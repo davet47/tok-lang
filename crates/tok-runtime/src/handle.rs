@@ -108,12 +108,16 @@ mod tests {
 
         let h = tok_go(ret_ten, std::ptr::null_mut());
         let v1 = tok_handle_join(h);
-        unsafe { assert_eq!(v1.data.int_val, 10); }
+        unsafe {
+            assert_eq!(v1.data.int_val, 10);
+        }
 
         // Second join returns nil
         let v2 = tok_handle_join(h);
         assert_eq!(v2.tag, 0); // NIL
 
-        unsafe { drop(Box::from_raw(h)); }
+        unsafe {
+            drop(Box::from_raw(h));
+        }
     }
 }

@@ -1,3 +1,4 @@
+use crate::ast::*;
 /// Recursive descent parser for the Tok language.
 ///
 /// Converts a flat token stream from tok-lexer into an AST.
@@ -11,9 +12,7 @@
 /// - Error handling: ?^, ??, .?
 /// - Modules/imports
 /// - Concurrency: go, channels, select, pmap
-
 use tok_lexer::Token;
-use crate::ast::*;
 
 #[derive(Debug, Clone)]
 pub struct ParseError {
@@ -80,10 +79,7 @@ impl Parser {
     }
 
     fn error(&self, msg: String) -> ParseError {
-        ParseError {
-            msg,
-            pos: self.pos,
-        }
+        ParseError { msg, pos: self.pos }
     }
 
     fn skip_newlines(&mut self) {
@@ -128,7 +124,7 @@ impl Parser {
     /// An empty `{}` is also a map literal.
     fn is_map_literal(&self) -> bool {
         let mut look = self.pos + 1; // past the `{`
-        // skip newlines
+                                     // skip newlines
         while look < self.tokens.len() && matches!(self.tokens[look], Token::Newline) {
             look += 1;
         }
@@ -309,27 +305,30 @@ impl Parser {
                 self.advance(); // consume =
                 let value = self.parse_expr()?;
                 match expr {
-                    Expr::Member { expr: target, field } => {
-                        Ok(Some(Stmt::MemberAssign {
-                            target: *target,
-                            field,
-                            value,
-                        }))
-                    }
-                    Expr::OptionalChain { expr: target, field } => {
-                        Ok(Some(Stmt::MemberAssign {
-                            target: *target,
-                            field,
-                            value,
-                        }))
-                    }
-                    Expr::Index { expr: target, index } => {
-                        Ok(Some(Stmt::IndexAssign {
-                            target: *target,
-                            index: *index,
-                            value,
-                        }))
-                    }
+                    Expr::Member {
+                        expr: target,
+                        field,
+                    } => Ok(Some(Stmt::MemberAssign {
+                        target: *target,
+                        field,
+                        value,
+                    })),
+                    Expr::OptionalChain {
+                        expr: target,
+                        field,
+                    } => Ok(Some(Stmt::MemberAssign {
+                        target: *target,
+                        field,
+                        value,
+                    })),
+                    Expr::Index {
+                        expr: target,
+                        index,
+                    } => Ok(Some(Stmt::IndexAssign {
+                        target: *target,
+                        index: *index,
+                        value,
+                    })),
                     _ => {
                         // Not a valid assignment target, restore
                         self.pos = saved_pos;
@@ -337,28 +336,34 @@ impl Parser {
                     }
                 }
             }
-            Token::PlusEq | Token::MinusEq | Token::StarEq | Token::SlashEq
-            | Token::PercentEq | Token::StarStarEq => {
+            Token::PlusEq
+            | Token::MinusEq
+            | Token::StarEq
+            | Token::SlashEq
+            | Token::PercentEq
+            | Token::StarStarEq => {
                 let tok = self.advance();
                 let op = self.compound_op_to_binop(&tok);
                 let value = self.parse_expr()?;
                 match expr {
-                    Expr::Member { expr: target, field } => {
-                        Ok(Some(Stmt::CompoundMemberAssign {
-                            target: *target,
-                            field,
-                            op,
-                            value,
-                        }))
-                    }
-                    Expr::Index { expr: target, index } => {
-                        Ok(Some(Stmt::CompoundIndexAssign {
-                            target: *target,
-                            index: *index,
-                            op,
-                            value,
-                        }))
-                    }
+                    Expr::Member {
+                        expr: target,
+                        field,
+                    } => Ok(Some(Stmt::CompoundMemberAssign {
+                        target: *target,
+                        field,
+                        op,
+                        value,
+                    })),
+                    Expr::Index {
+                        expr: target,
+                        index,
+                    } => Ok(Some(Stmt::CompoundIndexAssign {
+                        target: *target,
+                        index: *index,
+                        op,
+                        value,
+                    })),
                     _ => {
                         self.pos = saved_pos;
                         Ok(None)
@@ -430,7 +435,8 @@ impl Parser {
                         _ => unreachable!(),
                     };
                     // If followed by newline, eof, or nothing else meaningful, it's bare import
-                    if matches!(self.peek(), Token::Newline | Token::Eof) || !self.can_start_expr() {
+                    if matches!(self.peek(), Token::Newline | Token::Eof) || !self.can_start_expr()
+                    {
                         return Ok(Stmt::Import(path));
                     }
                     // Otherwise restore and parse as expression
@@ -544,7 +550,10 @@ impl Parser {
         } else if matches!(self.peek(), Token::LBrace) {
             FuncBody::Block(self.parse_block()?)
         } else {
-            return Err(self.error(format!("expected '=' or '{{' after function params, found {:?}", self.peek())));
+            return Err(self.error(format!(
+                "expected '=' or '{{' after function params, found {:?}",
+                self.peek()
+            )));
         };
 
         Ok(Stmt::FuncDecl {
@@ -568,7 +577,9 @@ impl Parser {
 
             let name = match self.advance() {
                 Token::Ident(s) => s,
-                other => return Err(self.error(format!("expected parameter name, found {:?}", other))),
+                other => {
+                    return Err(self.error(format!("expected parameter name, found {:?}", other)))
+                }
             };
 
             // Optional type annotation
@@ -678,13 +689,23 @@ impl Parser {
         self.skip_newlines();
         let head = match self.advance() {
             Token::Ident(s) => s,
-            other => return Err(self.error(format!("expected identifier in array destructure, found {:?}", other))),
+            other => {
+                return Err(self.error(format!(
+                    "expected identifier in array destructure, found {:?}",
+                    other
+                )))
+            }
         };
         self.skip_newlines();
         self.expect(&Token::DotDot)?;
         let tail = match self.advance() {
             Token::Ident(s) => s,
-            other => return Err(self.error(format!("expected identifier after .. in array destructure, found {:?}", other))),
+            other => {
+                return Err(self.error(format!(
+                    "expected identifier after .. in array destructure, found {:?}",
+                    other
+                )))
+            }
         };
         self.skip_newlines();
         self.expect(&Token::RBracket)?;
@@ -787,9 +808,7 @@ impl Parser {
                 let ret = self.parse_type()?;
                 Ok(TypeExpr::Func(param_types, Box::new(ret)))
             }
-            _ => {
-                Err(self.error(format!("expected type, found {:?}", self.peek())))
-            }
+            _ => Err(self.error(format!("expected type, found {:?}", self.peek()))),
         }
     }
 
@@ -1306,15 +1325,9 @@ impl Parser {
                 self.advance();
                 Ok(Expr::Ident(s))
             }
-            Token::StringStart(_) => {
-                self.parse_interpolated_string()
-            }
-            Token::LParen => {
-                self.parse_paren_expr()
-            }
-            Token::LBracket => {
-                self.parse_array_literal()
-            }
+            Token::StringStart(_) => self.parse_interpolated_string(),
+            Token::LParen => self.parse_paren_expr(),
+            Token::LBracket => self.parse_array_literal(),
             Token::LBrace => {
                 if self.is_map_literal() {
                     self.parse_map_literal()
@@ -1324,12 +1337,8 @@ impl Parser {
                     Ok(Expr::Block(stmts))
                 }
             }
-            Token::Backslash => {
-                self.parse_lambda()
-            }
-            Token::Tilde => {
-                self.parse_loop()
-            }
+            Token::Backslash => self.parse_lambda(),
+            Token::Tilde => self.parse_loop(),
             Token::QuestionEq => {
                 // Standalone match: ?={ arms }
                 self.advance();
@@ -1346,7 +1355,11 @@ impl Parser {
                 self.advance();
                 let path = match self.advance() {
                     Token::Str(s) | Token::RawStr(s) => s,
-                    other => return Err(self.error(format!("expected string after @, found {:?}", other))),
+                    other => {
+                        return Err(
+                            self.error(format!("expected string after @, found {:?}", other))
+                        )
+                    }
                 };
                 Ok(Expr::Import(path))
             }
@@ -1372,9 +1385,7 @@ impl Parser {
                 };
                 Ok(Expr::Go(Box::new(inner)))
             }
-            Token::Sel => {
-                self.parse_select()
-            }
+            Token::Sel => self.parse_select(),
             Token::Caret => {
                 // Early return as expression: ^expr
                 self.advance();
@@ -1396,9 +1407,7 @@ impl Parser {
                 // which isn't valid. Let's error.
                 Err(self.error("unexpected function declaration in expression context".into()))
             }
-            _ => {
-                Err(self.error(format!("unexpected token: {:?}", self.peek())))
-            }
+            _ => Err(self.error(format!("unexpected token: {:?}", self.peek()))),
         }
     }
 
@@ -1520,7 +1529,10 @@ impl Parser {
         } else if matches!(self.peek(), Token::LBrace) {
             FuncBody::Block(self.parse_block()?)
         } else {
-            return Err(self.error(format!("expected '=' or '{{' in lambda, found {:?}", self.peek())));
+            return Err(self.error(format!(
+                "expected '=' or '{{' in lambda, found {:?}",
+                self.peek()
+            )));
         };
 
         Ok(Expr::Lambda {
@@ -1603,10 +1615,16 @@ impl Parser {
             let stmts = self.parse_block()?;
             LoopBody::Block(stmts)
         } else {
-            return Err(self.error(format!("expected '{{' or '=' after loop clause, found {:?}", self.peek())));
+            return Err(self.error(format!(
+                "expected '{{' or '=' after loop clause, found {:?}",
+                self.peek()
+            )));
         };
 
-        Ok(Expr::Loop { clause: Box::new(clause), body: Box::new(body) })
+        Ok(Expr::Loop {
+            clause: Box::new(clause),
+            body: Box::new(body),
+        })
     }
 
     /// Parse loop clause inside `~(...)`:
@@ -1632,20 +1650,18 @@ impl Parser {
                 let iter_expr = self.parse_expr()?;
                 // Determine if it's a range or foreach based on the expression type
                 match iter_expr {
-                    Expr::Range { .. } => {
-                        Ok(LoopClause::ForRange {
-                            var,
-                            range: iter_expr,
-                        })
-                    }
-                    _ => {
-                        Ok(LoopClause::ForEach {
-                            var,
-                            iter: iter_expr,
-                        })
-                    }
+                    Expr::Range { .. } => Ok(LoopClause::ForRange {
+                        var,
+                        range: iter_expr,
+                    }),
+                    _ => Ok(LoopClause::ForEach {
+                        var,
+                        iter: iter_expr,
+                    }),
                 }
-            } else if matches!(self.peek_at(1), Token::Ident(_)) && matches!(self.peek_at(2), Token::Colon) {
+            } else if matches!(self.peek_at(1), Token::Ident(_))
+                && matches!(self.peek_at(2), Token::Colon)
+            {
                 // ForEachIndexed: `idx val : expr`
                 let idx_var = match self.advance() {
                     Token::Ident(s) => s,
@@ -1761,7 +1777,10 @@ impl Parser {
                 match self.advance() {
                     Token::Int(n) => Ok(Pattern::Int(-n)),
                     Token::Float(n) => Ok(Pattern::Float(-n)),
-                    other => Err(self.error(format!("expected number after '-' in pattern, found {:?}", other))),
+                    other => Err(self.error(format!(
+                        "expected number after '-' in pattern, found {:?}",
+                        other
+                    ))),
                 }
             }
             _ => {
@@ -1840,16 +1859,15 @@ impl Parser {
 
             // Decompose the expression
             match chan {
-                Expr::Send { chan: ch, value: val } => {
-                    Ok(SelectArm::Send {
-                        chan: *ch,
-                        value: *val,
-                        body,
-                    })
-                }
-                _ => {
-                    Err(self.error("expected send expression (chan <- val) in select arm".into()))
-                }
+                Expr::Send {
+                    chan: ch,
+                    value: val,
+                } => Ok(SelectArm::Send {
+                    chan: *ch,
+                    value: *val,
+                    body,
+                }),
+                _ => Err(self.error("expected send expression (chan <- val) in select arm".into())),
             }
         }
     }
@@ -1946,12 +1964,10 @@ mod tests {
     fn test_loop() {
         let prog = parse_str("~(i:0..5){p(i)}").unwrap();
         match &prog[0] {
-            Stmt::Expr(Expr::Loop { clause, .. }) => {
-                match clause.as_ref() {
-                    LoopClause::ForRange { var, .. } => assert_eq!(var, "i"),
-                    _ => panic!("expected ForRange"),
-                }
-            }
+            Stmt::Expr(Expr::Loop { clause, .. }) => match clause.as_ref() {
+                LoopClause::ForRange { var, .. } => assert_eq!(var, "i"),
+                _ => panic!("expected ForRange"),
+            },
             _ => panic!("expected Loop with ForRange"),
         }
     }
@@ -1960,7 +1976,10 @@ mod tests {
     fn test_match() {
         let prog = parse_str("x?={1:\"one\";2:\"two\";_:\"other\"}").unwrap();
         match &prog[0] {
-            Stmt::Expr(Expr::Match { subject: Some(_), arms }) => {
+            Stmt::Expr(Expr::Match {
+                subject: Some(_),
+                arms,
+            }) => {
                 assert_eq!(arms.len(), 3);
             }
             _ => panic!("expected Match"),
@@ -2095,7 +2114,10 @@ mod tests {
     fn test_namespace_import() {
         let prog = parse_str("m=@\"math\"").unwrap();
         match &prog[0] {
-            Stmt::Assign { value: Expr::Import(path), .. } => {
+            Stmt::Assign {
+                value: Expr::Import(path),
+                ..
+            } => {
                 assert_eq!(path, "math");
             }
             _ => panic!("expected Assign with Import"),
@@ -2215,7 +2237,9 @@ mod tests {
             Stmt::Expr(Expr::Member { expr, field }) => {
                 assert_eq!(field, "1");
                 match expr.as_ref() {
-                    Expr::Member { field: inner_field, .. } => {
+                    Expr::Member {
+                        field: inner_field, ..
+                    } => {
                         assert_eq!(inner_field, "1");
                     }
                     _ => panic!("expected nested Member"),

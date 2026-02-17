@@ -1,7 +1,6 @@
 /// Integration tests: lex -> parse -> typecheck -> lower for all .tok test files.
 ///
 /// Ensures the HIR lowering pass does not panic on any real Tok source file.
-
 use std::fs;
 use std::path::Path;
 

@@ -2,8 +2,8 @@
 
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use crate::value::TokValue;
 use crate::array::TokArray;
+use crate::value::TokValue;
 
 // ═══════════════════════════════════════════════════════════════
 // TokString
@@ -163,11 +163,10 @@ pub extern "C" fn tok_string_split(s: *mut TokString, delim: *mut TokString) -> 
             data.push(TokValue::from_string(str_ptr));
         }
 
-        let arr = Box::into_raw(Box::new(TokArray {
+        Box::into_raw(Box::new(TokArray {
             rc: std::sync::atomic::AtomicU32::new(1),
             data,
-        }));
-        arr
+        }))
     }
 }
 
@@ -239,15 +238,19 @@ mod tests {
     fn test_len() {
         let s = alloc_str("hello");
         assert_eq!(tok_string_len(s), 5);
-        unsafe { free_str(s); }
+        unsafe {
+            free_str(s);
+        }
     }
 
     #[test]
     fn test_len_unicode() {
         let s = alloc_str("cafe\u{0301}"); // "cafe" + combining accent
-        // char count = 5 (c, a, f, e, combining_accent)
+                                           // char count = 5 (c, a, f, e, combining_accent)
         assert_eq!(tok_string_len(s), 5);
-        unsafe { free_str(s); }
+        unsafe {
+            free_str(s);
+        }
     }
 
     #[test]
@@ -338,8 +341,8 @@ mod tests {
             (*s).rc_inc();
             assert_eq!((*s).rc.load(Ordering::Relaxed), 2);
             assert!(!(*s).rc_dec()); // 2 -> 1, not freed
-            assert!((*s).rc_dec());  // 1 -> 0, should free
-            // Actually free it
+            assert!((*s).rc_dec()); // 1 -> 0, should free
+                                    // Actually free it
             drop(Box::from_raw(s));
         }
     }

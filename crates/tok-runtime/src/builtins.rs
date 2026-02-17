@@ -3,8 +3,10 @@
 //! These are called directly by Cranelift-generated machine code.
 
 use crate::array::tok_array_slice;
-use crate::string::{TokString, tok_string_slice};
-use crate::value::{format_float, TokValue, TAG_ARRAY, TAG_BOOL, TAG_FLOAT, TAG_INT, TAG_NIL, TAG_STRING};
+use crate::string::{tok_string_slice, TokString};
+use crate::value::{
+    format_float, TokValue, TAG_ARRAY, TAG_BOOL, TAG_FLOAT, TAG_INT, TAG_NIL, TAG_STRING,
+};
 
 // ═══════════════════════════════════════════════════════════════
 // Reference counting (generic)
@@ -72,7 +74,9 @@ pub extern "C" fn tok_value_rc_dec(tag: i64, data: i64) {
 /// Called by codegen when the variable type is known to be Str.
 #[no_mangle]
 pub extern "C" fn tok_string_free(ptr: *mut TokString) {
-    if ptr.is_null() { return; }
+    if ptr.is_null() {
+        return;
+    }
     unsafe {
         if (*ptr).rc_dec() {
             drop(Box::from_raw(ptr));
@@ -119,7 +123,9 @@ pub extern "C" fn tok_print_string(val: *mut TokString) {
     if val.is_null() {
         print!("N");
     } else {
-        unsafe { print!("{}", (*val).data); }
+        unsafe {
+            print!("{}", (*val).data);
+        }
     }
 }
 
@@ -128,7 +134,9 @@ pub extern "C" fn tok_println_string(val: *mut TokString) {
     if val.is_null() {
         println!("N");
     } else {
-        unsafe { println!("{}", (*val).data); }
+        unsafe {
+            println!("{}", (*val).data);
+        }
     }
 }
 
@@ -185,7 +193,11 @@ pub extern "C" fn tok_float_to_string(val: f64) -> *mut TokString {
 
 #[no_mangle]
 pub extern "C" fn tok_bool_to_string(val: i8) -> *mut TokString {
-    TokString::alloc(if val != 0 { "T".to_string() } else { "F".to_string() })
+    TokString::alloc(if val != 0 {
+        "T".to_string()
+    } else {
+        "F".to_string()
+    })
 }
 
 #[no_mangle]
@@ -307,14 +319,26 @@ pub extern "C" fn tok_value_to_bool(val: TokValue) -> i8 {
     unsafe {
         match val.tag {
             TAG_BOOL => val.data.bool_val,
-            TAG_INT => if val.data.int_val != 0 { 1 } else { 0 },
-            TAG_FLOAT => if val.data.float_val != 0.0 { 1 } else { 0 },
+            TAG_INT => {
+                if val.data.int_val != 0 {
+                    1
+                } else {
+                    0
+                }
+            }
+            TAG_FLOAT => {
+                if val.data.float_val != 0.0 {
+                    1
+                } else {
+                    0
+                }
+            }
             TAG_NIL => 0,
             TAG_STRING => {
-                if val.data.string_ptr.is_null() {
-                    0
+                if !val.data.string_ptr.is_null() && !(*val.data.string_ptr).data.is_empty() {
+                    1
                 } else {
-                    if (*val.data.string_ptr).data.is_empty() { 0 } else { 1 }
+                    0
                 }
             }
             _ => 1, // Arrays, maps, tuples, etc. are truthy
@@ -406,15 +430,9 @@ pub extern "C" fn tok_value_add(a: TokValue, b: TokValue) -> TokValue {
     unsafe {
         match (a.tag, b.tag) {
             (TAG_INT, TAG_INT) => TokValue::from_int(a.data.int_val + b.data.int_val),
-            (TAG_FLOAT, TAG_FLOAT) => {
-                TokValue::from_float(a.data.float_val + b.data.float_val)
-            }
-            (TAG_INT, TAG_FLOAT) => {
-                TokValue::from_float(a.data.int_val as f64 + b.data.float_val)
-            }
-            (TAG_FLOAT, TAG_INT) => {
-                TokValue::from_float(a.data.float_val + b.data.int_val as f64)
-            }
+            (TAG_FLOAT, TAG_FLOAT) => TokValue::from_float(a.data.float_val + b.data.float_val),
+            (TAG_INT, TAG_FLOAT) => TokValue::from_float(a.data.int_val as f64 + b.data.float_val),
+            (TAG_FLOAT, TAG_INT) => TokValue::from_float(a.data.float_val + b.data.int_val as f64),
             (TAG_STRING, TAG_STRING) => {
                 let ap = a.data.string_ptr;
                 let bp = b.data.string_ptr;
@@ -459,15 +477,9 @@ pub extern "C" fn tok_value_sub(a: TokValue, b: TokValue) -> TokValue {
     unsafe {
         match (a.tag, b.tag) {
             (TAG_INT, TAG_INT) => TokValue::from_int(a.data.int_val - b.data.int_val),
-            (TAG_FLOAT, TAG_FLOAT) => {
-                TokValue::from_float(a.data.float_val - b.data.float_val)
-            }
-            (TAG_INT, TAG_FLOAT) => {
-                TokValue::from_float(a.data.int_val as f64 - b.data.float_val)
-            }
-            (TAG_FLOAT, TAG_INT) => {
-                TokValue::from_float(a.data.float_val - b.data.int_val as f64)
-            }
+            (TAG_FLOAT, TAG_FLOAT) => TokValue::from_float(a.data.float_val - b.data.float_val),
+            (TAG_INT, TAG_FLOAT) => TokValue::from_float(a.data.int_val as f64 - b.data.float_val),
+            (TAG_FLOAT, TAG_INT) => TokValue::from_float(a.data.float_val - b.data.int_val as f64),
             _ => TokValue::nil(),
         }
     }
@@ -478,15 +490,9 @@ pub extern "C" fn tok_value_mul(a: TokValue, b: TokValue) -> TokValue {
     unsafe {
         match (a.tag, b.tag) {
             (TAG_INT, TAG_INT) => TokValue::from_int(a.data.int_val * b.data.int_val),
-            (TAG_FLOAT, TAG_FLOAT) => {
-                TokValue::from_float(a.data.float_val * b.data.float_val)
-            }
-            (TAG_INT, TAG_FLOAT) => {
-                TokValue::from_float(a.data.int_val as f64 * b.data.float_val)
-            }
-            (TAG_FLOAT, TAG_INT) => {
-                TokValue::from_float(a.data.float_val * b.data.int_val as f64)
-            }
+            (TAG_FLOAT, TAG_FLOAT) => TokValue::from_float(a.data.float_val * b.data.float_val),
+            (TAG_INT, TAG_FLOAT) => TokValue::from_float(a.data.int_val as f64 * b.data.float_val),
+            (TAG_FLOAT, TAG_INT) => TokValue::from_float(a.data.float_val * b.data.int_val as f64),
             _ => TokValue::nil(),
         }
     }
@@ -503,15 +509,9 @@ pub extern "C" fn tok_value_div(a: TokValue, b: TokValue) -> TokValue {
                     TokValue::from_int(a.data.int_val / b.data.int_val)
                 }
             }
-            (TAG_FLOAT, TAG_FLOAT) => {
-                TokValue::from_float(a.data.float_val / b.data.float_val)
-            }
-            (TAG_INT, TAG_FLOAT) => {
-                TokValue::from_float(a.data.int_val as f64 / b.data.float_val)
-            }
-            (TAG_FLOAT, TAG_INT) => {
-                TokValue::from_float(a.data.float_val / b.data.int_val as f64)
-            }
+            (TAG_FLOAT, TAG_FLOAT) => TokValue::from_float(a.data.float_val / b.data.float_val),
+            (TAG_INT, TAG_FLOAT) => TokValue::from_float(a.data.int_val as f64 / b.data.float_val),
+            (TAG_FLOAT, TAG_INT) => TokValue::from_float(a.data.float_val / b.data.int_val as f64),
             _ => TokValue::nil(),
         }
     }
@@ -528,15 +528,9 @@ pub extern "C" fn tok_value_mod(a: TokValue, b: TokValue) -> TokValue {
                     TokValue::from_int(a.data.int_val % b.data.int_val)
                 }
             }
-            (TAG_FLOAT, TAG_FLOAT) => {
-                TokValue::from_float(a.data.float_val % b.data.float_val)
-            }
-            (TAG_INT, TAG_FLOAT) => {
-                TokValue::from_float(a.data.int_val as f64 % b.data.float_val)
-            }
-            (TAG_FLOAT, TAG_INT) => {
-                TokValue::from_float(a.data.float_val % b.data.int_val as f64)
-            }
+            (TAG_FLOAT, TAG_FLOAT) => TokValue::from_float(a.data.float_val % b.data.float_val),
+            (TAG_INT, TAG_FLOAT) => TokValue::from_float(a.data.int_val as f64 % b.data.float_val),
+            (TAG_FLOAT, TAG_INT) => TokValue::from_float(a.data.float_val % b.data.int_val as f64),
             _ => TokValue::nil(),
         }
     }
@@ -577,9 +571,7 @@ pub extern "C" fn tok_value_pow(a: TokValue, b: TokValue) -> TokValue {
     unsafe {
         match (a.tag, b.tag) {
             (TAG_INT, TAG_INT) => TokValue::from_int(tok_pow_int(a.data.int_val, b.data.int_val)),
-            (TAG_FLOAT, TAG_FLOAT) => {
-                TokValue::from_float(a.data.float_val.powf(b.data.float_val))
-            }
+            (TAG_FLOAT, TAG_FLOAT) => TokValue::from_float(a.data.float_val.powf(b.data.float_val)),
             (TAG_INT, TAG_FLOAT) => {
                 TokValue::from_float((a.data.int_val as f64).powf(b.data.float_val))
             }
@@ -593,7 +585,11 @@ pub extern "C" fn tok_value_pow(a: TokValue, b: TokValue) -> TokValue {
 
 #[no_mangle]
 pub extern "C" fn tok_value_eq(a: TokValue, b: TokValue) -> i8 {
-    if a == b { 1 } else { 0 }
+    if a == b {
+        1
+    } else {
+        0
+    }
 }
 
 #[no_mangle]
@@ -644,7 +640,11 @@ pub extern "C" fn tok_value_lt(a: TokValue, b: TokValue) -> i8 {
 
 #[no_mangle]
 pub extern "C" fn tok_value_truthiness(a: TokValue) -> i8 {
-    if a.truthiness() { 1 } else { 0 }
+    if a.truthiness() {
+        1
+    } else {
+        0
+    }
 }
 
 #[no_mangle]
@@ -660,7 +660,11 @@ pub extern "C" fn tok_value_negate(a: TokValue) -> TokValue {
 
 #[no_mangle]
 pub extern "C" fn tok_value_not(a: TokValue) -> i8 {
-    if a.truthiness() { 0 } else { 1 }
+    if a.truthiness() {
+        0
+    } else {
+        1
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -675,7 +679,11 @@ pub extern "C" fn tok_is(val: TokValue, type_str: *mut TokString) -> i8 {
         return 0;
     }
     let expected = unsafe { &(*type_str).data };
-    if val.type_name() == expected.as_str() { 1 } else { 0 }
+    if val.type_name() == expected.as_str() {
+        1
+    } else {
+        0
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -692,23 +700,17 @@ pub extern "C" fn tok_array_pop(arr: *mut crate::array::TokArray) -> TokValue {
         if src.is_empty() {
             // Return ([], N)
             let new_arr = crate::array::TokArray::alloc();
-            let elems = vec![
-                TokValue::from_array(new_arr),
-                TokValue::nil(),
-            ];
+            let elems = vec![TokValue::from_array(new_arr), TokValue::nil()];
             return TokValue::from_tuple(crate::tuple::TokTuple::alloc(elems));
         }
         let last = src[src.len() - 1];
         last.rc_inc();
         let new_arr = crate::array::TokArray::alloc();
-        for i in 0..src.len() - 1 {
-            src[i].rc_inc();
-            (*new_arr).data.push(src[i]);
+        for item in &src[..src.len() - 1] {
+            item.rc_inc();
+            (*new_arr).data.push(*item);
         }
-        let elems = vec![
-            TokValue::from_array(new_arr),
-            last,
-        ];
+        let elems = vec![TokValue::from_array(new_arr), last];
         TokValue::from_tuple(crate::tuple::TokTuple::alloc(elems))
     }
 }
@@ -810,7 +812,9 @@ pub extern "C" fn tok_args() -> *mut crate::array::TokArray {
     // Skip the first arg (program name) to match typical scripting language behavior
     for arg in std::env::args().skip(1) {
         let s = TokString::alloc(arg);
-        unsafe { (*arr).data.push(TokValue::from_string(s)); }
+        unsafe {
+            (*arr).data.push(TokValue::from_string(s));
+        }
     }
     arr
 }
@@ -847,7 +851,9 @@ mod tests {
         }
         assert_eq!(tok_rc_dec(s as *mut u8), 0); // 2 -> 1
         assert_eq!(tok_rc_dec(s as *mut u8), 1); // 1 -> 0
-        unsafe { drop(Box::from_raw(s)); }
+        unsafe {
+            drop(Box::from_raw(s));
+        }
     }
 
     #[test]
@@ -904,7 +910,9 @@ mod tests {
 
         let s = TokString::alloc("123".to_string());
         assert_eq!(tok_to_int(TokValue::from_string(s)), 123);
-        unsafe { drop(Box::from_raw(s)); }
+        unsafe {
+            drop(Box::from_raw(s));
+        }
 
         assert_eq!(tok_to_int(TokValue::nil()), 0);
     }
@@ -916,28 +924,36 @@ mod tests {
 
         let s = TokString::alloc("3.14".to_string());
         assert!((tok_to_float(TokValue::from_string(s)) - 3.14).abs() < 1e-10);
-        unsafe { drop(Box::from_raw(s)); }
+        unsafe {
+            drop(Box::from_raw(s));
+        }
     }
 
     #[test]
     fn test_value_add_int() {
         let result = tok_value_add(TokValue::from_int(3), TokValue::from_int(4));
         assert_eq!(result.tag, TAG_INT);
-        unsafe { assert_eq!(result.data.int_val, 7); }
+        unsafe {
+            assert_eq!(result.data.int_val, 7);
+        }
     }
 
     #[test]
     fn test_value_add_float() {
         let result = tok_value_add(TokValue::from_float(1.5), TokValue::from_float(2.5));
         assert_eq!(result.tag, TAG_FLOAT);
-        unsafe { assert!((result.data.float_val - 4.0).abs() < 1e-10); }
+        unsafe {
+            assert!((result.data.float_val - 4.0).abs() < 1e-10);
+        }
     }
 
     #[test]
     fn test_value_add_mixed() {
         let result = tok_value_add(TokValue::from_int(1), TokValue::from_float(2.5));
         assert_eq!(result.tag, TAG_FLOAT);
-        unsafe { assert!((result.data.float_val - 3.5).abs() < 1e-10); }
+        unsafe {
+            assert!((result.data.float_val - 3.5).abs() < 1e-10);
+        }
     }
 
     #[test]
@@ -961,19 +977,25 @@ mod tests {
     #[test]
     fn test_value_sub() {
         let result = tok_value_sub(TokValue::from_int(10), TokValue::from_int(3));
-        unsafe { assert_eq!(result.data.int_val, 7); }
+        unsafe {
+            assert_eq!(result.data.int_val, 7);
+        }
     }
 
     #[test]
     fn test_value_mul() {
         let result = tok_value_mul(TokValue::from_int(3), TokValue::from_int(4));
-        unsafe { assert_eq!(result.data.int_val, 12); }
+        unsafe {
+            assert_eq!(result.data.int_val, 12);
+        }
     }
 
     #[test]
     fn test_value_div() {
         let result = tok_value_div(TokValue::from_int(10), TokValue::from_int(3));
-        unsafe { assert_eq!(result.data.int_val, 3); }
+        unsafe {
+            assert_eq!(result.data.int_val, 3);
+        }
 
         // Division by zero
         let result = tok_value_div(TokValue::from_int(10), TokValue::from_int(0));
@@ -983,21 +1005,38 @@ mod tests {
     #[test]
     fn test_value_mod() {
         let result = tok_value_mod(TokValue::from_int(10), TokValue::from_int(3));
-        unsafe { assert_eq!(result.data.int_val, 1); }
+        unsafe {
+            assert_eq!(result.data.int_val, 1);
+        }
     }
 
     #[test]
     fn test_value_eq() {
-        assert_eq!(tok_value_eq(TokValue::from_int(1), TokValue::from_int(1)), 1);
-        assert_eq!(tok_value_eq(TokValue::from_int(1), TokValue::from_int(2)), 0);
+        assert_eq!(
+            tok_value_eq(TokValue::from_int(1), TokValue::from_int(1)),
+            1
+        );
+        assert_eq!(
+            tok_value_eq(TokValue::from_int(1), TokValue::from_int(2)),
+            0
+        );
         assert_eq!(tok_value_eq(TokValue::nil(), TokValue::nil()), 1);
     }
 
     #[test]
     fn test_value_lt() {
-        assert_eq!(tok_value_lt(TokValue::from_int(1), TokValue::from_int(2)), 1);
-        assert_eq!(tok_value_lt(TokValue::from_int(2), TokValue::from_int(1)), 0);
-        assert_eq!(tok_value_lt(TokValue::from_int(1), TokValue::from_int(1)), 0);
+        assert_eq!(
+            tok_value_lt(TokValue::from_int(1), TokValue::from_int(2)),
+            1
+        );
+        assert_eq!(
+            tok_value_lt(TokValue::from_int(2), TokValue::from_int(1)),
+            0
+        );
+        assert_eq!(
+            tok_value_lt(TokValue::from_int(1), TokValue::from_int(1)),
+            0
+        );
     }
 
     #[test]
@@ -1012,10 +1051,14 @@ mod tests {
     #[test]
     fn test_value_negate() {
         let result = tok_value_negate(TokValue::from_int(5));
-        unsafe { assert_eq!(result.data.int_val, -5); }
+        unsafe {
+            assert_eq!(result.data.int_val, -5);
+        }
 
         let result = tok_value_negate(TokValue::from_float(3.14));
-        unsafe { assert!((result.data.float_val - (-3.14)).abs() < 1e-10); }
+        unsafe {
+            assert!((result.data.float_val - (-3.14)).abs() < 1e-10);
+        }
 
         // Negate nil → nil
         let result = tok_value_negate(TokValue::nil());
@@ -1110,6 +1153,8 @@ mod tests {
         tok_println_string(s);
         tok_print_string(std::ptr::null_mut());
         tok_println_string(std::ptr::null_mut());
-        unsafe { drop(Box::from_raw(s)); }
+        unsafe {
+            drop(Box::from_raw(s));
+        }
     }
 }

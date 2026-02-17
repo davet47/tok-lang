@@ -30,12 +30,12 @@ pub enum TypeExpr {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum PrimType {
-    Int,    // i
-    Float,  // f
-    Str,    // s
-    Bool,   // b
-    Nil,    // N
-    Any,    // a
+    Int,   // i
+    Float, // f
+    Str,   // s
+    Bool,  // b
+    Nil,   // N
+    Any,   // a
 }
 
 /// Statement.
@@ -89,15 +89,9 @@ pub enum Stmt {
         body: FuncBody,
     },
     /// Tuple destructuring: a b c = expr
-    TupleDestructure {
-        names: Vec<String>,
-        value: Expr,
-    },
+    TupleDestructure { names: Vec<String>, value: Expr },
     /// Map destructuring: {a b c} = expr
-    MapDestructure {
-        names: Vec<String>,
-        value: Expr,
-    },
+    MapDestructure { names: Vec<String>, value: Expr },
     /// Array destructuring: [h ..t] = expr
     ArrayDestructure {
         head: String,
@@ -281,10 +275,25 @@ pub enum InterpPart {
 /// Binary operator.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum BinOp {
-    Add, Sub, Mul, Div, Mod, Pow,
-    Eq, Neq, Lt, Gt, LtEq, GtEq,
-    And, Or,
-    BitAnd, BitOr, BitXor, Shl, Shr,
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Mod,
+    Pow,
+    Eq,
+    Neq,
+    Lt,
+    Gt,
+    LtEq,
+    GtEq,
+    And,
+    Or,
+    BitAnd,
+    BitOr,
+    BitXor,
+    Shl,
+    Shr,
 }
 
 /// Unary operator.
@@ -329,15 +338,9 @@ pub enum LoopClause {
     /// While: ~(cond){body}
     While(Expr),
     /// Range: ~(i:0..10){body}
-    ForRange {
-        var: String,
-        range: Expr,
-    },
+    ForRange { var: String, range: Expr },
     /// Foreach: ~(item:arr){body}
-    ForEach {
-        var: String,
-        iter: Expr,
-    },
+    ForEach { var: String, iter: Expr },
     /// Foreach with index/key: ~(i v:arr){body} or ~(k v:map){body}
     ForEachIndexed {
         idx_var: String,

@@ -134,6 +134,8 @@ mod tests {
         let c = tok_closure_alloc(0xABCD as *const u8, 0xEF01 as *mut u8, 3);
         assert_eq!(tok_closure_get_fn(c), 0xABCD as *const u8);
         assert_eq!(tok_closure_get_env(c), 0xEF01 as *mut u8);
-        unsafe { drop(Box::from_raw(c)); }
+        unsafe {
+            drop(Box::from_raw(c));
+        }
     }
 }

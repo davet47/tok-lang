@@ -5,7 +5,6 @@
 /// have been lowered into simpler primitives that are easy for codegen to consume.
 ///
 /// Every `HirExpr` carries its resolved `Type` from the type checker.
-
 use tok_types::Type;
 
 /// HIR Program = sequence of HIR statements.
@@ -173,10 +172,25 @@ pub enum HirExprKind {
 /// Binary operators (same set as AST, but separate type for HIR independence).
 #[derive(Debug, Clone, Copy)]
 pub enum HirBinOp {
-    Add, Sub, Mul, Div, Mod, Pow,
-    Eq, Neq, Lt, Gt, LtEq, GtEq,
-    And, Or,
-    BitAnd, BitOr, BitXor, Shl, Shr,
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Mod,
+    Pow,
+    Eq,
+    Neq,
+    Lt,
+    Gt,
+    LtEq,
+    GtEq,
+    And,
+    Or,
+    BitAnd,
+    BitOr,
+    BitXor,
+    Shl,
+    Shr,
 }
 
 /// Unary operators.

@@ -2,9 +2,9 @@
 
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use crate::value::{TokValue, TAG_NIL, TAG_INT, TAG_FLOAT, TAG_BOOL, TAG_STRING, TAG_ARRAY};
-use crate::string::TokString;
 use crate::closure::TokClosure;
+use crate::string::TokString;
+use crate::value::{TokValue, TAG_ARRAY, TAG_BOOL, TAG_FLOAT, TAG_INT, TAG_NIL, TAG_STRING};
 
 // ═══════════════════════════════════════════════════════════════
 // TagData — return type for filter/reduce closure calls
@@ -26,6 +26,12 @@ pub struct TagData {
 pub struct TokArray {
     pub rc: AtomicU32,
     pub data: Vec<TokValue>,
+}
+
+impl Default for TokArray {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl TokArray {
@@ -129,7 +135,7 @@ pub extern "C" fn tok_array_sort(arr: *mut TokArray) -> *mut TokArray {
     unsafe {
         let result = TokArray::alloc();
         let mut items: Vec<TokValue> = (*arr).data.clone();
-        items.sort_by(|a, b| tok_value_compare(a, b));
+        items.sort_by(tok_value_compare);
         for v in &items {
             v.rc_inc();
         }
@@ -329,10 +335,7 @@ pub extern "C" fn tok_array_sum(arr: *mut TokArray) -> TokValue {
 /// Filter array elements using a closure predicate.
 /// Closure signature: (env: *mut u8, tag: i64, data: i64) -> TagData
 #[no_mangle]
-pub extern "C" fn tok_array_filter(
-    arr: *mut TokArray,
-    closure: *mut TokClosure,
-) -> *mut TokArray {
+pub extern "C" fn tok_array_filter(arr: *mut TokArray, closure: *mut TokClosure) -> *mut TokArray {
     assert!(!arr.is_null(), "tok_array_filter: null array");
     assert!(!closure.is_null(), "tok_array_filter: null closure");
     unsafe {
@@ -375,19 +378,29 @@ pub extern "C" fn tok_array_reduce(
         let data = &(*arr).data;
 
         // If init is Nil (tag=0, data=0), use first element as init
-        let (mut acc_tag, mut acc_data, start_idx) = if init_tag == 0 && init_data == 0 && !data.is_empty() {
-            (data[0].tag as i64, data[0].data._raw as i64, 1)
-        } else {
-            (init_tag, init_data, 0)
-        };
+        let (mut acc_tag, mut acc_data, start_idx) =
+            if init_tag == 0 && init_data == 0 && !data.is_empty() {
+                (data[0].tag as i64, data[0].data._raw as i64, 1)
+            } else {
+                (init_tag, init_data, 0)
+            };
 
         for elem in &data[start_idx..] {
-            let result = fn_ptr(env, acc_tag, acc_data, elem.tag as i64, elem.data._raw as i64);
+            let result = fn_ptr(
+                env,
+                acc_tag,
+                acc_data,
+                elem.tag as i64,
+                elem.data._raw as i64,
+            );
             acc_tag = result.tag;
             acc_data = result.data;
         }
 
-        TagData { tag: acc_tag, data: acc_data }
+        TagData {
+            tag: acc_tag,
+            data: acc_data,
+        }
     }
 }
 
@@ -395,10 +408,7 @@ pub extern "C" fn tok_array_reduce(
 /// Returns a new array with results in the same order.
 /// Closure signature: (env: *mut u8, tag: i64, data: i64) -> TagData
 #[no_mangle]
-pub extern "C" fn tok_pmap(
-    arr: *mut TokArray,
-    closure: *mut TokClosure,
-) -> *mut TokArray {
+pub extern "C" fn tok_pmap(arr: *mut TokArray, closure: *mut TokClosure) -> *mut TokArray {
     assert!(!arr.is_null(), "tok_pmap: null array");
     assert!(!closure.is_null(), "tok_pmap: null closure");
     unsafe {
@@ -414,16 +424,19 @@ pub extern "C" fn tok_pmap(
         // Spawn one thread per element
         let fn_ptr_usize = fn_ptr as usize;
         let env_usize = env as usize;
-        let handles: Vec<_> = data.iter().map(|elem| {
-            let tag = elem.tag as i64;
-            let data = elem.data._raw as i64;
-            std::thread::spawn(move || {
-                let fp: extern "C" fn(*mut u8, i64, i64) -> TagData =
-                    std::mem::transmute(fn_ptr_usize);
-                let ep = env_usize as *mut u8;
-                fp(ep, tag, data)
+        let handles: Vec<_> = data
+            .iter()
+            .map(|elem| {
+                let tag = elem.tag as i64;
+                let data = elem.data._raw as i64;
+                std::thread::spawn(move || {
+                    let fp: extern "C" fn(*mut u8, i64, i64) -> TagData =
+                        std::mem::transmute(fn_ptr_usize);
+                    let ep = env_usize as *mut u8;
+                    fp(ep, tag, data)
+                })
             })
-        }).collect();
+            .collect();
 
         // Join in order, collect results
         let result = TokArray::alloc();
@@ -511,7 +524,9 @@ mod tests {
     fn test_alloc_empty() {
         let arr = tok_array_alloc();
         assert_eq!(tok_array_len(arr), 0);
-        unsafe { drop(Box::from_raw(arr)); }
+        unsafe {
+            drop(Box::from_raw(arr));
+        }
     }
 
     #[test]
@@ -537,9 +552,13 @@ mod tests {
 
         // Negative indexing
         let v_last = tok_array_get(arr, -1);
-        unsafe { assert_eq!(v_last.data.int_val, 30); }
+        unsafe {
+            assert_eq!(v_last.data.int_val, 30);
+        }
 
-        unsafe { drop(Box::from_raw(arr)); }
+        unsafe {
+            drop(Box::from_raw(arr));
+        }
     }
 
     #[test]
@@ -734,7 +753,11 @@ mod tests {
         let sum = tok_array_sum(arr);
         assert_eq!(min.tag, 0); // NIL
         assert_eq!(max.tag, 0); // NIL
-        unsafe { assert_eq!(sum.data.int_val, 0); }
-        unsafe { drop(Box::from_raw(arr)); }
+        unsafe {
+            assert_eq!(sum.data.int_val, 0);
+        }
+        unsafe {
+            drop(Box::from_raw(arr));
+        }
     }
 }

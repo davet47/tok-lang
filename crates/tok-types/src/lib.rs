@@ -9,7 +9,6 @@
 /// - **`Any` escape hatch**: missing annotations default to `Any`.
 /// - **Forward-flow inference**: no Hindley-Milner, just propagate types forward.
 /// - **Side-table output**: original AST is not modified.
-
 use std::collections::HashMap;
 use tok_parser::ast::*;
 
@@ -113,9 +112,7 @@ pub fn unify(a: &Type, b: &Type) -> Type {
         (Type::Int, Type::Float) | (Type::Float, Type::Int) => Type::Float,
 
         // Nil + concrete → Optional
-        (Type::Nil, other) | (other, Type::Nil) => {
-            Type::Optional(Box::new(other.clone()))
-        }
+        (Type::Nil, other) | (other, Type::Nil) => Type::Optional(Box::new(other.clone())),
 
         // Optional unification
         (Type::Optional(inner), other) | (other, Type::Optional(inner)) => {
@@ -135,12 +132,15 @@ pub fn unify(a: &Type, b: &Type) -> Type {
         // Function unification
         (Type::Func(a), Type::Func(b)) if a.params.len() == b.params.len() => {
             Type::Func(FuncType {
-                params: a.params.iter().zip(b.params.iter()).map(|(pa, pb)| {
-                    ParamType {
+                params: a
+                    .params
+                    .iter()
+                    .zip(b.params.iter())
+                    .map(|(pa, pb)| ParamType {
                         ty: unify(&pa.ty, &pb.ty),
                         has_default: pa.has_default || pb.has_default,
-                    }
-                }).collect(),
+                    })
+                    .collect(),
                 ret: Box::new(unify(&a.ret, &b.ret)),
                 variadic: a.variadic || b.variadic,
             })
@@ -161,7 +161,9 @@ struct TypeEnv {
 
 impl TypeEnv {
     fn new() -> Self {
-        TypeEnv { scopes: vec![HashMap::new()] }
+        TypeEnv {
+            scopes: vec![HashMap::new()],
+        }
     }
 
     fn push_scope(&mut self) {
@@ -204,10 +206,13 @@ impl TypeEnv {
 
 fn func_type(params: &[Type], ret: Type) -> Type {
     Type::Func(FuncType {
-        params: params.iter().map(|t| ParamType {
-            ty: t.clone(),
-            has_default: false,
-        }).collect(),
+        params: params
+            .iter()
+            .map(|t| ParamType {
+                ty: t.clone(),
+                has_default: false,
+            })
+            .collect(),
         ret: Box::new(ret),
         variadic: false,
     })
@@ -215,10 +220,13 @@ fn func_type(params: &[Type], ret: Type) -> Type {
 
 fn func_type_variadic(params: &[Type], ret: Type) -> Type {
     Type::Func(FuncType {
-        params: params.iter().map(|t| ParamType {
-            ty: t.clone(),
-            has_default: false,
-        }).collect(),
+        params: params
+            .iter()
+            .map(|t| ParamType {
+                ty: t.clone(),
+                has_default: false,
+            })
+            .collect(),
         ret: Box::new(ret),
         variadic: true,
     })
@@ -236,62 +244,81 @@ fn register_builtins(env: &mut TypeEnv) {
         // I/O
         ("p", func_type(&[Type::Any], Type::Nil)),
         ("pl", func_type(&[Type::Any], Type::Nil)),
-
         // Type inspection
         ("type", func_type(&[Type::Any], Type::Str)),
-
         // Array operations
-        ("push", func_type(&[arr_any.clone(), Type::Any], arr_any.clone())),
+        (
+            "push",
+            func_type(&[arr_any.clone(), Type::Any], arr_any.clone()),
+        ),
         ("sort", func_type(&[arr_any.clone()], arr_any.clone())),
         ("rev", func_type(&[arr_any.clone()], arr_any.clone())),
         ("flat", func_type(&[arr_any.clone()], arr_any.clone())),
         ("uniq", func_type(&[arr_any.clone()], arr_any.clone())),
-
         // Overloaded (string or array)
-        ("slice", func_type(&[Type::Any, Type::Int, Type::Int], Type::Any)),
+        (
+            "slice",
+            func_type(&[Type::Any, Type::Int, Type::Int], Type::Any),
+        ),
         ("len", func_type(&[Type::Any], Type::Int)),
-
         // String operations
-        ("split", func_type(&[Type::Str, Type::Str], Type::Array(Box::new(Type::Str)))),
-        ("join", func_type(&[Type::Array(Box::new(Type::Str)), Type::Str], Type::Str)),
+        (
+            "split",
+            func_type(&[Type::Str, Type::Str], Type::Array(Box::new(Type::Str))),
+        ),
+        (
+            "join",
+            func_type(&[Type::Array(Box::new(Type::Str)), Type::Str], Type::Str),
+        ),
         ("trim", func_type(&[Type::Str], Type::Str)),
-
         // Numeric array operations
         ("min", func_type(&[arr_any.clone()], Type::Any)),
         ("max", func_type(&[arr_any.clone()], Type::Any)),
         ("sum", func_type(&[arr_any.clone()], Type::Any)),
         ("abs", func_type(&[Type::Any], Type::Any)),
-
         // Math
         ("floor", func_type(&[Type::Float], Type::Int)),
         ("ceil", func_type(&[Type::Float], Type::Int)),
         ("rand", func_type(&[], Type::Float)),
-
         // Conversion
         ("int", func_type(&[Type::Any], Type::Int)),
         ("float", func_type(&[Type::Any], Type::Float)),
         ("str", func_type(&[Type::Any], Type::Str)),
-
         // Map operations
-        ("keys", func_type(&[map_any.clone()], Type::Array(Box::new(Type::Str)))),
+        (
+            "keys",
+            func_type(&[map_any.clone()], Type::Array(Box::new(Type::Str))),
+        ),
         ("vals", func_type(&[map_any.clone()], arr_any.clone())),
         ("has", func_type(&[map_any.clone(), Type::Str], Type::Bool)),
-        ("del", func_type(&[map_any.clone(), Type::Str], map_any.clone())),
-
+        (
+            "del",
+            func_type(&[map_any.clone(), Type::Str], map_any.clone()),
+        ),
         // Concurrency — chan is special-cased in check_call for 0-or-1 args
-        ("chan", func_type_variadic(&[], Type::Channel(Box::new(Type::Any)))),
-        ("pmap", func_type(&[arr_any.clone(), Type::Any], arr_any.clone())),
-
+        (
+            "chan",
+            func_type_variadic(&[], Type::Channel(Box::new(Type::Any))),
+        ),
+        (
+            "pmap",
+            func_type(&[arr_any.clone(), Type::Any], arr_any.clone()),
+        ),
         // Utility
         ("clock", func_type(&[], Type::Int)),
         ("exit", func_type(&[Type::Int], Type::Nil)),
-
         // New builtins (spec v0.1)
         ("is", func_type(&[Type::Any, Type::Str], Type::Bool)),
         ("pop", func_type(&[arr_any.clone()], Type::Any)),
         ("freq", func_type(&[arr_any.clone()], map_any.clone())),
-        ("top", func_type(&[map_any.clone(), Type::Int], arr_any.clone())),
-        ("zip", func_type(&[arr_any.clone(), arr_any.clone()], arr_any.clone())),
+        (
+            "top",
+            func_type(&[map_any.clone(), Type::Int], arr_any.clone()),
+        ),
+        (
+            "zip",
+            func_type(&[arr_any.clone(), arr_any.clone()], arr_any.clone()),
+        ),
         ("args", func_type(&[], arr_any.clone())),
         ("env", func_type(&[Type::Str], Type::Any)),
     ];
@@ -351,6 +378,7 @@ impl TypeChecker {
 
     // ─── TypeExpr → Type ──────────────────────────────────────
 
+    #[allow(clippy::only_used_in_recursion)]
     fn resolve_type_expr(&self, te: &TypeExpr) -> Type {
         match te {
             TypeExpr::Prim(PrimType::Int) => Type::Int,
@@ -365,10 +393,13 @@ impl TypeChecker {
                 Type::Tuple(elts.iter().map(|e| self.resolve_type_expr(e)).collect())
             }
             TypeExpr::Func(params, ret) => Type::Func(FuncType {
-                params: params.iter().map(|p| ParamType {
-                    ty: self.resolve_type_expr(p),
-                    has_default: false,
-                }).collect(),
+                params: params
+                    .iter()
+                    .map(|p| ParamType {
+                        ty: self.resolve_type_expr(p),
+                        has_default: false,
+                    })
+                    .collect(),
                 ret: Box::new(self.resolve_type_expr(ret)),
                 variadic: false,
             }),
@@ -385,7 +416,13 @@ impl TypeChecker {
     fn check_program(&mut self, program: &Program) {
         // Pass 1: collect function signatures (for mutual recursion)
         for stmt in program {
-            if let Stmt::FuncDecl { name, params, ret_type, .. } = stmt {
+            if let Stmt::FuncDecl {
+                name,
+                params,
+                ret_type,
+                ..
+            } = stmt
+            {
                 let ft = self.build_func_type(params, ret_type);
                 self.env.define(name, Type::Func(ft.clone()));
                 self.functions.insert(name.clone(), ft);
@@ -400,12 +437,22 @@ impl TypeChecker {
 
     fn build_func_type(&self, params: &[Param], ret_type: &Option<TypeExpr>) -> FuncType {
         FuncType {
-            params: params.iter().map(|p| ParamType {
-                ty: p.ty.as_ref().map(|t| self.resolve_type_expr(t)).unwrap_or(Type::Any),
-                has_default: p.default.is_some(),
-            }).collect(),
+            params: params
+                .iter()
+                .map(|p| ParamType {
+                    ty: p
+                        .ty
+                        .as_ref()
+                        .map(|t| self.resolve_type_expr(t))
+                        .unwrap_or(Type::Any),
+                    has_default: p.default.is_some(),
+                })
+                .collect(),
             ret: Box::new(
-                ret_type.as_ref().map(|t| self.resolve_type_expr(t)).unwrap_or(Type::Any)
+                ret_type
+                    .as_ref()
+                    .map(|t| self.resolve_type_expr(t))
+                    .unwrap_or(Type::Any),
             ),
             variadic: params.last().map_or(false, |p| p.variadic),
         }
@@ -431,7 +478,12 @@ impl TypeChecker {
                 self.variables.insert(name.clone(), final_type);
             }
 
-            Stmt::FuncDecl { name, params, ret_type, body } => {
+            Stmt::FuncDecl {
+                name,
+                params,
+                ret_type,
+                body,
+            } => {
                 let ft = self.build_func_type(params, ret_type);
                 // Already registered in pass 1, but re-register for nested funcs
                 self.env.define(name, Type::Func(ft.clone()));
@@ -460,13 +512,21 @@ impl TypeChecker {
                 self.current_return_type = prev_ret;
             }
 
-            Stmt::IndexAssign { target, index, value } => {
+            Stmt::IndexAssign {
+                target,
+                index,
+                value,
+            } => {
                 self.check_expr(target);
                 self.check_expr(index);
                 self.check_expr(value);
             }
 
-            Stmt::MemberAssign { target, field: _, value } => {
+            Stmt::MemberAssign {
+                target,
+                field: _,
+                value,
+            } => {
                 self.check_expr(target);
                 self.check_expr(value);
             }
@@ -475,17 +535,29 @@ impl TypeChecker {
                 self.check_expr(value);
                 // The variable type doesn't change
                 if self.env.lookup(name).is_none() {
-                    self.warn(format!("compound assignment to undefined variable '{name}'"));
+                    self.warn(format!(
+                        "compound assignment to undefined variable '{name}'"
+                    ));
                 }
             }
 
-            Stmt::CompoundIndexAssign { target, index, op: _, value } => {
+            Stmt::CompoundIndexAssign {
+                target,
+                index,
+                op: _,
+                value,
+            } => {
                 self.check_expr(target);
                 self.check_expr(index);
                 self.check_expr(value);
             }
 
-            Stmt::CompoundMemberAssign { target, field: _, op: _, value } => {
+            Stmt::CompoundMemberAssign {
+                target,
+                field: _,
+                op: _,
+                value,
+            } => {
                 self.check_expr(target);
                 self.check_expr(value);
             }
@@ -528,8 +600,10 @@ impl TypeChecker {
                 };
                 self.env.update(head, elem_type.clone());
                 self.variables.insert(head.clone(), elem_type.clone());
-                self.env.update(tail, Type::Array(Box::new(elem_type.clone())));
-                self.variables.insert(tail.clone(), Type::Array(Box::new(elem_type)));
+                self.env
+                    .update(tail, Type::Array(Box::new(elem_type.clone())));
+                self.variables
+                    .insert(tail.clone(), Type::Array(Box::new(elem_type)));
             }
 
             Stmt::Import(_) => {
@@ -567,9 +641,7 @@ impl TypeChecker {
             }
 
             // Identifiers
-            Expr::Ident(name) => {
-                self.env.lookup(name).cloned().unwrap_or(Type::Any)
-            }
+            Expr::Ident(name) => self.env.lookup(name).cloned().unwrap_or(Type::Any),
 
             // Compound literals
             Expr::Array(elts) => {
@@ -608,9 +680,7 @@ impl TypeChecker {
                 }
             }
 
-            Expr::Tuple(elts) => {
-                Type::Tuple(elts.iter().map(|e| self.check_expr(e)).collect())
-            }
+            Expr::Tuple(elts) => Type::Tuple(elts.iter().map(|e| self.check_expr(e)).collect()),
 
             // Range
             Expr::Range { start, end, .. } => {
@@ -683,12 +753,14 @@ impl TypeChecker {
             }
 
             // Function call
-            Expr::Call { func, args } => {
-                self.check_call(func, args)
-            }
+            Expr::Call { func, args } => self.check_call(func, args),
 
             // Lambda
-            Expr::Lambda { params, ret_type, body } => {
+            Expr::Lambda {
+                params,
+                ret_type,
+                body,
+            } => {
                 let ft = self.build_func_type(params, ret_type);
 
                 let prev_ret = self.current_return_type.take();
@@ -717,7 +789,11 @@ impl TypeChecker {
             }
 
             // Ternary
-            Expr::Ternary { cond, then_expr, else_expr } => {
+            Expr::Ternary {
+                cond,
+                then_expr,
+                else_expr,
+            } => {
                 self.check_expr(cond);
                 let then_ty = self.check_expr(then_expr);
                 if let Some(else_e) = else_expr {
@@ -769,7 +845,11 @@ impl TypeChecker {
                         };
                         self.env.define(var, elem_ty);
                     }
-                    LoopClause::ForEachIndexed { idx_var, val_var, iter } => {
+                    LoopClause::ForEachIndexed {
+                        idx_var,
+                        val_var,
+                        iter,
+                    } => {
                         let iter_ty = self.check_expr(iter);
                         let elem_ty = match &iter_ty {
                             Type::Array(inner) => *inner.clone(),
@@ -805,9 +885,7 @@ impl TypeChecker {
             }
 
             // Block
-            Expr::Block(stmts) => {
-                self.check_block_stmts(stmts)
-            }
+            Expr::Block(stmts) => self.check_block_stmts(stmts),
 
             // Pipeline
             Expr::Pipeline { left, right } => {
@@ -851,9 +929,8 @@ impl TypeChecker {
 
             // Spread
             Expr::Spread(inner) => {
-                let inner_ty = self.check_expr(inner);
                 // Spread of [T] contributes T elements
-                inner_ty
+                self.check_expr(inner)
             }
 
             // Length
@@ -967,35 +1044,31 @@ impl TypeChecker {
     fn check_binop(&self, op: &BinOp, lt: &Type, rt: &Type) -> Type {
         match op {
             // Arithmetic
-            BinOp::Add => {
-                match (lt, rt) {
-                    (Type::Int, Type::Int) => Type::Int,
-                    (Type::Float, Type::Float) => Type::Float,
-                    (Type::Int, Type::Float) | (Type::Float, Type::Int) => Type::Float,
-                    (Type::Str, Type::Str) => Type::Str,
-                    (Type::Str, _) | (_, Type::Str) => Type::Str,
-                    _ => Type::Any,
-                }
-            }
-            BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod | BinOp::Pow => {
-                match (lt, rt) {
-                    (Type::Int, Type::Int) => Type::Int,
-                    (Type::Float, Type::Float) => Type::Float,
-                    (Type::Int, Type::Float) | (Type::Float, Type::Int) => Type::Float,
-                    _ => Type::Any,
-                }
-            }
+            BinOp::Add => match (lt, rt) {
+                (Type::Int, Type::Int) => Type::Int,
+                (Type::Float, Type::Float) => Type::Float,
+                (Type::Int, Type::Float) | (Type::Float, Type::Int) => Type::Float,
+                (Type::Str, Type::Str) => Type::Str,
+                (Type::Str, _) | (_, Type::Str) => Type::Str,
+                _ => Type::Any,
+            },
+            BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod | BinOp::Pow => match (lt, rt) {
+                (Type::Int, Type::Int) => Type::Int,
+                (Type::Float, Type::Float) => Type::Float,
+                (Type::Int, Type::Float) | (Type::Float, Type::Int) => Type::Float,
+                _ => Type::Any,
+            },
 
             // Comparison — always bool
-            BinOp::Eq | BinOp::Neq | BinOp::Lt | BinOp::Gt
-            | BinOp::LtEq | BinOp::GtEq => Type::Bool,
+            BinOp::Eq | BinOp::Neq | BinOp::Lt | BinOp::Gt | BinOp::LtEq | BinOp::GtEq => {
+                Type::Bool
+            }
 
             // Logic — always bool
             BinOp::And | BinOp::Or => Type::Bool,
 
             // Bitwise — int
-            BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor
-            | BinOp::Shl | BinOp::Shr => {
+            BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor | BinOp::Shl | BinOp::Shr => {
                 match (lt, rt) {
                     (Type::Int, Type::Int) => Type::Int,
                     _ => Type::Any,
@@ -1112,8 +1185,14 @@ mod tests {
 
     #[test]
     fn unify_nil_produces_optional() {
-        assert_eq!(unify(&Type::Nil, &Type::Int), Type::Optional(Box::new(Type::Int)));
-        assert_eq!(unify(&Type::Str, &Type::Nil), Type::Optional(Box::new(Type::Str)));
+        assert_eq!(
+            unify(&Type::Nil, &Type::Int),
+            Type::Optional(Box::new(Type::Int))
+        );
+        assert_eq!(
+            unify(&Type::Str, &Type::Nil),
+            Type::Optional(Box::new(Type::Str))
+        );
     }
 
     #[test]
@@ -1184,25 +1263,52 @@ mod tests {
     #[test]
     fn resolve_prim_types() {
         let checker = TypeChecker::new();
-        assert_eq!(checker.resolve_type_expr(&TypeExpr::Prim(PrimType::Int)), Type::Int);
-        assert_eq!(checker.resolve_type_expr(&TypeExpr::Prim(PrimType::Float)), Type::Float);
-        assert_eq!(checker.resolve_type_expr(&TypeExpr::Prim(PrimType::Str)), Type::Str);
-        assert_eq!(checker.resolve_type_expr(&TypeExpr::Prim(PrimType::Bool)), Type::Bool);
-        assert_eq!(checker.resolve_type_expr(&TypeExpr::Prim(PrimType::Nil)), Type::Nil);
-        assert_eq!(checker.resolve_type_expr(&TypeExpr::Prim(PrimType::Any)), Type::Any);
+        assert_eq!(
+            checker.resolve_type_expr(&TypeExpr::Prim(PrimType::Int)),
+            Type::Int
+        );
+        assert_eq!(
+            checker.resolve_type_expr(&TypeExpr::Prim(PrimType::Float)),
+            Type::Float
+        );
+        assert_eq!(
+            checker.resolve_type_expr(&TypeExpr::Prim(PrimType::Str)),
+            Type::Str
+        );
+        assert_eq!(
+            checker.resolve_type_expr(&TypeExpr::Prim(PrimType::Bool)),
+            Type::Bool
+        );
+        assert_eq!(
+            checker.resolve_type_expr(&TypeExpr::Prim(PrimType::Nil)),
+            Type::Nil
+        );
+        assert_eq!(
+            checker.resolve_type_expr(&TypeExpr::Prim(PrimType::Any)),
+            Type::Any
+        );
     }
 
     #[test]
     fn resolve_compound_types() {
         let checker = TypeChecker::new();
         let arr = TypeExpr::Array(Box::new(TypeExpr::Prim(PrimType::Int)));
-        assert_eq!(checker.resolve_type_expr(&arr), Type::Array(Box::new(Type::Int)));
+        assert_eq!(
+            checker.resolve_type_expr(&arr),
+            Type::Array(Box::new(Type::Int))
+        );
 
         let map = TypeExpr::Map(Box::new(TypeExpr::Prim(PrimType::Str)));
-        assert_eq!(checker.resolve_type_expr(&map), Type::Map(Box::new(Type::Str)));
+        assert_eq!(
+            checker.resolve_type_expr(&map),
+            Type::Map(Box::new(Type::Str))
+        );
 
         let opt = TypeExpr::Optional(Box::new(TypeExpr::Prim(PrimType::Int)));
-        assert_eq!(checker.resolve_type_expr(&opt), Type::Optional(Box::new(Type::Int)));
+        assert_eq!(
+            checker.resolve_type_expr(&opt),
+            Type::Optional(Box::new(Type::Int))
+        );
     }
 
     // ─── Expression type inference ────────────────────────────
@@ -1210,11 +1316,31 @@ mod tests {
     #[test]
     fn literal_types() {
         let prog: Program = vec![
-            Stmt::Assign { name: "a".into(), ty: None, value: Expr::Int(1) },
-            Stmt::Assign { name: "b".into(), ty: None, value: Expr::Float(1.0) },
-            Stmt::Assign { name: "c".into(), ty: None, value: Expr::Str("hi".into()) },
-            Stmt::Assign { name: "d".into(), ty: None, value: Expr::Bool(true) },
-            Stmt::Assign { name: "e".into(), ty: None, value: Expr::Nil },
+            Stmt::Assign {
+                name: "a".into(),
+                ty: None,
+                value: Expr::Int(1),
+            },
+            Stmt::Assign {
+                name: "b".into(),
+                ty: None,
+                value: Expr::Float(1.0),
+            },
+            Stmt::Assign {
+                name: "c".into(),
+                ty: None,
+                value: Expr::Str("hi".into()),
+            },
+            Stmt::Assign {
+                name: "d".into(),
+                ty: None,
+                value: Expr::Bool(true),
+            },
+            Stmt::Assign {
+                name: "e".into(),
+                ty: None,
+                value: Expr::Nil,
+            },
         ];
         let info = check(&prog);
         assert_eq!(info.variables["a"], Type::Int);
@@ -1226,121 +1352,112 @@ mod tests {
 
     #[test]
     fn array_inference() {
-        let prog: Program = vec![
-            Stmt::Assign {
-                name: "arr".into(),
-                ty: None,
-                value: Expr::Array(vec![Expr::Int(1), Expr::Int(2), Expr::Int(3)]),
-            },
-        ];
+        let prog: Program = vec![Stmt::Assign {
+            name: "arr".into(),
+            ty: None,
+            value: Expr::Array(vec![Expr::Int(1), Expr::Int(2), Expr::Int(3)]),
+        }];
         let info = check(&prog);
         assert_eq!(info.variables["arr"], Type::Array(Box::new(Type::Any)));
     }
 
     #[test]
     fn empty_array_is_any() {
-        let prog: Program = vec![
-            Stmt::Assign { name: "arr".into(), ty: None, value: Expr::Array(vec![]) },
-        ];
+        let prog: Program = vec![Stmt::Assign {
+            name: "arr".into(),
+            ty: None,
+            value: Expr::Array(vec![]),
+        }];
         let info = check(&prog);
         assert_eq!(info.variables["arr"], Type::Array(Box::new(Type::Any)));
     }
 
     #[test]
     fn map_inference() {
-        let prog: Program = vec![
-            Stmt::Assign {
-                name: "m".into(),
-                ty: None,
-                value: Expr::Map(vec![
-                    (MapKey::Ident("a".into()), Expr::Int(1)),
-                    (MapKey::Ident("b".into()), Expr::Int(2)),
-                ]),
-            },
-        ];
+        let prog: Program = vec![Stmt::Assign {
+            name: "m".into(),
+            ty: None,
+            value: Expr::Map(vec![
+                (MapKey::Ident("a".into()), Expr::Int(1)),
+                (MapKey::Ident("b".into()), Expr::Int(2)),
+            ]),
+        }];
         let info = check(&prog);
         assert_eq!(info.variables["m"], Type::Map(Box::new(Type::Any)));
     }
 
     #[test]
     fn tuple_inference() {
-        let prog: Program = vec![
-            Stmt::Assign {
-                name: "t".into(),
-                ty: None,
-                value: Expr::Tuple(vec![Expr::Int(1), Expr::Str("hi".into()), Expr::Bool(true)]),
-            },
-        ];
+        let prog: Program = vec![Stmt::Assign {
+            name: "t".into(),
+            ty: None,
+            value: Expr::Tuple(vec![Expr::Int(1), Expr::Str("hi".into()), Expr::Bool(true)]),
+        }];
         let info = check(&prog);
-        assert_eq!(info.variables["t"], Type::Tuple(vec![Type::Int, Type::Str, Type::Bool]));
+        assert_eq!(
+            info.variables["t"],
+            Type::Tuple(vec![Type::Int, Type::Str, Type::Bool])
+        );
     }
 
     #[test]
     fn binop_arithmetic() {
-        let prog: Program = vec![
-            Stmt::Assign {
-                name: "x".into(),
-                ty: None,
-                value: Expr::BinOp {
-                    op: BinOp::Add,
-                    left: Box::new(Expr::Int(1)),
-                    right: Box::new(Expr::Int(2)),
-                },
+        let prog: Program = vec![Stmt::Assign {
+            name: "x".into(),
+            ty: None,
+            value: Expr::BinOp {
+                op: BinOp::Add,
+                left: Box::new(Expr::Int(1)),
+                right: Box::new(Expr::Int(2)),
             },
-        ];
+        }];
         let info = check(&prog);
         assert_eq!(info.variables["x"], Type::Int);
     }
 
     #[test]
     fn binop_float_widening() {
-        let prog: Program = vec![
-            Stmt::Assign {
-                name: "x".into(),
-                ty: None,
-                value: Expr::BinOp {
-                    op: BinOp::Add,
-                    left: Box::new(Expr::Int(1)),
-                    right: Box::new(Expr::Float(2.0)),
-                },
+        let prog: Program = vec![Stmt::Assign {
+            name: "x".into(),
+            ty: None,
+            value: Expr::BinOp {
+                op: BinOp::Add,
+                left: Box::new(Expr::Int(1)),
+                right: Box::new(Expr::Float(2.0)),
             },
-        ];
+        }];
         let info = check(&prog);
         assert_eq!(info.variables["x"], Type::Float);
     }
 
     #[test]
     fn binop_comparison() {
-        let prog: Program = vec![
-            Stmt::Assign {
-                name: "x".into(),
-                ty: None,
-                value: Expr::BinOp {
-                    op: BinOp::Lt,
-                    left: Box::new(Expr::Int(1)),
-                    right: Box::new(Expr::Int(2)),
-                },
+        let prog: Program = vec![Stmt::Assign {
+            name: "x".into(),
+            ty: None,
+            value: Expr::BinOp {
+                op: BinOp::Lt,
+                left: Box::new(Expr::Int(1)),
+                right: Box::new(Expr::Int(2)),
             },
-        ];
+        }];
         let info = check(&prog);
         assert_eq!(info.variables["x"], Type::Bool);
     }
 
     #[test]
     fn func_decl_with_types() {
-        let prog: Program = vec![
-            Stmt::FuncDecl {
-                name: "fib".into(),
-                params: vec![Param {
-                    name: "n".into(),
-                    ty: Some(TypeExpr::Prim(PrimType::Int)),
-                    default: None,
-                    variadic: false,
-                }],
-                ret_type: Some(TypeExpr::Prim(PrimType::Int)),
-                body: FuncBody::Expr(Box::new(Expr::Ident("n".into()))),
-            },
-        ];
+        let prog: Program = vec![Stmt::FuncDecl {
+            name: "fib".into(),
+            params: vec![Param {
+                name: "n".into(),
+                ty: Some(TypeExpr::Prim(PrimType::Int)),
+                default: None,
+                variadic: false,
+            }],
+            ret_type: Some(TypeExpr::Prim(PrimType::Int)),
+            body: FuncBody::Expr(Box::new(Expr::Ident("n".into()))),
+        }];
         let info = check(&prog);
         let ft = info.functions.get("fib").unwrap();
         assert_eq!(ft.params[0].ty, Type::Int);
@@ -1349,19 +1466,17 @@ mod tests {
 
     #[test]
     fn func_decl_without_types() {
-        let prog: Program = vec![
-            Stmt::FuncDecl {
-                name: "f".into(),
-                params: vec![Param {
-                    name: "x".into(),
-                    ty: None,
-                    default: None,
-                    variadic: false,
-                }],
-                ret_type: None,
-                body: FuncBody::Expr(Box::new(Expr::Ident("x".into()))),
-            },
-        ];
+        let prog: Program = vec![Stmt::FuncDecl {
+            name: "f".into(),
+            params: vec![Param {
+                name: "x".into(),
+                ty: None,
+                default: None,
+                variadic: false,
+            }],
+            ret_type: None,
+            body: FuncBody::Expr(Box::new(Expr::Ident("x".into()))),
+        }];
         let info = check(&prog);
         let ft = info.functions.get("f").unwrap();
         assert_eq!(ft.params[0].ty, Type::Any);
@@ -1401,34 +1516,30 @@ mod tests {
 
     #[test]
     fn ternary_unifies_branches() {
-        let prog: Program = vec![
-            Stmt::Assign {
-                name: "x".into(),
-                ty: None,
-                value: Expr::Ternary {
-                    cond: Box::new(Expr::Bool(true)),
-                    then_expr: Box::new(Expr::Int(1)),
-                    else_expr: Some(Box::new(Expr::Int(2))),
-                },
+        let prog: Program = vec![Stmt::Assign {
+            name: "x".into(),
+            ty: None,
+            value: Expr::Ternary {
+                cond: Box::new(Expr::Bool(true)),
+                then_expr: Box::new(Expr::Int(1)),
+                else_expr: Some(Box::new(Expr::Int(2))),
             },
-        ];
+        }];
         let info = check(&prog);
         assert_eq!(info.variables["x"], Type::Int);
     }
 
     #[test]
     fn ternary_mixed_branches() {
-        let prog: Program = vec![
-            Stmt::Assign {
-                name: "x".into(),
-                ty: None,
-                value: Expr::Ternary {
-                    cond: Box::new(Expr::Bool(true)),
-                    then_expr: Box::new(Expr::Int(1)),
-                    else_expr: Some(Box::new(Expr::Str("hello".into()))),
-                },
+        let prog: Program = vec![Stmt::Assign {
+            name: "x".into(),
+            ty: None,
+            value: Expr::Ternary {
+                cond: Box::new(Expr::Bool(true)),
+                then_expr: Box::new(Expr::Int(1)),
+                else_expr: Some(Box::new(Expr::Str("hello".into()))),
             },
-        ];
+        }];
         let info = check(&prog);
         // Int and Str are incompatible → Any
         assert_eq!(info.variables["x"], Type::Any);
@@ -1436,12 +1547,10 @@ mod tests {
 
     #[test]
     fn tuple_destructure() {
-        let prog: Program = vec![
-            Stmt::TupleDestructure {
-                names: vec!["a".into(), "b".into()],
-                value: Expr::Tuple(vec![Expr::Int(1), Expr::Str("hi".into())]),
-            },
-        ];
+        let prog: Program = vec![Stmt::TupleDestructure {
+            names: vec!["a".into(), "b".into()],
+            value: Expr::Tuple(vec![Expr::Int(1), Expr::Str("hi".into())]),
+        }];
         let info = check(&prog);
         assert_eq!(info.variables["a"], Type::Int);
         assert_eq!(info.variables["b"], Type::Str);
@@ -1449,26 +1558,22 @@ mod tests {
 
     #[test]
     fn length_is_int() {
-        let prog: Program = vec![
-            Stmt::Assign {
-                name: "n".into(),
-                ty: None,
-                value: Expr::Length(Box::new(Expr::Array(vec![Expr::Int(1)]))),
-            },
-        ];
+        let prog: Program = vec![Stmt::Assign {
+            name: "n".into(),
+            ty: None,
+            value: Expr::Length(Box::new(Expr::Array(vec![Expr::Int(1)]))),
+        }];
         let info = check(&prog);
         assert_eq!(info.variables["n"], Type::Int);
     }
 
     #[test]
     fn go_produces_handle() {
-        let prog: Program = vec![
-            Stmt::Assign {
-                name: "h".into(),
-                ty: None,
-                value: Expr::Go(Box::new(Expr::Int(42))),
-            },
-        ];
+        let prog: Program = vec![Stmt::Assign {
+            name: "h".into(),
+            ty: None,
+            value: Expr::Go(Box::new(Expr::Int(42))),
+        }];
         let info = check(&prog);
         assert_eq!(info.variables["h"], Type::Handle(Box::new(Type::Int)));
     }
@@ -1493,91 +1598,79 @@ mod tests {
 
     #[test]
     fn builtin_pl_returns_nil() {
-        let prog: Program = vec![
-            Stmt::Assign {
-                name: "r".into(),
-                ty: None,
-                value: Expr::Call {
-                    func: Box::new(Expr::Ident("pl".into())),
-                    args: vec![Expr::Int(42)],
-                },
+        let prog: Program = vec![Stmt::Assign {
+            name: "r".into(),
+            ty: None,
+            value: Expr::Call {
+                func: Box::new(Expr::Ident("pl".into())),
+                args: vec![Expr::Int(42)],
             },
-        ];
+        }];
         let info = check(&prog);
         assert_eq!(info.variables["r"], Type::Nil);
     }
 
     #[test]
     fn builtin_type_returns_str() {
-        let prog: Program = vec![
-            Stmt::Assign {
-                name: "t".into(),
-                ty: None,
-                value: Expr::Call {
-                    func: Box::new(Expr::Ident("type".into())),
-                    args: vec![Expr::Int(42)],
-                },
+        let prog: Program = vec![Stmt::Assign {
+            name: "t".into(),
+            ty: None,
+            value: Expr::Call {
+                func: Box::new(Expr::Ident("type".into())),
+                args: vec![Expr::Int(42)],
             },
-        ];
+        }];
         let info = check(&prog);
         assert_eq!(info.variables["t"], Type::Str);
     }
 
     #[test]
     fn annotated_variable() {
-        let prog: Program = vec![
-            Stmt::Assign {
-                name: "x".into(),
-                ty: Some(TypeExpr::Prim(PrimType::Int)),
-                value: Expr::Int(42),
-            },
-        ];
+        let prog: Program = vec![Stmt::Assign {
+            name: "x".into(),
+            ty: Some(TypeExpr::Prim(PrimType::Int)),
+            value: Expr::Int(42),
+        }];
         let info = check(&prog);
         assert_eq!(info.variables["x"], Type::Int);
     }
 
     #[test]
     fn interp_is_str() {
-        let prog: Program = vec![
-            Stmt::Assign {
-                name: "s".into(),
-                ty: None,
-                value: Expr::Interp(vec![
-                    InterpPart::Lit("hello ".into()),
-                    InterpPart::Expr(Expr::Ident("name".into())),
-                ]),
-            },
-        ];
+        let prog: Program = vec![Stmt::Assign {
+            name: "s".into(),
+            ty: None,
+            value: Expr::Interp(vec![
+                InterpPart::Lit("hello ".into()),
+                InterpPart::Expr(Expr::Ident("name".into())),
+            ]),
+        }];
         let info = check(&prog);
         assert_eq!(info.variables["s"], Type::Str);
     }
 
     #[test]
     fn range_type() {
-        let prog: Program = vec![
-            Stmt::Assign {
-                name: "r".into(),
-                ty: None,
-                value: Expr::Range {
-                    start: Box::new(Expr::Int(0)),
-                    end: Box::new(Expr::Int(10)),
-                    inclusive: false,
-                },
+        let prog: Program = vec![Stmt::Assign {
+            name: "r".into(),
+            ty: None,
+            value: Expr::Range {
+                start: Box::new(Expr::Int(0)),
+                end: Box::new(Expr::Int(10)),
+                inclusive: false,
             },
-        ];
+        }];
         let info = check(&prog);
         assert_eq!(info.variables["r"], Type::Range);
     }
 
     #[test]
     fn import_is_map_any() {
-        let prog: Program = vec![
-            Stmt::Assign {
-                name: "m".into(),
-                ty: None,
-                value: Expr::Import("./module.tok".into()),
-            },
-        ];
+        let prog: Program = vec![Stmt::Assign {
+            name: "m".into(),
+            ty: None,
+            value: Expr::Import("./module.tok".into()),
+        }];
         let info = check(&prog);
         assert_eq!(info.variables["m"], Type::Map(Box::new(Type::Any)));
     }
@@ -1596,7 +1689,12 @@ mod tests {
                 value: Expr::Filter {
                     expr: Box::new(Expr::Ident("arr".into())),
                     pred: Box::new(Expr::Lambda {
-                        params: vec![Param { name: "x".into(), ty: None, default: None, variadic: false }],
+                        params: vec![Param {
+                            name: "x".into(),
+                            ty: None,
+                            default: None,
+                            variadic: false,
+                        }],
                         ret_type: None,
                         body: FuncBody::Expr(Box::new(Expr::BinOp {
                             op: BinOp::Gt,

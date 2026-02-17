@@ -109,7 +109,7 @@ pub extern "C" fn tok_stdlib_io() -> *mut TokMap {
     let m = TokMap::alloc();
 
     // input() with 0 args reads a line
-    insert_func(m, "input",   tok_io_input_0_t  as *const u8, 0);
+    insert_func(m, "input", tok_io_input_0_t as *const u8, 0);
     // We also register a 1-arg version for input(prompt)
     // Since the module system doesn't support overloading by arity,
     // we'll use the 1-arg version and handle 0-arg calls gracefully.

@@ -113,7 +113,10 @@ fn cmd_check(source: &str) {
     if type_info.warnings.is_empty() {
         println!("Type check passed (no warnings)");
     } else {
-        println!("Type check passed with {} warnings:", type_info.warnings.len());
+        println!(
+            "Type check passed with {} warnings:",
+            type_info.warnings.len()
+        );
         for w in &type_info.warnings {
             println!("  - {:?}", w);
         }
@@ -165,13 +168,7 @@ fn cmd_build(source: &str, _input_file: &str, output_path: &str) {
 
     // Link
     let status = Command::new("cc")
-        .args([
-            &obj_path,
-            &runtime_lib,
-            "-o",
-            output_path,
-            "-lpthread",
-        ])
+        .args([&obj_path, &runtime_lib, "-o", output_path, "-lpthread"])
         .status();
 
     // Clean up .o file

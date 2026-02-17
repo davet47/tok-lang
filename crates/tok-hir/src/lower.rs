@@ -12,10 +12,9 @@
 /// - Loop-as-expression (collect) -> push-to-array loop
 /// - Spread in arrays -> array concat
 /// - Match -> if-else chain
-
 use tok_parser::ast::{
-    self, BinOp, Expr, FuncBody, InterpPart, LoopBody, LoopClause, MapKey, MatchBody, Pattern,
-    Param, Program, SelectArm, Stmt, UnaryOp,
+    self, BinOp, Expr, FuncBody, InterpPart, LoopBody, LoopClause, MapKey, MatchBody, Param,
+    Pattern, Program, SelectArm, Stmt, UnaryOp,
 };
 use tok_types::{Type, TypeInfo};
 
@@ -180,7 +179,9 @@ impl<'a> Lowerer<'a> {
                     Type::Any
                 }
             }
-            Expr::Lambda { params, ret_type, .. } => {
+            Expr::Lambda {
+                params, ret_type, ..
+            } => {
                 let param_types: Vec<tok_types::ParamType> = params
                     .iter()
                     .map(|p| tok_types::ParamType {
@@ -188,17 +189,18 @@ impl<'a> Lowerer<'a> {
                         has_default: p.default.is_some(),
                     })
                     .collect();
-                let ret = ret_type
-                    .as_ref()
-                    .map(|_| Type::Any)
-                    .unwrap_or(Type::Any);
+                let ret = ret_type.as_ref().map(|_| Type::Any).unwrap_or(Type::Any);
                 Type::Func(tok_types::FuncType {
                     params: param_types,
                     ret: Box::new(ret),
                     variadic: params.last().map_or(false, |p| p.variadic),
                 })
             }
-            Expr::Ternary { then_expr, else_expr, .. } => {
+            Expr::Ternary {
+                then_expr,
+                else_expr,
+                ..
+            } => {
                 let then_ty = self.infer_expr_type(then_expr);
                 if let Some(else_e) = else_expr {
                     let else_ty = self.infer_expr_type(else_e);
@@ -281,14 +283,12 @@ impl<'a> Lowerer<'a> {
                 (Type::Str, _) | (_, Type::Str) => Type::Str,
                 _ => Type::Any,
             },
-            BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod | BinOp::Pow => {
-                match (lt, rt) {
-                    (Type::Int, Type::Int) => Type::Int,
-                    (Type::Float, Type::Float) => Type::Float,
-                    (Type::Int, Type::Float) | (Type::Float, Type::Int) => Type::Float,
-                    _ => Type::Any,
-                }
-            }
+            BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod | BinOp::Pow => match (lt, rt) {
+                (Type::Int, Type::Int) => Type::Int,
+                (Type::Float, Type::Float) => Type::Float,
+                (Type::Int, Type::Float) | (Type::Float, Type::Int) => Type::Float,
+                _ => Type::Any,
+            },
             BinOp::Eq | BinOp::Neq | BinOp::Lt | BinOp::Gt | BinOp::LtEq | BinOp::GtEq => {
                 Type::Bool
             }
@@ -438,8 +438,7 @@ impl<'a> Lowerer<'a> {
             Stmt::CompoundAssign { name, op, value } => {
                 let hir_value = self.lower_expr(value);
                 let var_ty = self.var_type(name);
-                let result_ty =
-                    self.infer_binop_type(op, &var_ty, &hir_value.ty);
+                let result_ty = self.infer_binop_type(op, &var_ty, &hir_value.ty);
                 let ident = HirExpr::new(HirExprKind::Ident(name.clone()), var_ty);
                 let binop = HirExpr::new(
                     HirExprKind::BinOp {
@@ -474,8 +473,7 @@ impl<'a> Lowerer<'a> {
                     },
                     Type::Any,
                 );
-                let result_ty =
-                    self.infer_binop_type(op, &current.ty, &hir_value.ty);
+                let result_ty = self.infer_binop_type(op, &current.ty, &hir_value.ty);
                 let binop = HirExpr::new(
                     HirExprKind::BinOp {
                         op: self.lower_binop(op),
@@ -508,8 +506,7 @@ impl<'a> Lowerer<'a> {
                     },
                     Type::Any,
                 );
-                let result_ty =
-                    self.infer_binop_type(op, &current.ty, &hir_value.ty);
+                let result_ty = self.infer_binop_type(op, &current.ty, &hir_value.ty);
                 let binop = HirExpr::new(
                     HirExprKind::BinOp {
                         op: self.lower_binop(op),
@@ -548,10 +545,7 @@ impl<'a> Lowerer<'a> {
                                 HirExprKind::Ident(tmp.clone()),
                                 val_ty.clone(),
                             )),
-                            index: Box::new(HirExpr::new(
-                                HirExprKind::Int(i as i64),
-                                Type::Int,
-                            )),
+                            index: Box::new(HirExpr::new(HirExprKind::Int(i as i64), Type::Int)),
                         },
                         elem_ty.clone(),
                     );
@@ -634,20 +628,14 @@ impl<'a> Lowerer<'a> {
                 });
 
                 // t = tok_array_slice(_tmp, 1, #_tmp)
-                let tmp_ident = HirExpr::new(
-                    HirExprKind::Ident(tmp.clone()),
-                    val_ty.clone(),
-                );
+                let tmp_ident = HirExpr::new(HirExprKind::Ident(tmp.clone()), val_ty.clone());
                 let tail_expr = HirExpr::new(
                     HirExprKind::RuntimeCall {
                         name: "tok_array_slice".to_string(),
                         args: vec![
                             tmp_ident.clone(),
                             HirExpr::new(HirExprKind::Int(1), Type::Int),
-                            HirExpr::new(
-                                HirExprKind::Length(Box::new(tmp_ident)),
-                                Type::Int,
-                            ),
+                            HirExpr::new(HirExprKind::Length(Box::new(tmp_ident)), Type::Int),
                         ],
                     },
                     val_ty,
@@ -723,10 +711,7 @@ impl<'a> Lowerer<'a> {
                     }
                     t
                 };
-                HirExpr::new(
-                    HirExprKind::Map(hir_pairs),
-                    Type::Map(Box::new(val_ty)),
-                )
+                HirExpr::new(HirExprKind::Map(hir_pairs), Type::Map(Box::new(val_ty)))
             }
 
             Expr::Tuple(elts) => {
@@ -897,8 +882,7 @@ impl<'a> Lowerer<'a> {
             // Function call
             Expr::Call { func, args } => {
                 let hir_func = self.lower_expr(func);
-                let hir_args: Vec<HirExpr> =
-                    args.iter().map(|a| self.lower_expr(a)).collect();
+                let hir_args: Vec<HirExpr> = args.iter().map(|a| self.lower_expr(a)).collect();
                 let ret_ty = match &hir_func.ty {
                     Type::Func(ft) => *ft.ret.clone(),
                     _ => Type::Any,
@@ -1039,10 +1023,7 @@ impl<'a> Lowerer<'a> {
             // Length
             Expr::Length(inner) => {
                 let hir_inner = self.lower_expr(inner);
-                HirExpr::new(
-                    HirExprKind::Length(Box::new(hir_inner)),
-                    Type::Int,
-                )
+                HirExpr::new(HirExprKind::Length(Box::new(hir_inner)), Type::Int)
             }
 
             // Desugar nil coalesce: left ?? right -> if left != Nil { left } else { right }
@@ -1073,10 +1054,7 @@ impl<'a> Lowerer<'a> {
                                             HirExprKind::Ident(tmp.clone()),
                                             left_ty.clone(),
                                         )),
-                                        right: Box::new(HirExpr::new(
-                                            HirExprKind::Nil,
-                                            Type::Nil,
-                                        )),
+                                        right: Box::new(HirExpr::new(HirExprKind::Nil, Type::Nil)),
                                     },
                                     Type::Bool,
                                 )),
@@ -1107,8 +1085,7 @@ impl<'a> Lowerer<'a> {
                 };
 
                 let tmp = self.gensym();
-                let tmp_ident =
-                    HirExpr::new(HirExprKind::Ident(tmp.clone()), inner_ty.clone());
+                let tmp_ident = HirExpr::new(HirExprKind::Ident(tmp.clone()), inner_ty.clone());
 
                 // _tmp.1 (error field)
                 let err_field = HirExpr::new(
@@ -1142,10 +1119,7 @@ impl<'a> Lowerer<'a> {
                                     HirExprKind::BinOp {
                                         op: HirBinOp::Neq,
                                         left: Box::new(err_field),
-                                        right: Box::new(HirExpr::new(
-                                            HirExprKind::Nil,
-                                            Type::Nil,
-                                        )),
+                                        right: Box::new(HirExpr::new(HirExprKind::Nil, Type::Nil)),
                                     },
                                     Type::Bool,
                                 )),
@@ -1253,10 +1227,7 @@ impl<'a> Lowerer<'a> {
                 HirExpr::new(
                     HirExprKind::RuntimeCall {
                         name: "tok_import".to_string(),
-                        args: vec![HirExpr::new(
-                            HirExprKind::Str(path.clone()),
-                            Type::Str,
-                        )],
+                        args: vec![HirExpr::new(HirExprKind::Str(path.clone()), Type::Str)],
                     },
                     Type::Map(Box::new(Type::Any)),
                 )
@@ -1366,10 +1337,7 @@ impl<'a> Lowerer<'a> {
                 }
                 t
             };
-            return HirExpr::new(
-                HirExprKind::Array(hir_elts),
-                Type::Array(Box::new(elem_ty)),
-            );
+            return HirExpr::new(HirExprKind::Array(hir_elts), Type::Array(Box::new(elem_ty)));
         }
 
         // Has spreads: desugar to alloc + concat/push chain
@@ -1402,10 +1370,7 @@ impl<'a> Lowerer<'a> {
                             HirExprKind::RuntimeCall {
                                 name: "tok_array_concat".to_string(),
                                 args: vec![
-                                    HirExpr::new(
-                                        HirExprKind::Ident(tmp.clone()),
-                                        arr_ty.clone(),
-                                    ),
+                                    HirExpr::new(HirExprKind::Ident(tmp.clone()), arr_ty.clone()),
                                     hir_inner,
                                 ],
                             },
@@ -1423,10 +1388,7 @@ impl<'a> Lowerer<'a> {
                             HirExprKind::RuntimeCall {
                                 name: "tok_array_push".to_string(),
                                 args: vec![
-                                    HirExpr::new(
-                                        HirExprKind::Ident(tmp.clone()),
-                                        arr_ty.clone(),
-                                    ),
+                                    HirExpr::new(HirExprKind::Ident(tmp.clone()), arr_ty.clone()),
                                     hir_elt,
                                 ],
                             },
@@ -1492,11 +1454,7 @@ impl<'a> Lowerer<'a> {
     }
 
     /// Lower match to if-else chain.
-    fn lower_match(
-        &mut self,
-        subject: &Option<Box<Expr>>,
-        arms: &[ast::MatchArm],
-    ) -> HirExpr {
+    fn lower_match(&mut self, subject: &Option<Box<Expr>>, arms: &[ast::MatchArm]) -> HirExpr {
         let hir_subject = subject.as_ref().map(|s| self.lower_expr(s));
         let (tmp_name, tmp_stmts) = if let Some(ref subj) = hir_subject {
             let tmp = self.gensym();
@@ -1616,8 +1574,7 @@ impl<'a> Lowerer<'a> {
             }
             Pattern::Wildcard => HirExpr::new(HirExprKind::Bool(true), Type::Bool),
             Pattern::Tuple(pats) => {
-                let hir_elts: Vec<HirExpr> =
-                    pats.iter().map(|p| self.pattern_to_expr(p)).collect();
+                let hir_elts: Vec<HirExpr> = pats.iter().map(|p| self.pattern_to_expr(p)).collect();
                 let tys: Vec<Type> = hir_elts.iter().map(|e| e.ty.clone()).collect();
                 HirExpr::new(HirExprKind::Tuple(hir_elts), Type::Tuple(tys))
             }
@@ -1653,7 +1610,11 @@ impl<'a> Lowerer<'a> {
                 };
                 self.define_local(var, elem_ty);
             }
-            LoopClause::ForEachIndexed { idx_var, val_var, iter } => {
+            LoopClause::ForEachIndexed {
+                idx_var,
+                val_var,
+                iter,
+            } => {
                 self.define_local(idx_var, Type::Int);
                 let iter_ty = self.infer_expr_type(iter);
                 let elem_ty = match iter_ty {
@@ -1742,10 +1703,7 @@ impl<'a> Lowerer<'a> {
 
                 HirExpr::new(
                     HirExprKind::Block {
-                        stmts: vec![
-                            init_stmt,
-                            HirStmt::Expr(loop_expr),
-                        ],
+                        stmts: vec![init_stmt, HirStmt::Expr(loop_expr)],
                         expr: Some(Box::new(HirExpr::new(
                             HirExprKind::Ident(collect_tmp),
                             arr_ty.clone(),
@@ -1828,10 +1786,7 @@ impl<'a> Lowerer<'a> {
         } else {
             None
         };
-        let ty = expr
-            .as_ref()
-            .map(|e| e.ty.clone())
-            .unwrap_or(Type::Nil);
+        let ty = expr.as_ref().map(|e| e.ty.clone()).unwrap_or(Type::Nil);
         HirExpr::new(
             HirExprKind::Block {
                 stmts: hir_stmts,
@@ -1850,11 +1805,16 @@ impl<'a> Lowerer<'a> {
             .iter()
             .map(|p| HirParam {
                 name: p.name.clone(),
-                ty: p.ty.as_ref().map(|te| self.resolve_type_expr(te)).unwrap_or(Type::Any),
+                ty: p
+                    .ty
+                    .as_ref()
+                    .map(|te| self.resolve_type_expr(te))
+                    .unwrap_or(Type::Any),
             })
             .collect()
     }
 
+    #[allow(clippy::only_used_in_recursion)]
     fn resolve_type_expr(&self, te: &ast::TypeExpr) -> Type {
         match te {
             ast::TypeExpr::Prim(p) => match p {
@@ -1871,17 +1831,22 @@ impl<'a> Lowerer<'a> {
                 Type::Tuple(elts.iter().map(|e| self.resolve_type_expr(e)).collect())
             }
             ast::TypeExpr::Func(params, ret) => {
-                let pts = params.iter().map(|p| tok_types::ParamType {
-                    ty: self.resolve_type_expr(p),
-                    has_default: false,
-                }).collect();
+                let pts = params
+                    .iter()
+                    .map(|p| tok_types::ParamType {
+                        ty: self.resolve_type_expr(p),
+                        has_default: false,
+                    })
+                    .collect();
                 Type::Func(tok_types::FuncType {
                     params: pts,
                     ret: Box::new(self.resolve_type_expr(ret)),
                     variadic: false,
                 })
             }
-            ast::TypeExpr::Optional(inner) => Type::Optional(Box::new(self.resolve_type_expr(inner))),
+            ast::TypeExpr::Optional(inner) => {
+                Type::Optional(Box::new(self.resolve_type_expr(inner)))
+            }
             ast::TypeExpr::Result(inner) => Type::Result(Box::new(self.resolve_type_expr(inner))),
             ast::TypeExpr::Channel(inner) => Type::Channel(Box::new(self.resolve_type_expr(inner))),
             ast::TypeExpr::Handle(inner) => Type::Handle(Box::new(self.resolve_type_expr(inner))),
@@ -2218,9 +2183,7 @@ mod tests {
                                 assert!(matches!(cond.kind, HirExprKind::BinOp { .. }));
                                 // then: "one"
                                 let then_e = then_expr.as_ref().unwrap();
-                                assert!(
-                                    matches!(&then_e.kind, HirExprKind::Str(s) if s == "one")
-                                );
+                                assert!(matches!(&then_e.kind, HirExprKind::Str(s) if s == "one"));
                                 // else: another if
                                 let else_e = else_expr.as_ref().unwrap();
                                 match &else_e.kind {
@@ -2368,9 +2331,7 @@ mod tests {
         match &hir[0] {
             HirStmt::Expr(expr) => match &expr.kind {
                 HirExprKind::If {
-                    cond,
-                    then_body,
-                    ..
+                    cond, then_body, ..
                 } => {
                     assert!(matches!(cond.kind, HirExprKind::Bool(true)));
                     assert!(matches!(then_body[0], HirStmt::Return(Some(_))));
@@ -2534,10 +2495,7 @@ mod tests {
         assert_eq!(hir.len(), 1);
         match &hir[0] {
             HirStmt::FuncDecl {
-                name,
-                params,
-                body,
-                ..
+                name, params, body, ..
             } => {
                 assert_eq!(name, "add");
                 assert_eq!(params.len(), 2);

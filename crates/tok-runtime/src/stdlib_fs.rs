@@ -48,8 +48,10 @@ pub extern "C" fn tok_fs_fread_t(_env: *mut u8, tag: i64, data: i64) -> TokValue
 #[no_mangle]
 pub extern "C" fn tok_fs_fwrite_t(
     _env: *mut u8,
-    tag1: i64, data1: i64,
-    tag2: i64, data2: i64,
+    tag1: i64,
+    data1: i64,
+    tag2: i64,
+    data2: i64,
 ) -> TokValue {
     unsafe {
         let path = arg_to_str(tag1, data1).to_string();
@@ -65,8 +67,10 @@ pub extern "C" fn tok_fs_fwrite_t(
 #[no_mangle]
 pub extern "C" fn tok_fs_fappend_t(
     _env: *mut u8,
-    tag1: i64, data1: i64,
-    tag2: i64, data2: i64,
+    tag1: i64,
+    data1: i64,
+    tag2: i64,
+    data2: i64,
 ) -> TokValue {
     unsafe {
         let path = arg_to_str(tag1, data1).to_string();
@@ -103,7 +107,9 @@ pub extern "C" fn tok_fs_fls_t(_env: *mut u8, tag: i64, data: i64) -> TokValue {
             Ok(entries) => {
                 for entry in entries.flatten() {
                     let name = entry.file_name().to_string_lossy().to_string();
-                    (*arr).data.push(TokValue::from_string(TokString::alloc(name)));
+                    (*arr)
+                        .data
+                        .push(TokValue::from_string(TokString::alloc(name)));
                 }
             }
             Err(e) => eprintln!("fs.fls error: {}", e),
@@ -159,14 +165,14 @@ pub extern "C" fn tok_stdlib_fs() -> *mut TokMap {
     let m = TokMap::alloc();
 
     // 1-arg functions
-    insert_func(m, "fread",   tok_fs_fread_t   as *const u8, 1);
+    insert_func(m, "fread", tok_fs_fread_t as *const u8, 1);
     insert_func(m, "fexists", tok_fs_fexists_t as *const u8, 1);
-    insert_func(m, "fls",     tok_fs_fls_t     as *const u8, 1);
-    insert_func(m, "fmk",     tok_fs_fmk_t     as *const u8, 1);
-    insert_func(m, "frm",     tok_fs_frm_t     as *const u8, 1);
+    insert_func(m, "fls", tok_fs_fls_t as *const u8, 1);
+    insert_func(m, "fmk", tok_fs_fmk_t as *const u8, 1);
+    insert_func(m, "frm", tok_fs_frm_t as *const u8, 1);
 
     // 2-arg functions
-    insert_func(m, "fwrite",  tok_fs_fwrite_t  as *const u8, 2);
+    insert_func(m, "fwrite", tok_fs_fwrite_t as *const u8, 2);
     insert_func(m, "fappend", tok_fs_fappend_t as *const u8, 2);
 
     m

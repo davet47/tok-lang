@@ -6,8 +6,10 @@ use crate::array::TokArray;
 use crate::closure::TokClosure;
 use crate::map::TokMap;
 use crate::string::TokString;
-use crate::value::{TokValue, TAG_ARRAY, TAG_BOOL, TAG_FLOAT, TAG_FUNC,
-                   TAG_INT, TAG_MAP, TAG_NIL, TAG_STRING, TAG_TUPLE};
+use crate::value::{
+    TokValue, TAG_ARRAY, TAG_BOOL, TAG_FLOAT, TAG_FUNC, TAG_INT, TAG_MAP, TAG_NIL, TAG_STRING,
+    TAG_TUPLE,
+};
 
 use serde_json::Value as JsonValue;
 
@@ -40,9 +42,7 @@ fn json_to_tok(jv: &JsonValue) -> TokValue {
                 TokValue::nil()
             }
         }
-        JsonValue::String(s) => {
-            TokValue::from_string(TokString::alloc(s.clone()))
-        }
+        JsonValue::String(s) => TokValue::from_string(TokString::alloc(s.clone())),
         JsonValue::Array(arr) => {
             let tok_arr = TokArray::alloc();
             unsafe {
@@ -179,13 +179,13 @@ pub extern "C" fn tok_stdlib_json() -> *mut TokMap {
     let m = TokMap::alloc();
 
     // New names (spec v0.1)
-    insert_func(m, "jparse",    tok_json_parse_t     as *const u8, 1);
-    insert_func(m, "jstr",      tok_json_stringify_t as *const u8, 1);
-    insert_func(m, "jpretty",   tok_json_pretty_t    as *const u8, 1);
+    insert_func(m, "jparse", tok_json_parse_t as *const u8, 1);
+    insert_func(m, "jstr", tok_json_stringify_t as *const u8, 1);
+    insert_func(m, "jpretty", tok_json_pretty_t as *const u8, 1);
     // Legacy names for backward compatibility
-    insert_func(m, "parse",     tok_json_parse_t     as *const u8, 1);
-    insert_func(m, "stringify", tok_json_stringify_t  as *const u8, 1);
-    insert_func(m, "pretty",    tok_json_pretty_t    as *const u8, 1);
+    insert_func(m, "parse", tok_json_parse_t as *const u8, 1);
+    insert_func(m, "stringify", tok_json_stringify_t as *const u8, 1);
+    insert_func(m, "pretty", tok_json_pretty_t as *const u8, 1);
 
     m
 }

@@ -34,8 +34,10 @@ unsafe fn arg_to_str<'a>(tag: i64, data: i64) -> &'a str {
 #[no_mangle]
 pub extern "C" fn tok_re_rmatch_t(
     _env: *mut u8,
-    tag1: i64, data1: i64,
-    tag2: i64, data2: i64,
+    tag1: i64,
+    data1: i64,
+    tag2: i64,
+    data2: i64,
 ) -> TokValue {
     unsafe {
         let s = arg_to_str(tag1, data1);
@@ -55,8 +57,10 @@ pub extern "C" fn tok_re_rmatch_t(
 #[no_mangle]
 pub extern "C" fn tok_re_rfind_t(
     _env: *mut u8,
-    tag1: i64, data1: i64,
-    tag2: i64, data2: i64,
+    tag1: i64,
+    data1: i64,
+    tag2: i64,
+    data2: i64,
 ) -> TokValue {
     unsafe {
         let s = arg_to_str(tag1, data1);
@@ -79,8 +83,10 @@ pub extern "C" fn tok_re_rfind_t(
 #[no_mangle]
 pub extern "C" fn tok_re_rall_t(
     _env: *mut u8,
-    tag1: i64, data1: i64,
-    tag2: i64, data2: i64,
+    tag1: i64,
+    data1: i64,
+    tag2: i64,
+    data2: i64,
 ) -> TokValue {
     unsafe {
         let s = arg_to_str(tag1, data1);
@@ -89,9 +95,9 @@ pub extern "C" fn tok_re_rall_t(
         match Regex::new(pat) {
             Ok(re) => {
                 for m in re.find_iter(s) {
-                    (*arr).data.push(TokValue::from_string(
-                        TokString::alloc(m.as_str().to_string()),
-                    ));
+                    (*arr).data.push(TokValue::from_string(TokString::alloc(
+                        m.as_str().to_string(),
+                    )));
                 }
             }
             Err(e) => {
@@ -107,9 +113,12 @@ pub extern "C" fn tok_re_rall_t(
 #[no_mangle]
 pub extern "C" fn tok_re_rsub_t(
     _env: *mut u8,
-    tag1: i64, data1: i64,
-    tag2: i64, data2: i64,
-    tag3: i64, data3: i64,
+    tag1: i64,
+    data1: i64,
+    tag2: i64,
+    data2: i64,
+    tag3: i64,
+    data3: i64,
 ) -> TokValue {
     unsafe {
         let s = arg_to_str(tag1, data1);
@@ -145,9 +154,9 @@ pub extern "C" fn tok_stdlib_re() -> *mut TokMap {
     let m = TokMap::alloc();
 
     insert_func(m, "rmatch", tok_re_rmatch_t as *const u8, 2);
-    insert_func(m, "rfind",  tok_re_rfind_t  as *const u8, 2);
-    insert_func(m, "rall",   tok_re_rall_t   as *const u8, 2);
-    insert_func(m, "rsub",   tok_re_rsub_t   as *const u8, 3);
+    insert_func(m, "rfind", tok_re_rfind_t as *const u8, 2);
+    insert_func(m, "rall", tok_re_rall_t as *const u8, 2);
+    insert_func(m, "rsub", tok_re_rsub_t as *const u8, 3);
 
     m
 }

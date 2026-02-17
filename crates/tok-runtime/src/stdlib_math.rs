@@ -105,7 +105,7 @@ pub extern "C" fn tok_math_round_t(_env: *mut u8, tag: i64, data: i64) -> TokVal
 #[no_mangle]
 pub extern "C" fn tok_math_abs_t(_env: *mut u8, tag: i64, data: i64) -> TokValue {
     match tag as u8 {
-        TAG_INT => TokValue::from_int((data as i64).abs()),
+        TAG_INT => TokValue::from_int(data.abs()),
         TAG_FLOAT => TokValue::from_float(f64::from_bits(data as u64).abs()),
         _ => TokValue::from_int(0),
     }
@@ -116,8 +116,10 @@ pub extern "C" fn tok_math_abs_t(_env: *mut u8, tag: i64, data: i64) -> TokValue
 #[no_mangle]
 pub extern "C" fn tok_math_pow_t(
     _env: *mut u8,
-    tag1: i64, data1: i64,
-    tag2: i64, data2: i64,
+    tag1: i64,
+    data1: i64,
+    tag2: i64,
+    data2: i64,
 ) -> TokValue {
     let base = arg_to_f64(tag1, data1);
     let exp = arg_to_f64(tag2, data2);
@@ -127,8 +129,10 @@ pub extern "C" fn tok_math_pow_t(
 #[no_mangle]
 pub extern "C" fn tok_math_atan2_t(
     _env: *mut u8,
-    tag1: i64, data1: i64,
-    tag2: i64, data2: i64,
+    tag1: i64,
+    data1: i64,
+    tag2: i64,
+    data2: i64,
 ) -> TokValue {
     let y = arg_to_f64(tag1, data1);
     let x = arg_to_f64(tag2, data2);
@@ -140,8 +144,10 @@ pub extern "C" fn tok_math_atan2_t(
 #[no_mangle]
 pub extern "C" fn tok_math_min_t(
     _env: *mut u8,
-    tag1: i64, data1: i64,
-    tag2: i64, data2: i64,
+    tag1: i64,
+    data1: i64,
+    tag2: i64,
+    data2: i64,
 ) -> TokValue {
     let a = arg_to_f64(tag1, data1);
     let b = arg_to_f64(tag2, data2);
@@ -155,8 +161,10 @@ pub extern "C" fn tok_math_min_t(
 #[no_mangle]
 pub extern "C" fn tok_math_max_t(
     _env: *mut u8,
-    tag1: i64, data1: i64,
-    tag2: i64, data2: i64,
+    tag1: i64,
+    data1: i64,
+    tag2: i64,
+    data2: i64,
 ) -> TokValue {
     let a = arg_to_f64(tag1, data1);
     let b = arg_to_f64(tag2, data2);
@@ -180,7 +188,9 @@ pub extern "C" fn tok_math_random_t(_env: *mut u8) -> TokValue {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos() as u64;
-        if s == 0 { s = 1; }
+        if s == 0 {
+            s = 1;
+        }
     }
     // xorshift64
     s ^= s << 13;
@@ -205,12 +215,15 @@ fn insert_func(m: *mut TokMap, name: &str, fn_ptr: *const u8, arity: u32) {
         (*m).data.insert(name.to_string(), val);
     }
     // Free the key we used just for the name
-    unsafe { drop(Box::from_raw(key)); }
+    unsafe {
+        drop(Box::from_raw(key));
+    }
 }
 
 fn insert_float(m: *mut TokMap, name: &str, val: f64) {
     unsafe {
-        (*m).data.insert(name.to_string(), TokValue::from_float(val));
+        (*m).data
+            .insert(name.to_string(), TokValue::from_float(val));
     }
 }
 
@@ -219,34 +232,34 @@ pub extern "C" fn tok_stdlib_math() -> *mut TokMap {
     let m = TokMap::alloc();
 
     // 1-arg functions
-    insert_func(m, "sqrt",  tok_math_sqrt_t  as *const u8, 1);
-    insert_func(m, "sin",   tok_math_sin_t   as *const u8, 1);
-    insert_func(m, "cos",   tok_math_cos_t   as *const u8, 1);
-    insert_func(m, "tan",   tok_math_tan_t   as *const u8, 1);
-    insert_func(m, "asin",  tok_math_asin_t  as *const u8, 1);
-    insert_func(m, "acos",  tok_math_acos_t  as *const u8, 1);
-    insert_func(m, "atan",  tok_math_atan_t  as *const u8, 1);
-    insert_func(m, "log",   tok_math_log_t   as *const u8, 1);
-    insert_func(m, "log2",  tok_math_log2_t  as *const u8, 1);
+    insert_func(m, "sqrt", tok_math_sqrt_t as *const u8, 1);
+    insert_func(m, "sin", tok_math_sin_t as *const u8, 1);
+    insert_func(m, "cos", tok_math_cos_t as *const u8, 1);
+    insert_func(m, "tan", tok_math_tan_t as *const u8, 1);
+    insert_func(m, "asin", tok_math_asin_t as *const u8, 1);
+    insert_func(m, "acos", tok_math_acos_t as *const u8, 1);
+    insert_func(m, "atan", tok_math_atan_t as *const u8, 1);
+    insert_func(m, "log", tok_math_log_t as *const u8, 1);
+    insert_func(m, "log2", tok_math_log2_t as *const u8, 1);
     insert_func(m, "log10", tok_math_log10_t as *const u8, 1);
-    insert_func(m, "exp",   tok_math_exp_t   as *const u8, 1);
+    insert_func(m, "exp", tok_math_exp_t as *const u8, 1);
     insert_func(m, "floor", tok_math_floor_t as *const u8, 1);
-    insert_func(m, "ceil",  tok_math_ceil_t  as *const u8, 1);
+    insert_func(m, "ceil", tok_math_ceil_t as *const u8, 1);
     insert_func(m, "round", tok_math_round_t as *const u8, 1);
-    insert_func(m, "abs",   tok_math_abs_t   as *const u8, 1);
+    insert_func(m, "abs", tok_math_abs_t as *const u8, 1);
 
     // 2-arg functions
-    insert_func(m, "pow",   tok_math_pow_t   as *const u8, 2);
-    insert_func(m, "min",   tok_math_min_t   as *const u8, 2);
-    insert_func(m, "max",   tok_math_max_t   as *const u8, 2);
+    insert_func(m, "pow", tok_math_pow_t as *const u8, 2);
+    insert_func(m, "min", tok_math_min_t as *const u8, 2);
+    insert_func(m, "max", tok_math_max_t as *const u8, 2);
     insert_func(m, "atan2", tok_math_atan2_t as *const u8, 2);
 
     // 0-arg functions
     insert_func(m, "random", tok_math_random_t as *const u8, 0);
 
     // Constants (stored as float values directly, not closures)
-    insert_float(m, "pi",  consts::PI);
-    insert_float(m, "e",   consts::E);
+    insert_float(m, "pi", consts::PI);
+    insert_float(m, "e", consts::E);
     insert_float(m, "inf", f64::INFINITY);
     insert_float(m, "nan", f64::NAN);
 

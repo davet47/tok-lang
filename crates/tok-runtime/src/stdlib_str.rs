@@ -126,8 +126,10 @@ pub extern "C" fn tok_str_len_t(_env: *mut u8, tag: i64, data: i64) -> TokValue 
 #[no_mangle]
 pub extern "C" fn tok_str_contains_t(
     _env: *mut u8,
-    tag1: i64, data1: i64,
-    tag2: i64, data2: i64,
+    tag1: i64,
+    data1: i64,
+    tag2: i64,
+    data2: i64,
 ) -> TokValue {
     unsafe {
         let s = arg_to_str(tag1, data1);
@@ -139,8 +141,10 @@ pub extern "C" fn tok_str_contains_t(
 #[no_mangle]
 pub extern "C" fn tok_str_starts_with_t(
     _env: *mut u8,
-    tag1: i64, data1: i64,
-    tag2: i64, data2: i64,
+    tag1: i64,
+    data1: i64,
+    tag2: i64,
+    data2: i64,
 ) -> TokValue {
     unsafe {
         let s = arg_to_str(tag1, data1);
@@ -152,8 +156,10 @@ pub extern "C" fn tok_str_starts_with_t(
 #[no_mangle]
 pub extern "C" fn tok_str_ends_with_t(
     _env: *mut u8,
-    tag1: i64, data1: i64,
-    tag2: i64, data2: i64,
+    tag1: i64,
+    data1: i64,
+    tag2: i64,
+    data2: i64,
 ) -> TokValue {
     unsafe {
         let s = arg_to_str(tag1, data1);
@@ -167,8 +173,10 @@ pub extern "C" fn tok_str_ends_with_t(
 #[no_mangle]
 pub extern "C" fn tok_str_index_of_t(
     _env: *mut u8,
-    tag1: i64, data1: i64,
-    tag2: i64, data2: i64,
+    tag1: i64,
+    data1: i64,
+    tag2: i64,
+    data2: i64,
 ) -> TokValue {
     unsafe {
         let s = arg_to_str(tag1, data1);
@@ -185,8 +193,10 @@ pub extern "C" fn tok_str_index_of_t(
 #[no_mangle]
 pub extern "C" fn tok_str_repeat_t(
     _env: *mut u8,
-    tag1: i64, data1: i64,
-    tag2: i64, data2: i64,
+    tag1: i64,
+    data1: i64,
+    tag2: i64,
+    data2: i64,
 ) -> TokValue {
     unsafe {
         let s = arg_to_str(tag1, data1);
@@ -200,8 +210,10 @@ pub extern "C" fn tok_str_repeat_t(
 #[no_mangle]
 pub extern "C" fn tok_str_split_t(
     _env: *mut u8,
-    tag1: i64, data1: i64,
-    tag2: i64, data2: i64,
+    tag1: i64,
+    data1: i64,
+    tag2: i64,
+    data2: i64,
 ) -> TokValue {
     unsafe {
         let s = arg_to_str(tag1, data1);
@@ -220,9 +232,12 @@ pub extern "C" fn tok_str_split_t(
 #[no_mangle]
 pub extern "C" fn tok_str_replace_t(
     _env: *mut u8,
-    tag1: i64, data1: i64,
-    tag2: i64, data2: i64,
-    tag3: i64, data3: i64,
+    tag1: i64,
+    data1: i64,
+    tag2: i64,
+    data2: i64,
+    tag3: i64,
+    data3: i64,
 ) -> TokValue {
     unsafe {
         let s = arg_to_str(tag1, data1);
@@ -237,9 +252,12 @@ pub extern "C" fn tok_str_replace_t(
 #[no_mangle]
 pub extern "C" fn tok_str_pad_left_t(
     _env: *mut u8,
-    tag1: i64, data1: i64,
-    tag2: i64, data2: i64,
-    tag3: i64, data3: i64,
+    tag1: i64,
+    data1: i64,
+    tag2: i64,
+    data2: i64,
+    tag3: i64,
+    data3: i64,
 ) -> TokValue {
     unsafe {
         let s = arg_to_str(tag1, data1);
@@ -250,7 +268,9 @@ pub extern "C" fn tok_str_pad_left_t(
         if char_count >= width {
             TokValue::from_string(TokString::alloc(s.to_string()))
         } else {
-            let padding: String = std::iter::repeat(pad_char).take(width - char_count).collect();
+            let padding: String = std::iter::repeat(pad_char)
+                .take(width - char_count)
+                .collect();
             TokValue::from_string(TokString::alloc(format!("{}{}", padding, s)))
         }
     }
@@ -259,9 +279,12 @@ pub extern "C" fn tok_str_pad_left_t(
 #[no_mangle]
 pub extern "C" fn tok_str_pad_right_t(
     _env: *mut u8,
-    tag1: i64, data1: i64,
-    tag2: i64, data2: i64,
-    tag3: i64, data3: i64,
+    tag1: i64,
+    data1: i64,
+    tag2: i64,
+    data2: i64,
+    tag3: i64,
+    data3: i64,
 ) -> TokValue {
     unsafe {
         let s = arg_to_str(tag1, data1);
@@ -272,7 +295,9 @@ pub extern "C" fn tok_str_pad_right_t(
         if char_count >= width {
             TokValue::from_string(TokString::alloc(s.to_string()))
         } else {
-            let padding: String = std::iter::repeat(pad_char).take(width - char_count).collect();
+            let padding: String = std::iter::repeat(pad_char)
+                .take(width - char_count)
+                .collect();
             TokValue::from_string(TokString::alloc(format!("{}{}", s, padding)))
         }
     }
@@ -283,15 +308,22 @@ pub extern "C" fn tok_str_pad_right_t(
 #[no_mangle]
 pub extern "C" fn tok_str_substr_t(
     _env: *mut u8,
-    tag1: i64, data1: i64,
-    tag2: i64, data2: i64,
-    tag3: i64, data3: i64,
+    tag1: i64,
+    data1: i64,
+    tag2: i64,
+    data2: i64,
+    tag3: i64,
+    data3: i64,
 ) -> TokValue {
     unsafe {
         let s = arg_to_str(tag1, data1);
         let start = arg_to_i64(tag2, data2).max(0) as usize;
         let end = arg_to_i64(tag3, data3).max(0) as usize;
-        let result: String = s.chars().skip(start).take(end.saturating_sub(start)).collect();
+        let result: String = s
+            .chars()
+            .skip(start)
+            .take(end.saturating_sub(start))
+            .collect();
         TokValue::from_string(TokString::alloc(result))
     }
 }
@@ -313,29 +345,29 @@ pub extern "C" fn tok_stdlib_str() -> *mut TokMap {
     let m = TokMap::alloc();
 
     // 1-arg functions
-    insert_func(m, "upper",      tok_str_upper_t      as *const u8, 1);
-    insert_func(m, "lower",      tok_str_lower_t      as *const u8, 1);
-    insert_func(m, "trim",       tok_str_trim_t       as *const u8, 1);
-    insert_func(m, "trim_left",  tok_str_trim_left_t  as *const u8, 1);
+    insert_func(m, "upper", tok_str_upper_t as *const u8, 1);
+    insert_func(m, "lower", tok_str_lower_t as *const u8, 1);
+    insert_func(m, "trim", tok_str_trim_t as *const u8, 1);
+    insert_func(m, "trim_left", tok_str_trim_left_t as *const u8, 1);
     insert_func(m, "trim_right", tok_str_trim_right_t as *const u8, 1);
-    insert_func(m, "chars",      tok_str_chars_t      as *const u8, 1);
-    insert_func(m, "bytes",      tok_str_bytes_t      as *const u8, 1);
-    insert_func(m, "rev",        tok_str_rev_t        as *const u8, 1);
-    insert_func(m, "len",        tok_str_len_t        as *const u8, 1);
+    insert_func(m, "chars", tok_str_chars_t as *const u8, 1);
+    insert_func(m, "bytes", tok_str_bytes_t as *const u8, 1);
+    insert_func(m, "rev", tok_str_rev_t as *const u8, 1);
+    insert_func(m, "len", tok_str_len_t as *const u8, 1);
 
     // 2-arg functions
-    insert_func(m, "contains",    tok_str_contains_t    as *const u8, 2);
+    insert_func(m, "contains", tok_str_contains_t as *const u8, 2);
     insert_func(m, "starts_with", tok_str_starts_with_t as *const u8, 2);
-    insert_func(m, "ends_with",   tok_str_ends_with_t   as *const u8, 2);
-    insert_func(m, "index_of",    tok_str_index_of_t    as *const u8, 2);
-    insert_func(m, "repeat",      tok_str_repeat_t      as *const u8, 2);
-    insert_func(m, "split",       tok_str_split_t       as *const u8, 2);
+    insert_func(m, "ends_with", tok_str_ends_with_t as *const u8, 2);
+    insert_func(m, "index_of", tok_str_index_of_t as *const u8, 2);
+    insert_func(m, "repeat", tok_str_repeat_t as *const u8, 2);
+    insert_func(m, "split", tok_str_split_t as *const u8, 2);
 
     // 3-arg functions
-    insert_func(m, "replace",   tok_str_replace_t   as *const u8, 3);
-    insert_func(m, "pad_left",  tok_str_pad_left_t  as *const u8, 3);
+    insert_func(m, "replace", tok_str_replace_t as *const u8, 3);
+    insert_func(m, "pad_left", tok_str_pad_left_t as *const u8, 3);
     insert_func(m, "pad_right", tok_str_pad_right_t as *const u8, 3);
-    insert_func(m, "substr",    tok_str_substr_t    as *const u8, 3);
+    insert_func(m, "substr", tok_str_substr_t as *const u8, 3);
 
     m
 }

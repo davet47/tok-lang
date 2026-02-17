@@ -71,8 +71,10 @@ pub extern "C" fn tok_time_sleep_t(_env: *mut u8, tag: i64, data: i64) -> TokVal
 #[no_mangle]
 pub extern "C" fn tok_time_fmt_t(
     _env: *mut u8,
-    tag1: i64, data1: i64,
-    tag2: i64, data2: i64,
+    tag1: i64,
+    data1: i64,
+    tag2: i64,
+    data2: i64,
 ) -> TokValue {
     let ts = arg_to_f64(tag1, data1);
     let pattern = unsafe { arg_to_str(tag2, data2) };
@@ -140,9 +142,9 @@ fn insert_func(m: *mut TokMap, name: &str, fn_ptr: *const u8, arity: u32) {
 pub extern "C" fn tok_stdlib_time() -> *mut TokMap {
     let m = TokMap::alloc();
 
-    insert_func(m, "now",   tok_time_now_t   as *const u8, 0);
+    insert_func(m, "now", tok_time_now_t as *const u8, 0);
     insert_func(m, "sleep", tok_time_sleep_t as *const u8, 1);
-    insert_func(m, "fmt",   tok_time_fmt_t   as *const u8, 2);
+    insert_func(m, "fmt", tok_time_fmt_t as *const u8, 2);
 
     m
 }

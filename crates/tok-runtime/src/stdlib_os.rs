@@ -25,7 +25,11 @@ unsafe fn arg_to_str<'a>(tag: i64, data: i64) -> &'a str {
 
 #[inline]
 fn arg_to_i64(tag: i64, data: i64) -> i64 {
-    if tag as u8 == TAG_INT { data } else { 0 }
+    if tag as u8 == TAG_INT {
+        data
+    } else {
+        0
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -38,7 +42,9 @@ pub extern "C" fn tok_os_args_t(_env: *mut u8) -> TokValue {
     let arr = TokArray::alloc();
     for arg in std::env::args() {
         let s = TokString::alloc(arg);
-        unsafe { (*arr).data.push(TokValue::from_string(s)); }
+        unsafe {
+            (*arr).data.push(TokValue::from_string(s));
+        }
     }
     TokValue::from_array(arr)
 }
@@ -59,8 +65,10 @@ pub extern "C" fn tok_os_env_t(_env_ptr: *mut u8, tag: i64, data: i64) -> TokVal
 #[no_mangle]
 pub extern "C" fn tok_os_set_env_t(
     _env_ptr: *mut u8,
-    tag1: i64, data1: i64,
-    tag2: i64, data2: i64,
+    tag1: i64,
+    data1: i64,
+    tag2: i64,
+    data2: i64,
 ) -> TokValue {
     unsafe {
         let name = arg_to_str(tag1, data1).to_string();
@@ -139,14 +147,14 @@ pub extern "C" fn tok_stdlib_os() -> *mut TokMap {
     let m = TokMap::alloc();
 
     // 0-arg functions
-    insert_func(m, "args",  tok_os_args_t  as *const u8, 0);
-    insert_func(m, "cwd",   tok_os_cwd_t   as *const u8, 0);
-    insert_func(m, "pid",   tok_os_pid_t   as *const u8, 0);
+    insert_func(m, "args", tok_os_args_t as *const u8, 0);
+    insert_func(m, "cwd", tok_os_cwd_t as *const u8, 0);
+    insert_func(m, "pid", tok_os_pid_t as *const u8, 0);
 
     // 1-arg functions
-    insert_func(m, "env",   tok_os_env_t   as *const u8, 1);
-    insert_func(m, "exit",  tok_os_exit_t  as *const u8, 1);
-    insert_func(m, "exec",  tok_os_exec_t  as *const u8, 1);
+    insert_func(m, "env", tok_os_env_t as *const u8, 1);
+    insert_func(m, "exit", tok_os_exit_t as *const u8, 1);
+    insert_func(m, "exec", tok_os_exec_t as *const u8, 1);
 
     // 2-arg functions
     insert_func(m, "set_env", tok_os_set_env_t as *const u8, 2);

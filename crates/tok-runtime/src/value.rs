@@ -5,13 +5,13 @@
 
 use std::fmt;
 
-use crate::string::TokString;
 use crate::array::TokArray;
-use crate::map::TokMap;
-use crate::tuple::TokTuple;
 use crate::channel::TokChannel;
-use crate::handle::TokHandle;
 use crate::closure::TokClosure;
+use crate::handle::TokHandle;
+use crate::map::TokMap;
+use crate::string::TokString;
+use crate::tuple::TokTuple;
 
 // ═══════════════════════════════════════════════════════════════
 // Tag constants
@@ -592,19 +592,35 @@ pub extern "C" fn tok_value_len(val: TokValue) -> i64 {
         match val.tag {
             TAG_STRING => {
                 let p = val.data.string_ptr;
-                if p.is_null() { 0 } else { (*p).data.len() as i64 }
+                if p.is_null() {
+                    0
+                } else {
+                    (*p).data.len() as i64
+                }
             }
             TAG_ARRAY => {
                 let p = val.data.array_ptr;
-                if p.is_null() { 0 } else { (*p).data.len() as i64 }
+                if p.is_null() {
+                    0
+                } else {
+                    (*p).data.len() as i64
+                }
             }
             TAG_MAP => {
                 let p = val.data.map_ptr;
-                if p.is_null() { 0 } else { (*p).data.len() as i64 }
+                if p.is_null() {
+                    0
+                } else {
+                    (*p).data.len() as i64
+                }
             }
             TAG_TUPLE => {
                 let p = val.data.tuple_ptr;
-                if p.is_null() { 0 } else { (*p).data.len() as i64 }
+                if p.is_null() {
+                    0
+                } else {
+                    (*p).data.len() as i64
+                }
             }
             _ => 0,
         }

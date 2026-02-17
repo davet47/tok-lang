@@ -29,7 +29,11 @@ unsafe fn arg_to_str<'a>(tag: i64, data: i64) -> &'a str {
 
 #[inline]
 fn arg_to_i64(tag: i64, data: i64) -> i64 {
-    if tag as u8 == TAG_INT { data } else { 0 }
+    if tag as u8 == TAG_INT {
+        data
+    } else {
+        0
+    }
 }
 
 /// Parse a URL into (host, port, path). Only supports http:// for now.
@@ -37,8 +41,8 @@ fn parse_url(url: &str) -> Option<(String, u16, String)> {
     let url = url.trim();
     let without_scheme = if url.starts_with("https://") {
         return None; // TLS not supported without external deps
-    } else if url.starts_with("http://") {
-        &url[7..]
+    } else if let Some(rest) = url.strip_prefix("http://") {
+        rest
     } else {
         url
     };
@@ -61,13 +65,14 @@ fn parse_url(url: &str) -> Option<(String, u16, String)> {
 
 /// Make an HTTP request and return the response body.
 fn http_request(method: &str, url: &str, body: Option<&str>) -> Result<String, String> {
-    let (host, port, path) = parse_url(url)
-        .ok_or_else(|| "Invalid URL (only http:// supported)".to_string())?;
+    let (host, port, path) =
+        parse_url(url).ok_or_else(|| "Invalid URL (only http:// supported)".to_string())?;
 
     let mut stream = TcpStream::connect(format!("{}:{}", host, port))
         .map_err(|e| format!("Connection failed: {}", e))?;
 
-    stream.set_read_timeout(Some(std::time::Duration::from_secs(30)))
+    stream
+        .set_read_timeout(Some(std::time::Duration::from_secs(30)))
         .ok();
 
     // Build request
@@ -84,14 +89,15 @@ fn http_request(method: &str, url: &str, body: Option<&str>) -> Result<String, S
         )
     };
 
-    stream.write_all(request.as_bytes())
+    stream
+        .write_all(request.as_bytes())
         .map_err(|e| format!("Write failed: {}", e))?;
-    stream.flush()
-        .map_err(|e| format!("Flush failed: {}", e))?;
+    stream.flush().map_err(|e| format!("Flush failed: {}", e))?;
 
     // Read response
     let mut response = Vec::new();
-    stream.read_to_end(&mut response)
+    stream
+        .read_to_end(&mut response)
         .map_err(|e| format!("Read failed: {}", e))?;
 
     let response_str = String::from_utf8_lossy(&response).to_string();
@@ -153,8 +159,10 @@ pub extern "C" fn tok_http_hget_t(_env: *mut u8, tag: i64, data: i64) -> TokValu
 #[no_mangle]
 pub extern "C" fn tok_http_hpost_t(
     _env: *mut u8,
-    tag1: i64, data1: i64,
-    tag2: i64, data2: i64,
+    tag1: i64,
+    data1: i64,
+    tag2: i64,
+    data2: i64,
 ) -> TokValue {
     unsafe {
         let url = arg_to_str(tag1, data1).to_string();
@@ -167,8 +175,10 @@ pub extern "C" fn tok_http_hpost_t(
 #[no_mangle]
 pub extern "C" fn tok_http_hput_t(
     _env: *mut u8,
-    tag1: i64, data1: i64,
-    tag2: i64, data2: i64,
+    tag1: i64,
+    data1: i64,
+    tag2: i64,
+    data2: i64,
 ) -> TokValue {
     unsafe {
         let url = arg_to_str(tag1, data1).to_string();
@@ -191,8 +201,10 @@ pub extern "C" fn tok_http_hdel_t(_env: *mut u8, tag: i64, data: i64) -> TokValu
 #[no_mangle]
 pub extern "C" fn tok_http_serve_t(
     _env: *mut u8,
-    tag1: i64, data1: i64,
-    tag2: i64, data2: i64,
+    tag1: i64,
+    data1: i64,
+    tag2: i64,
+    data2: i64,
 ) -> TokValue {
     let port = arg_to_i64(tag1, data1);
     if tag2 as u8 != TAG_MAP {
@@ -234,7 +246,7 @@ pub extern "C" fn tok_http_serve_t(
         }
 
         // Parse request line: "GET /path HTTP/1.1"
-        let parts: Vec<&str> = request_line.trim().split_whitespace().collect();
+        let parts: Vec<&str> = request_line.split_whitespace().collect();
         if parts.len() < 2 {
             continue;
         }
@@ -260,10 +272,9 @@ pub extern "C" fn tok_http_serve_t(
                     content_length = val.parse().unwrap_or(0);
                 }
                 unsafe {
-                    (*headers_map).data.insert(
-                        key,
-                        TokValue::from_string(TokString::alloc(val)),
-                    );
+                    (*headers_map)
+                        .data
+                        .insert(key, TokValue::from_string(TokString::alloc(val)));
                 }
             }
         }
@@ -284,16 +295,29 @@ pub extern "C" fn tok_http_serve_t(
         // Build request map
         let req_map = TokMap::alloc();
         unsafe {
-            (*req_map).data.insert("method".to_string(), TokValue::from_string(TokString::alloc(method.to_string())));
-            (*req_map).data.insert("path".to_string(), TokValue::from_string(TokString::alloc(path.to_string())));
-            (*req_map).data.insert("body".to_string(), TokValue::from_string(TokString::alloc(body)));
-            (*req_map).data.insert("headers".to_string(), TokValue::from_map(headers_map));
+            (*req_map).data.insert(
+                "method".to_string(),
+                TokValue::from_string(TokString::alloc(method.to_string())),
+            );
+            (*req_map).data.insert(
+                "path".to_string(),
+                TokValue::from_string(TokString::alloc(path.to_string())),
+            );
+            (*req_map).data.insert(
+                "body".to_string(),
+                TokValue::from_string(TokString::alloc(body)),
+            );
+            (*req_map)
+                .data
+                .insert("headers".to_string(), TokValue::from_map(headers_map));
         }
 
         // Look up route handler
         let route_key = format!("{} {}", method, path);
         let handler = unsafe {
-            (*routes_ptr).data.get(&route_key)
+            (*routes_ptr)
+                .data
+                .get(&route_key)
                 .or_else(|| (*routes_ptr).data.get(&format!("* {}", path)))
                 .or_else(|| (*routes_ptr).data.get("*"))
                 .copied()
@@ -309,11 +333,9 @@ pub extern "C" fn tok_http_serve_t(
                     let req_val = TokValue::from_map(req_map);
                     let call: extern "C" fn(*mut u8, i64, i64) -> TokValue =
                         unsafe { std::mem::transmute(fn_ptr) };
-                    let result = call(
-                        env_ptr,
-                        req_val.tag as i64,
-                        unsafe { req_val.data._raw as i64 },
-                    );
+                    let result = call(env_ptr, req_val.tag as i64, unsafe {
+                        req_val.data._raw as i64
+                    });
                     // Parse result: string → body, map → {status, body}
                     match result.tag {
                         TAG_STRING => {
@@ -330,12 +352,22 @@ pub extern "C" fn tok_http_serve_t(
                                 (200, String::new())
                             } else {
                                 let status = unsafe {
-                                    (*resp_map).data.get("status")
-                                        .map(|v| if v.tag == TAG_INT { v.data.int_val as u16 } else { 200 })
+                                    (*resp_map)
+                                        .data
+                                        .get("status")
+                                        .map(|v| {
+                                            if v.tag == TAG_INT {
+                                                v.data.int_val as u16
+                                            } else {
+                                                200
+                                            }
+                                        })
                                         .unwrap_or(200)
                                 };
                                 let body_str = unsafe {
-                                    (*resp_map).data.get("body")
+                                    (*resp_map)
+                                        .data
+                                        .get("body")
                                         .map(|v| {
                                             if v.tag == TAG_STRING && !v.data.string_ptr.is_null() {
                                                 (*v.data.string_ptr).data.clone()
@@ -396,10 +428,10 @@ fn insert_func(m: *mut TokMap, name: &str, fn_ptr: *const u8, arity: u32) {
 pub extern "C" fn tok_stdlib_http() -> *mut TokMap {
     let m = TokMap::alloc();
 
-    insert_func(m, "hget",  tok_http_hget_t  as *const u8, 1);
+    insert_func(m, "hget", tok_http_hget_t as *const u8, 1);
     insert_func(m, "hpost", tok_http_hpost_t as *const u8, 2);
-    insert_func(m, "hput",  tok_http_hput_t  as *const u8, 2);
-    insert_func(m, "hdel",  tok_http_hdel_t  as *const u8, 1);
+    insert_func(m, "hput", tok_http_hput_t as *const u8, 2);
+    insert_func(m, "hdel", tok_http_hdel_t as *const u8, 1);
     insert_func(m, "serve", tok_http_serve_t as *const u8, 2);
 
     m
