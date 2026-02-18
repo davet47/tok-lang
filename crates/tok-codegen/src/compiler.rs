@@ -1642,13 +1642,9 @@ fn compile_stmt(ctx: &mut FuncCtx, stmt: &HirStmt) -> Option<Value> {
                         (Type::Int, Type::Any)
                         | (Type::Float, Type::Any)
                         | (Type::Bool, Type::Any) => existing_ty.clone(),
-                        (_, Type::Any) if !matches!(existing_ty, Type::Any) => {
-                            existing_ty.clone()
-                        }
+                        (_, Type::Any) if !matches!(existing_ty, Type::Any) => existing_ty.clone(),
                         // Wrap concrete→Any → stays Any
-                        (Type::Any, vt)
-                            if !matches!(vt, Type::Any | Type::Nil | Type::Never) =>
-                        {
+                        (Type::Any, vt) if !matches!(vt, Type::Any | Type::Nil | Type::Never) => {
                             existing_ty.clone()
                         }
                         // Catch-all: actual type may have changed
@@ -5273,13 +5269,9 @@ fn compile_loop(ctx: &mut FuncCtx, kind: &HirLoopKind, body: &[HirStmt]) {
                 // Dispatch block: route to ascending or descending increment
                 ctx.builder.switch_to_block(dispatch_block);
                 ctx.builder.seal_block(dispatch_block);
-                ctx.builder.ins().brif(
-                    is_ascending,
-                    asc_inc_block,
-                    &[],
-                    desc_inc_block,
-                    &[],
-                );
+                ctx.builder
+                    .ins()
+                    .brif(is_ascending, asc_inc_block, &[], desc_inc_block, &[]);
 
                 // Ascending increment: i += 1, check i < end
                 ctx.builder.switch_to_block(asc_inc_block);
@@ -5516,18 +5508,18 @@ fn compile_loop(ctx: &mut FuncCtx, kind: &HirLoopKind, body: &[HirStmt]) {
                 // Map iteration: fetch key from keys array, value from vals array
                 let get_ref = ctx.get_runtime_func_ref("tok_array_get");
 
-                let get_key_call =
-                    ctx.builder
-                        .ins()
-                        .call(get_ref, &[keys_arr.unwrap(), current_idx]);
+                let get_key_call = ctx
+                    .builder
+                    .ins()
+                    .call(get_ref, &[keys_arr.unwrap(), current_idx]);
                 let key_results = ctx.builder.inst_results(get_key_call);
                 let key = from_tokvalue(ctx, key_results[0], key_results[1], &Type::Str);
                 ctx.builder.def_var(idx_var, key);
 
-                let get_val_call =
-                    ctx.builder
-                        .ins()
-                        .call(get_ref, &[vals_arr.unwrap(), current_idx]);
+                let get_val_call = ctx
+                    .builder
+                    .ins()
+                    .call(get_ref, &[vals_arr.unwrap(), current_idx]);
                 let val_results = ctx.builder.inst_results(get_val_call);
                 let val = from_tokvalue(ctx, val_results[0], val_results[1], &elem_type);
                 ctx.builder.def_var(elem_var, val);

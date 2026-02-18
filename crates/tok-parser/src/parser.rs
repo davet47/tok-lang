@@ -837,8 +837,7 @@ impl Parser {
                         && matches!(
                             self.peek_at(1),
                             Token::Newline | Token::Eof | Token::RBrace | Token::Colon
-                        )
-                    {
+                        ) {
                         self.advance(); // consume !
                         Expr::Break
                     } else if matches!(self.peek(), Token::GtBang)
