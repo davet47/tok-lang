@@ -1035,7 +1035,37 @@ Key unification rules:
 
 ---
 
-## 15. Complete Syntax Quick Reference
+## 15. Known Codegen Limitations
+
+The Cranelift compiler backend has the following known issues:
+
+### Variable reuse across types
+Reassigning a variable from one type to another (e.g., array result to float) can cause a misaligned pointer crash at program cleanup, because the codegen cleanup code uses the original type's destructor on the new value. **Workaround**: use unique variable names rather than reusing them across different types.
+
+### Break/continue in conditional blocks
+`cond?{!}` crashes the codegen with "block already filled". The `!` (break) and `>!` (continue) statements only work as standalone statements followed by a newline, not inside conditional block bodies. Additionally, `cond?!` does not parse — the `?` ternary operator does not recognize `!` as a valid then-branch.
+
+### Countdown ranges
+`~(i:5..0)` silently produces zero iterations. The codegen emits a `SignedLessThan` comparison for loop continuation, so when start > end the loop body never executes. Forward ranges (`0..5`, `0..=5`) work correctly.
+
+### Map key-value foreach
+`~(k v:map){}` crashes because `ForEachIndexed` in the codegen calls `tok_array_len` on the iterator, which fails on map values. Indexed foreach only works on arrays. Plain foreach `~(v:arr){}` works on both arrays and maps.
+
+### Any-typed float comparisons
+Comparing `Any`-typed floats returned by builtins like `rand()` — e.g., `r<1.0` — causes a misaligned pointer crash. The tag/data pair from the `Any` value is not properly unpacked before the comparison. **Workaround**: use `type(r)` checks or pass the value to a function rather than comparing directly.
+
+### Unimplemented features
+The following spec features are parsed but not yet implemented in the codegen:
+- Default parameters (`f greet(msg="hi")`)
+- Variadic parameters (`f sum(..nums)`)
+- Spread in function arguments (`f(..arr)`)
+- Array head/tail destructuring (`[h ..t]=arr`)
+- Prototype-based objects
+- File-based imports (`@"./file.tok"`)
+
+---
+
+## 16. Complete Syntax Quick Reference
 
 ```
 # Variables
