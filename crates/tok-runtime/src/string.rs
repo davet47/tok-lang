@@ -129,6 +129,15 @@ pub extern "C" fn tok_string_index(s: *mut TokString, i: i64) -> *mut TokString 
 }
 
 #[no_mangle]
+pub extern "C" fn tok_string_repeat(s: *mut TokString, count: i64) -> *mut TokString {
+    assert!(!s.is_null(), "tok_string_repeat: null pointer");
+    unsafe {
+        let n = count.max(0) as usize;
+        TokString::alloc((*s).data.repeat(n))
+    }
+}
+
+#[no_mangle]
 pub extern "C" fn tok_string_slice(s: *mut TokString, start: i64, end: i64) -> *mut TokString {
     assert!(!s.is_null(), "tok_string_slice: null pointer");
     unsafe {

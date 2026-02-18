@@ -1077,6 +1077,10 @@ impl TypeChecker {
                 (Type::Int, Type::Int) => Type::Int,
                 (Type::Float, Type::Float) => Type::Float,
                 (Type::Int, Type::Float) | (Type::Float, Type::Int) => Type::Float,
+                // String multiplication: "ha" * 3 or 3 * "ha"
+                (Type::Str, Type::Int) | (Type::Int, Type::Str) if matches!(op, BinOp::Mul) => {
+                    Type::Str
+                }
                 _ => Type::Any,
             },
 

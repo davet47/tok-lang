@@ -261,6 +261,7 @@ impl Compiler {
         self.declare_runtime_func("tok_string_cmp", &[PTR, PTR], &[types::I64]);
         self.declare_runtime_func("tok_string_index", &[PTR, types::I64], &[PTR]);
         self.declare_runtime_func("tok_string_slice", &[PTR, types::I64, types::I64], &[PTR]);
+        self.declare_runtime_func("tok_string_repeat", &[PTR, types::I64], &[PTR]);
         self.declare_runtime_func("tok_string_split", &[PTR, PTR], &[PTR]);
         self.declare_runtime_func("tok_string_trim", &[PTR], &[PTR]);
         self.declare_runtime_func("tok_int_to_string", &[types::I64], &[PTR]);
@@ -1894,52 +1895,68 @@ fn compile_expr(ctx: &mut FuncCtx, expr: &HirExpr) -> Option<Value> {
                     ctx.compiler.func_sigs.get(name.as_str()).unwrap().clone();
                 let trampoline_name = format!("__tok_tramp_{}", name);
 
-                // Create trampoline as a PendingLambda that just calls the function
-                let tramp_params: Vec<HirParam> = param_types
-                    .iter()
-                    .enumerate()
-                    .map(|(i, ty)| HirParam {
-                        name: format!("__p{}", i),
-                        ty: ty.clone(),
-                    })
-                    .collect();
-                let call_args: Vec<HirExpr> = tramp_params
-                    .iter()
-                    .map(|p| HirExpr::new(HirExprKind::Ident(p.name.clone()), p.ty.clone()))
-                    .collect();
-                let call_expr = HirExpr::new(
-                    HirExprKind::Call {
-                        func: Box::new(HirExpr::new(HirExprKind::Ident(name.clone()), Type::Any)),
-                        args: call_args,
-                    },
-                    ret_type.clone(),
-                );
+                // Check if trampoline already exists (avoid duplicate definition)
+                let tramp_func_id = if let Some(&existing) =
+                    ctx.compiler.declared_funcs.get(trampoline_name.as_str())
+                {
+                    existing
+                } else {
+                    // Create trampoline as a PendingLambda that just calls the function
+                    let tramp_params: Vec<HirParam> = param_types
+                        .iter()
+                        .enumerate()
+                        .map(|(i, ty)| HirParam {
+                            name: format!("__p{}", i),
+                            ty: ty.clone(),
+                        })
+                        .collect();
+                    let call_args: Vec<HirExpr> = tramp_params
+                        .iter()
+                        .map(|p| HirExpr::new(HirExprKind::Ident(p.name.clone()), p.ty.clone()))
+                        .collect();
+                    let call_expr = HirExpr::new(
+                        HirExprKind::Call {
+                            func: Box::new(HirExpr::new(
+                                HirExprKind::Ident(name.clone()),
+                                Type::Any,
+                            )),
+                            args: call_args,
+                        },
+                        ret_type.clone(),
+                    );
 
-                // Declare trampoline function signature: (env, tag0, data0, ...) -> (tag, data)
-                let mut sig = ctx.compiler.module.make_signature();
-                sig.params.push(AbiParam::new(PTR)); // env_ptr
-                for _ in &param_types {
-                    sig.params.push(AbiParam::new(types::I64)); // tag
-                    sig.params.push(AbiParam::new(types::I64)); // data
-                }
-                sig.returns.push(AbiParam::new(types::I64)); // result tag
-                sig.returns.push(AbiParam::new(types::I64)); // result data
+                    // Declare trampoline function signature: (env, tag0, data0, ...) -> (tag, data)
+                    let mut sig = ctx.compiler.module.make_signature();
+                    sig.params.push(AbiParam::new(PTR)); // env_ptr
+                    for _ in &param_types {
+                        sig.params.push(AbiParam::new(types::I64)); // tag
+                        sig.params.push(AbiParam::new(types::I64)); // data
+                    }
+                    sig.returns.push(AbiParam::new(types::I64)); // result tag
+                    sig.returns.push(AbiParam::new(types::I64)); // result data
 
-                let tramp_func_id = ctx
-                    .compiler
-                    .module
-                    .declare_function(&trampoline_name, Linkage::Local, &sig)
-                    .unwrap();
+                    let fid = ctx
+                        .compiler
+                        .module
+                        .declare_function(&trampoline_name, Linkage::Local, &sig)
+                        .unwrap();
 
-                ctx.compiler.pending_lambdas.push(PendingLambda {
-                    name: trampoline_name,
-                    func_id: tramp_func_id,
-                    params: tramp_params,
-                    ret_type: ret_type.clone(),
-                    body: vec![HirStmt::Expr(call_expr)],
-                    captures: vec![],
-                    specialized_param_types: None,
-                });
+                    ctx.compiler
+                        .declared_funcs
+                        .insert(trampoline_name.clone(), fid);
+
+                    ctx.compiler.pending_lambdas.push(PendingLambda {
+                        name: trampoline_name.clone(),
+                        func_id: fid,
+                        params: tramp_params,
+                        ret_type: ret_type.clone(),
+                        body: vec![HirStmt::Expr(call_expr)],
+                        captures: vec![],
+                        specialized_param_types: None,
+                    });
+
+                    fid
+                };
 
                 let tramp_ref = ctx
                     .compiler
@@ -2739,6 +2756,20 @@ fn compile_binop(
         return Some(ctx.builder.inst_results(call)[0]);
     }
 
+    // String multiplication: "ha" * 3 or 3 * "ha"
+    if matches!(op, HirBinOp::Mul) {
+        if matches!(left.ty, Type::Str) && matches!(right.ty, Type::Int) {
+            let func_ref = ctx.get_runtime_func_ref("tok_string_repeat");
+            let call = ctx.builder.ins().call(func_ref, &[lv, rv]);
+            return Some(ctx.builder.inst_results(call)[0]);
+        }
+        if matches!(left.ty, Type::Int) && matches!(right.ty, Type::Str) {
+            let func_ref = ctx.get_runtime_func_ref("tok_string_repeat");
+            let call = ctx.builder.ins().call(func_ref, &[rv, lv]);
+            return Some(ctx.builder.inst_results(call)[0]);
+        }
+    }
+
     // String comparison
     if matches!(left.ty, Type::Str) && matches!(right.ty, Type::Str) {
         match op {
@@ -3239,12 +3270,15 @@ fn compile_call(
             "push" => {
                 if args.len() >= 2 {
                     let arr_raw = compile_expr(ctx, &args[0]).unwrap();
-                    let arr = unwrap_any_ptr(ctx, arr_raw, &args[0].ty);
-                    let val = compile_expr(ctx, &args[1]).unwrap();
-                    let (tag, data) = to_tokvalue(ctx, val, &args[1].ty);
+                    let mut arr = unwrap_any_ptr(ctx, arr_raw, &args[0].ty);
                     let func_ref = ctx.get_runtime_func_ref("tok_array_push");
-                    let call = ctx.builder.ins().call(func_ref, &[arr, tag, data]);
-                    return Some(ctx.builder.inst_results(call)[0]);
+                    for arg in &args[1..] {
+                        let val = compile_expr(ctx, arg).unwrap();
+                        let (tag, data) = to_tokvalue(ctx, val, &arg.ty);
+                        let call = ctx.builder.ins().call(func_ref, &[arr, tag, data]);
+                        arr = ctx.builder.inst_results(call)[0];
+                    }
+                    return Some(arr);
                 }
             }
             "sort" => {

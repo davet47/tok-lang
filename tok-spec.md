@@ -1043,7 +1043,6 @@ The following spec features are parsed but not yet implemented in the codegen:
 - Spread in function arguments (`f(..arr)`)
 - Array head/tail destructuring (`[h ..t]=arr`)
 - Prototype-based objects
-- File-based imports (`@"./file.tok"`)
 
 ---
 

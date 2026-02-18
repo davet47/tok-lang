@@ -3,7 +3,7 @@
 //! These are called directly by Cranelift-generated machine code.
 
 use crate::array::tok_array_slice;
-use crate::string::{tok_string_slice, TokString};
+use crate::string::{tok_string_repeat, tok_string_slice, TokString};
 use crate::value::{
     format_float, TokValue, TAG_ARRAY, TAG_BOOL, TAG_FLOAT, TAG_INT, TAG_NIL, TAG_STRING,
 };
@@ -493,6 +493,14 @@ pub extern "C" fn tok_value_mul(a: TokValue, b: TokValue) -> TokValue {
             (TAG_FLOAT, TAG_FLOAT) => TokValue::from_float(a.data.float_val * b.data.float_val),
             (TAG_INT, TAG_FLOAT) => TokValue::from_float(a.data.int_val as f64 * b.data.float_val),
             (TAG_FLOAT, TAG_INT) => TokValue::from_float(a.data.float_val * b.data.int_val as f64),
+            (TAG_STRING, TAG_INT) => {
+                let result = tok_string_repeat(a.data.string_ptr, b.data.int_val);
+                TokValue::from_string(result)
+            }
+            (TAG_INT, TAG_STRING) => {
+                let result = tok_string_repeat(b.data.string_ptr, a.data.int_val);
+                TokValue::from_string(result)
+            }
             _ => TokValue::nil(),
         }
     }
