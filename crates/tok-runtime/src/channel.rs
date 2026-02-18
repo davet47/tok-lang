@@ -8,7 +8,7 @@
 
 use std::cell::UnsafeCell;
 use std::mem::MaybeUninit;
-use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
+use std::sync::atomic::{fence, AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Condvar, Mutex};
 
 use crate::value::TokValue;
@@ -152,7 +152,12 @@ impl TokChannel {
     }
 
     pub fn rc_dec(&self) -> bool {
-        self.rc.fetch_sub(1, Ordering::Release) == 1
+        if self.rc.fetch_sub(1, Ordering::Release) == 1 {
+            fence(Ordering::Acquire);
+            true
+        } else {
+            false
+        }
     }
 
     pub fn alloc(capacity: usize) -> *mut TokChannel {

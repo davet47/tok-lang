@@ -1,6 +1,6 @@
 //! Reference-counted tuple type for the Tok runtime.
 
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{fence, AtomicU32, Ordering};
 
 use crate::value::TokValue;
 
@@ -27,7 +27,12 @@ impl TokTuple {
     }
 
     pub fn rc_dec(&self) -> bool {
-        self.rc.fetch_sub(1, Ordering::Release) == 1
+        if self.rc.fetch_sub(1, Ordering::Release) == 1 {
+            fence(Ordering::Acquire);
+            true
+        } else {
+            false
+        }
     }
 
     pub fn alloc(elements: Vec<TokValue>) -> *mut TokTuple {

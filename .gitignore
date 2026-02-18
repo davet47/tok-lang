@@ -4,6 +4,7 @@
 *.swo
 *~
 .DS_Store
+TECH_DEBT.md
 tests/bench/build/
 tests/bench/07_concurrency.go_bin
 tests/bench/01_recursion.go_bin

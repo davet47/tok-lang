@@ -41,6 +41,7 @@ pub extern "C" fn tok_rc_dec(ptr: *mut u8) -> i8 {
     unsafe {
         let rc = &*(ptr as *const std::sync::atomic::AtomicU32);
         if rc.fetch_sub(1, std::sync::atomic::Ordering::Release) == 1 {
+            std::sync::atomic::fence(std::sync::atomic::Ordering::Acquire);
             1
         } else {
             0
@@ -436,8 +437,9 @@ pub extern "C" fn tok_value_add(a: TokValue, b: TokValue) -> TokValue {
             (TAG_STRING, TAG_STRING) => {
                 let ap = a.data.string_ptr;
                 let bp = b.data.string_ptr;
-                // COW: if `a` string has refcount 1, mutate in-place
-                if !ap.is_null() && (*ap).rc.load(std::sync::atomic::Ordering::Relaxed) == 1 {
+                // COW: if `a` string has refcount 1, mutate in-place.
+                // Acquire synchronizes with Release in rc_dec.
+                if !ap.is_null() && (*ap).rc.load(std::sync::atomic::Ordering::Acquire) == 1 {
                     let sb = if bp.is_null() { "" } else { &(*bp).data };
                     (*ap).data.push_str(sb);
                     a // return the same TokValue (same pointer, mutated content)

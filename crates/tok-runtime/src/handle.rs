@@ -1,6 +1,6 @@
 //! Handle type for goroutine results in the Tok runtime.
 
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{fence, AtomicU32, Ordering};
 use std::sync::Mutex;
 use std::thread::JoinHandle;
 
@@ -32,7 +32,12 @@ impl TokHandle {
     }
 
     pub fn rc_dec(&self) -> bool {
-        self.rc.fetch_sub(1, Ordering::Release) == 1
+        if self.rc.fetch_sub(1, Ordering::Release) == 1 {
+            fence(Ordering::Acquire);
+            true
+        } else {
+            false
+        }
     }
 
     pub fn alloc(handle: JoinHandle<TokValue>) -> *mut TokHandle {

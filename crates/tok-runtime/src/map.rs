@@ -1,7 +1,7 @@
 //! Ordered map (string keys → TokValue values) for the Tok runtime.
 
 use indexmap::IndexMap;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{fence, AtomicU32, Ordering};
 
 use crate::array::TokArray;
 use crate::string::TokString;
@@ -36,7 +36,12 @@ impl TokMap {
     }
 
     pub fn rc_dec(&self) -> bool {
-        self.rc.fetch_sub(1, Ordering::Release) == 1
+        if self.rc.fetch_sub(1, Ordering::Release) == 1 {
+            fence(Ordering::Acquire);
+            true
+        } else {
+            false
+        }
     }
 
     pub fn alloc() -> *mut TokMap {

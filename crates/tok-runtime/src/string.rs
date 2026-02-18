@@ -1,6 +1,6 @@
 //! Reference-counted string type for the Tok runtime.
 
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{fence, AtomicU32, Ordering};
 
 use crate::array::TokArray;
 use crate::value::TokValue;
@@ -28,8 +28,16 @@ impl TokString {
     }
 
     /// Decrement refcount. Returns true if the object should be freed.
+    /// Uses Release on the decrement and Acquire fence when reaching zero,
+    /// matching `Arc` semantics to ensure all prior writes by other threads
+    /// are visible before we drop.
     pub fn rc_dec(&self) -> bool {
-        self.rc.fetch_sub(1, Ordering::Release) == 1
+        if self.rc.fetch_sub(1, Ordering::Release) == 1 {
+            fence(Ordering::Acquire);
+            true
+        } else {
+            false
+        }
     }
 
     pub fn alloc(s: String) -> *mut TokString {
@@ -62,7 +70,9 @@ pub extern "C" fn tok_string_concat(a: *mut TokString, b: *mut TokString) -> *mu
         // COW optimization: if `a` has refcount 1, nobody else holds a reference,
         // so we can mutate in-place and return the same pointer. This turns
         // O(n²) repeated concat into amortized O(n) via String's growth strategy.
-        if (*a).rc.load(Ordering::Relaxed) == 1 {
+        // Acquire ordering synchronizes with Release in rc_dec, ensuring we see
+        // all prior writes by threads that dropped their reference.
+        if (*a).rc.load(Ordering::Acquire) == 1 {
             (*a).data.push_str(&(*b).data);
             a
         } else {

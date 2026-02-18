@@ -2,7 +2,7 @@
 //!
 //! A closure pairs a function pointer with a captured environment.
 
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{fence, AtomicU32, Ordering};
 
 // ═══════════════════════════════════════════════════════════════
 // TokClosure
@@ -39,7 +39,12 @@ impl TokClosure {
     }
 
     pub fn rc_dec(&self) -> bool {
-        self.rc.fetch_sub(1, Ordering::Release) == 1
+        if self.rc.fetch_sub(1, Ordering::Release) == 1 {
+            fence(Ordering::Acquire);
+            true
+        } else {
+            false
+        }
     }
 
     pub fn alloc(fn_ptr: *const u8, env_ptr: *mut u8, arity: u32) -> *mut TokClosure {
