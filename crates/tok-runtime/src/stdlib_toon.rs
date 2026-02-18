@@ -140,7 +140,9 @@ impl<'a> ToonParser<'a> {
                     let parent_indent = line.indent;
                     self.advance();
                     let arr = self.parse_tabular_rows(&fields, delim, parent_indent);
-                    unsafe { (*map).data.insert(key.to_string(), arr); }
+                    unsafe {
+                        (*map).data.insert(key.to_string(), arr);
+                    }
                 } else {
                     // Could be inline primitive array or mixed array
                     let after_colon = line_after_header_colon(content);
@@ -148,13 +150,17 @@ impl<'a> ToonParser<'a> {
                         // Inline: tags[3]: foo,bar,baz
                         self.advance();
                         let arr = parse_csv_primitives(after_colon, delim);
-                        unsafe { (*map).data.insert(key.to_string(), arr); }
+                        unsafe {
+                            (*map).data.insert(key.to_string(), arr);
+                        }
                     } else {
                         // Mixed array
                         let parent_indent = line.indent;
                         self.advance();
                         let arr = self.parse_mixed_array(parent_indent);
-                        unsafe { (*map).data.insert(key.to_string(), arr); }
+                        unsafe {
+                            (*map).data.insert(key.to_string(), arr);
+                        }
                     }
                 }
                 continue;
@@ -171,21 +177,31 @@ impl<'a> ToonParser<'a> {
                             // Check if children are array items (start with "- ")
                             if next.content.starts_with("- ") {
                                 let arr = self.parse_mixed_array(base_indent);
-                                unsafe { (*map).data.insert(key.to_string(), arr); }
+                                unsafe {
+                                    (*map).data.insert(key.to_string(), arr);
+                                }
                             } else {
                                 let child = self.parse_object_block(child_indent);
-                                unsafe { (*map).data.insert(key.to_string(), child); }
+                                unsafe {
+                                    (*map).data.insert(key.to_string(), child);
+                                }
                             }
                         } else {
                             // key: with nothing following at deeper indent -> nil
-                            unsafe { (*map).data.insert(key.to_string(), TokValue::nil()); }
+                            unsafe {
+                                (*map).data.insert(key.to_string(), TokValue::nil());
+                            }
                         }
                     } else {
-                        unsafe { (*map).data.insert(key.to_string(), TokValue::nil()); }
+                        unsafe {
+                            (*map).data.insert(key.to_string(), TokValue::nil());
+                        }
                     }
                 } else {
                     let val = parse_primitive(val_str);
-                    unsafe { (*map).data.insert(key.to_string(), val); }
+                    unsafe {
+                        (*map).data.insert(key.to_string(), val);
+                    }
                 }
                 continue;
             }
@@ -217,9 +233,13 @@ impl<'a> ToonParser<'a> {
                 } else {
                     TokValue::nil()
                 };
-                unsafe { (*row).data.insert(field.clone(), val); }
+                unsafe {
+                    (*row).data.insert(field.clone(), val);
+                }
             }
-            unsafe { (*arr).data.push(TokValue::from_map(row)); }
+            unsafe {
+                (*arr).data.push(TokValue::from_map(row));
+            }
             self.advance();
         }
         TokValue::from_array(arr)
@@ -248,14 +268,20 @@ impl<'a> ToonParser<'a> {
                             if let Some(next) = self.peek() {
                                 if next.indent > item_indent {
                                     let child = self.parse_object_block(next.indent);
-                                    unsafe { (*item_map).data.insert(key.to_string(), child); }
+                                    unsafe {
+                                        (*item_map).data.insert(key.to_string(), child);
+                                    }
                                 } else {
-                                    unsafe { (*item_map).data.insert(key.to_string(), TokValue::nil()); }
+                                    unsafe {
+                                        (*item_map).data.insert(key.to_string(), TokValue::nil());
+                                    }
                                 }
                             }
                         } else {
                             let val = parse_primitive(val_str);
-                            unsafe { (*item_map).data.insert(key.to_string(), val); }
+                            unsafe {
+                                (*item_map).data.insert(key.to_string(), val);
+                            }
                         }
                         // Collect any sibling keys at item_indent+2
                         while let Some(next) = self.peek() {
@@ -266,15 +292,25 @@ impl<'a> ToonParser<'a> {
                                 break;
                             }
                             if let Some((k, v)) = split_key_value(next.content) {
-                                let val = if v.is_empty() { TokValue::nil() } else { parse_primitive(v) };
-                                unsafe { (*item_map).data.insert(k.to_string(), val); }
+                                let val = if v.is_empty() {
+                                    TokValue::nil()
+                                } else {
+                                    parse_primitive(v)
+                                };
+                                unsafe {
+                                    (*item_map).data.insert(k.to_string(), val);
+                                }
                             }
                             self.advance();
                         }
-                        unsafe { (*arr).data.push(TokValue::from_map(item_map)); }
+                        unsafe {
+                            (*arr).data.push(TokValue::from_map(item_map));
+                        }
                     } else {
                         self.advance();
-                        unsafe { (*arr).data.push(parse_primitive(rest)); }
+                        unsafe {
+                            (*arr).data.push(parse_primitive(rest));
+                        }
                     }
                     continue;
                 }
@@ -288,14 +324,20 @@ impl<'a> ToonParser<'a> {
                         if let Some(next) = self.peek() {
                             if next.indent > item_indent {
                                 let child = self.parse_object_block(next.indent);
-                                unsafe { (*item_map).data.insert(key.to_string(), child); }
+                                unsafe {
+                                    (*item_map).data.insert(key.to_string(), child);
+                                }
                             } else {
-                                unsafe { (*item_map).data.insert(key.to_string(), TokValue::nil()); }
+                                unsafe {
+                                    (*item_map).data.insert(key.to_string(), TokValue::nil());
+                                }
                             }
                         }
                     } else {
                         let val = parse_primitive(val_str);
-                        unsafe { (*item_map).data.insert(key.to_string(), val); }
+                        unsafe {
+                            (*item_map).data.insert(key.to_string(), val);
+                        }
                     }
                     // Collect any sibling keys at same depth (item_indent + 2 relative)
                     while let Some(next) = self.peek() {
@@ -306,12 +348,20 @@ impl<'a> ToonParser<'a> {
                             break;
                         }
                         if let Some((k, v)) = split_key_value(next.content) {
-                            let val = if v.is_empty() { TokValue::nil() } else { parse_primitive(v) };
-                            unsafe { (*item_map).data.insert(k.to_string(), val); }
+                            let val = if v.is_empty() {
+                                TokValue::nil()
+                            } else {
+                                parse_primitive(v)
+                            };
+                            unsafe {
+                                (*item_map).data.insert(k.to_string(), val);
+                            }
                         }
                         self.advance();
                     }
-                    unsafe { (*arr).data.push(TokValue::from_map(item_map)); }
+                    unsafe {
+                        (*arr).data.push(TokValue::from_map(item_map));
+                    }
                 } else {
                     // Simple primitive item
                     self.advance();
@@ -321,18 +371,26 @@ impl<'a> ToonParser<'a> {
                         let (_count, delim, fields) = parse_array_header_no_key(rest);
                         if let Some(fields) = fields {
                             let tab_arr = self.parse_tabular_rows(&fields, delim, item_indent);
-                            unsafe { (*arr).data.push(tab_arr); }
+                            unsafe {
+                                (*arr).data.push(tab_arr);
+                            }
                         } else {
                             let after = line_after_header_colon(rest);
                             if !after.is_empty() {
                                 let prim_arr = parse_csv_primitives(after, delim);
-                                unsafe { (*arr).data.push(prim_arr); }
+                                unsafe {
+                                    (*arr).data.push(prim_arr);
+                                }
                             } else {
-                                unsafe { (*arr).data.push(parse_primitive(rest)); }
+                                unsafe {
+                                    (*arr).data.push(parse_primitive(rest));
+                                }
                             }
                         }
                     } else {
-                        unsafe { (*arr).data.push(parse_primitive(rest)); }
+                        unsafe {
+                            (*arr).data.push(parse_primitive(rest));
+                        }
                     }
                 }
             } else {
@@ -990,7 +1048,8 @@ fn format_canonical_float(f: f64) -> String {
 
 /// Check if all array elements are primitive (not maps or arrays).
 unsafe fn all_primitives(data: &[TokValue]) -> bool {
-    data.iter().all(|v| matches!(v.tag, TAG_NIL | TAG_BOOL | TAG_INT | TAG_FLOAT | TAG_STRING))
+    data.iter()
+        .all(|v| matches!(v.tag, TAG_NIL | TAG_BOOL | TAG_INT | TAG_FLOAT | TAG_STRING))
 }
 
 /// If all elements are maps with identical key sets, return the field names.
