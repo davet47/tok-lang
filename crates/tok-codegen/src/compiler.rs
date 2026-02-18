@@ -3191,6 +3191,47 @@ fn get_stdlib_const(module: &str, field: &str) -> Option<f64> {
     }
 }
 
+// ─── Builtin call helpers ─────────────────────────────────────────────
+
+/// Compile a 1-arg builtin: compile arg → unwrap_any_ptr → call runtime → return ptr
+fn compile_builtin_1_ptr(ctx: &mut FuncCtx, arg: &HirExpr, runtime_fn: &str) -> Option<Value> {
+    let val = compile_expr(ctx, arg).unwrap();
+    let ptr = unwrap_any_ptr(ctx, val, &arg.ty);
+    let func_ref = ctx.get_runtime_func_ref(runtime_fn);
+    let call = ctx.builder.ins().call(func_ref, &[ptr]);
+    Some(ctx.builder.inst_results(call)[0])
+}
+
+/// Compile a 1-arg builtin that returns (tag, data): compile arg → unwrap → call → from_tokvalue
+fn compile_builtin_1_tokvalue(
+    ctx: &mut FuncCtx,
+    arg: &HirExpr,
+    runtime_fn: &str,
+    result_ty: &Type,
+) -> Option<Value> {
+    let val = compile_expr(ctx, arg).unwrap();
+    let ptr = unwrap_any_ptr(ctx, val, &arg.ty);
+    let func_ref = ctx.get_runtime_func_ref(runtime_fn);
+    let call = ctx.builder.ins().call(func_ref, &[ptr]);
+    let results = ctx.builder.inst_results(call);
+    Some(from_tokvalue(ctx, results[0], results[1], result_ty))
+}
+
+/// Compile a 2-arg builtin: compile both → unwrap → call → return ptr
+fn compile_builtin_2_ptr(
+    ctx: &mut FuncCtx,
+    args: &[HirExpr],
+    runtime_fn: &str,
+) -> Option<Value> {
+    let a_raw = compile_expr(ctx, &args[0]).unwrap();
+    let a = unwrap_any_ptr(ctx, a_raw, &args[0].ty);
+    let b_raw = compile_expr(ctx, &args[1]).unwrap();
+    let b = unwrap_any_ptr(ctx, b_raw, &args[1].ty);
+    let func_ref = ctx.get_runtime_func_ref(runtime_fn);
+    let call = ctx.builder.ins().call(func_ref, &[a, b]);
+    Some(ctx.builder.inst_results(call)[0])
+}
+
 fn compile_call(
     ctx: &mut FuncCtx,
     func_expr: &HirExpr,
@@ -3282,110 +3323,58 @@ fn compile_call(
                 }
             }
             "sort" => {
-                if let Some(arg) = args.first() {
-                    let val = compile_expr(ctx, arg).unwrap();
-                    let ptr = unwrap_any_ptr(ctx, val, &arg.ty);
-                    let func_ref = ctx.get_runtime_func_ref("tok_array_sort");
-                    let call = ctx.builder.ins().call(func_ref, &[ptr]);
-                    return Some(ctx.builder.inst_results(call)[0]);
+                if args.len() == 1 {
+                    return compile_builtin_1_ptr(ctx, &args[0], "tok_array_sort");
                 }
             }
             "rev" => {
-                if let Some(arg) = args.first() {
-                    let val = compile_expr(ctx, arg).unwrap();
-                    let ptr = unwrap_any_ptr(ctx, val, &arg.ty);
-                    let func_ref = ctx.get_runtime_func_ref("tok_array_rev");
-                    let call = ctx.builder.ins().call(func_ref, &[ptr]);
-                    return Some(ctx.builder.inst_results(call)[0]);
+                if args.len() == 1 {
+                    return compile_builtin_1_ptr(ctx, &args[0], "tok_array_rev");
                 }
             }
             "flat" => {
-                if let Some(arg) = args.first() {
-                    let val = compile_expr(ctx, arg).unwrap();
-                    let ptr = unwrap_any_ptr(ctx, val, &arg.ty);
-                    let func_ref = ctx.get_runtime_func_ref("tok_array_flat");
-                    let call = ctx.builder.ins().call(func_ref, &[ptr]);
-                    return Some(ctx.builder.inst_results(call)[0]);
+                if args.len() == 1 {
+                    return compile_builtin_1_ptr(ctx, &args[0], "tok_array_flat");
                 }
             }
             "uniq" => {
-                if let Some(arg) = args.first() {
-                    let val = compile_expr(ctx, arg).unwrap();
-                    let ptr = unwrap_any_ptr(ctx, val, &arg.ty);
-                    let func_ref = ctx.get_runtime_func_ref("tok_array_uniq");
-                    let call = ctx.builder.ins().call(func_ref, &[ptr]);
-                    return Some(ctx.builder.inst_results(call)[0]);
+                if args.len() == 1 {
+                    return compile_builtin_1_ptr(ctx, &args[0], "tok_array_uniq");
                 }
             }
             "join" => {
                 if args.len() >= 2 {
-                    let arr_raw = compile_expr(ctx, &args[0]).unwrap();
-                    let arr = unwrap_any_ptr(ctx, arr_raw, &args[0].ty);
-                    let sep_raw = compile_expr(ctx, &args[1]).unwrap();
-                    let sep = unwrap_any_ptr(ctx, sep_raw, &args[1].ty);
-                    let func_ref = ctx.get_runtime_func_ref("tok_array_join");
-                    let call = ctx.builder.ins().call(func_ref, &[arr, sep]);
-                    return Some(ctx.builder.inst_results(call)[0]);
+                    return compile_builtin_2_ptr(ctx, args, "tok_array_join");
                 }
             }
             "split" => {
                 if args.len() >= 2 {
-                    let s_raw = compile_expr(ctx, &args[0]).unwrap();
-                    let s = unwrap_any_ptr(ctx, s_raw, &args[0].ty);
-                    let delim_raw = compile_expr(ctx, &args[1]).unwrap();
-                    let delim = unwrap_any_ptr(ctx, delim_raw, &args[1].ty);
-                    let func_ref = ctx.get_runtime_func_ref("tok_string_split");
-                    let call = ctx.builder.ins().call(func_ref, &[s, delim]);
-                    return Some(ctx.builder.inst_results(call)[0]);
+                    return compile_builtin_2_ptr(ctx, args, "tok_string_split");
                 }
             }
             "trim" => {
-                if let Some(arg) = args.first() {
-                    let val = compile_expr(ctx, arg).unwrap();
-                    let ptr = unwrap_any_ptr(ctx, val, &arg.ty);
-                    let func_ref = ctx.get_runtime_func_ref("tok_string_trim");
-                    let call = ctx.builder.ins().call(func_ref, &[ptr]);
-                    return Some(ctx.builder.inst_results(call)[0]);
+                if args.len() == 1 {
+                    return compile_builtin_1_ptr(ctx, &args[0], "tok_string_trim");
                 }
             }
             "keys" => {
-                if let Some(arg) = args.first() {
-                    let val = compile_expr(ctx, arg).unwrap();
-                    let ptr = unwrap_any_ptr(ctx, val, &arg.ty);
-                    let func_ref = ctx.get_runtime_func_ref("tok_map_keys");
-                    let call = ctx.builder.ins().call(func_ref, &[ptr]);
-                    return Some(ctx.builder.inst_results(call)[0]);
+                if args.len() == 1 {
+                    return compile_builtin_1_ptr(ctx, &args[0], "tok_map_keys");
                 }
             }
             "vals" => {
-                if let Some(arg) = args.first() {
-                    let val = compile_expr(ctx, arg).unwrap();
-                    let ptr = unwrap_any_ptr(ctx, val, &arg.ty);
-                    let func_ref = ctx.get_runtime_func_ref("tok_map_vals");
-                    let call = ctx.builder.ins().call(func_ref, &[ptr]);
-                    return Some(ctx.builder.inst_results(call)[0]);
+                if args.len() == 1 {
+                    return compile_builtin_1_ptr(ctx, &args[0], "tok_map_vals");
                 }
             }
             "has" => {
                 if args.len() >= 2 {
-                    let map_raw = compile_expr(ctx, &args[0]).unwrap();
-                    let map = unwrap_any_ptr(ctx, map_raw, &args[0].ty);
-                    let key_raw = compile_expr(ctx, &args[1]).unwrap();
-                    let key = unwrap_any_ptr(ctx, key_raw, &args[1].ty);
-                    let func_ref = ctx.get_runtime_func_ref("tok_map_has");
-                    let call = ctx.builder.ins().call(func_ref, &[map, key]);
-                    return Some(ctx.builder.inst_results(call)[0]);
+                    return compile_builtin_2_ptr(ctx, args, "tok_map_has");
                 }
             }
             "del" => {
                 if args.len() >= 2 {
-                    let map_raw = compile_expr(ctx, &args[0]).unwrap();
-                    let map = unwrap_any_ptr(ctx, map_raw, &args[0].ty);
-                    let key_raw = compile_expr(ctx, &args[1]).unwrap();
-                    let key = unwrap_any_ptr(ctx, key_raw, &args[1].ty);
-                    let func_ref = ctx.get_runtime_func_ref("tok_map_del");
-                    let call = ctx.builder.ins().call(func_ref, &[map, key]);
-                    return Some(ctx.builder.inst_results(call)[0]);
+                    return compile_builtin_2_ptr(ctx, args, "tok_map_del");
                 }
             }
             "int" => {
@@ -3553,31 +3542,17 @@ fn compile_call(
             }
             "min" => {
                 if args.len() == 1 {
-                    let val = compile_expr(ctx, &args[0]).unwrap();
-                    let func_ref = ctx.get_runtime_func_ref("tok_array_min");
-                    let call = ctx.builder.ins().call(func_ref, &[val]);
-                    let results = ctx.builder.inst_results(call);
-                    return Some(from_tokvalue(ctx, results[0], results[1], result_ty));
+                    return compile_builtin_1_tokvalue(ctx, &args[0], "tok_array_min", result_ty);
                 }
             }
             "max" => {
                 if args.len() == 1 {
-                    let val = compile_expr(ctx, &args[0]).unwrap();
-                    let ptr = unwrap_any_ptr(ctx, val, &args[0].ty);
-                    let func_ref = ctx.get_runtime_func_ref("tok_array_max");
-                    let call = ctx.builder.ins().call(func_ref, &[ptr]);
-                    let results = ctx.builder.inst_results(call);
-                    return Some(from_tokvalue(ctx, results[0], results[1], result_ty));
+                    return compile_builtin_1_tokvalue(ctx, &args[0], "tok_array_max", result_ty);
                 }
             }
             "sum" => {
                 if args.len() == 1 {
-                    let val = compile_expr(ctx, &args[0]).unwrap();
-                    let ptr = unwrap_any_ptr(ctx, val, &args[0].ty);
-                    let func_ref = ctx.get_runtime_func_ref("tok_array_sum");
-                    let call = ctx.builder.ins().call(func_ref, &[ptr]);
-                    let results = ctx.builder.inst_results(call);
-                    return Some(from_tokvalue(ctx, results[0], results[1], result_ty));
+                    return compile_builtin_1_tokvalue(ctx, &args[0], "tok_array_sum", result_ty);
                 }
             }
             "slice" => {
@@ -3641,43 +3616,23 @@ fn compile_call(
                 }
             }
             "pop" => {
-                if let Some(arg) = args.first() {
-                    let val = compile_expr(ctx, arg).unwrap();
-                    let ptr = unwrap_any_ptr(ctx, val, &arg.ty);
-                    let func_ref = ctx.get_runtime_func_ref("tok_array_pop");
-                    let call = ctx.builder.ins().call(func_ref, &[ptr]);
-                    let results = ctx.builder.inst_results(call);
-                    return Some(from_tokvalue(ctx, results[0], results[1], result_ty));
+                if args.len() == 1 {
+                    return compile_builtin_1_tokvalue(ctx, &args[0], "tok_array_pop", result_ty);
                 }
             }
             "freq" => {
-                if let Some(arg) = args.first() {
-                    let val = compile_expr(ctx, arg).unwrap();
-                    let ptr = unwrap_any_ptr(ctx, val, &arg.ty);
-                    let func_ref = ctx.get_runtime_func_ref("tok_array_freq");
-                    let call = ctx.builder.ins().call(func_ref, &[ptr]);
-                    return Some(ctx.builder.inst_results(call)[0]);
+                if args.len() == 1 {
+                    return compile_builtin_1_ptr(ctx, &args[0], "tok_array_freq");
                 }
             }
             "zip" => {
                 if args.len() >= 2 {
-                    let a_raw = compile_expr(ctx, &args[0]).unwrap();
-                    let a = unwrap_any_ptr(ctx, a_raw, &args[0].ty);
-                    let b_raw = compile_expr(ctx, &args[1]).unwrap();
-                    let b = unwrap_any_ptr(ctx, b_raw, &args[1].ty);
-                    let func_ref = ctx.get_runtime_func_ref("tok_array_zip");
-                    let call = ctx.builder.ins().call(func_ref, &[a, b]);
-                    return Some(ctx.builder.inst_results(call)[0]);
+                    return compile_builtin_2_ptr(ctx, args, "tok_array_zip");
                 }
             }
             "top" => {
                 if args.len() >= 2 {
-                    let map_raw = compile_expr(ctx, &args[0]).unwrap();
-                    let map = unwrap_any_ptr(ctx, map_raw, &args[0].ty);
-                    let n = compile_expr(ctx, &args[1]).unwrap();
-                    let func_ref = ctx.get_runtime_func_ref("tok_map_top");
-                    let call = ctx.builder.ins().call(func_ref, &[map, n]);
-                    return Some(ctx.builder.inst_results(call)[0]);
+                    return compile_builtin_2_ptr(ctx, args, "tok_map_top");
                 }
             }
             "args" => {
@@ -3686,13 +3641,8 @@ fn compile_call(
                 return Some(ctx.builder.inst_results(call)[0]);
             }
             "env" => {
-                if let Some(arg) = args.first() {
-                    let val = compile_expr(ctx, arg).unwrap();
-                    let ptr = unwrap_any_ptr(ctx, val, &arg.ty);
-                    let func_ref = ctx.get_runtime_func_ref("tok_env");
-                    let call = ctx.builder.ins().call(func_ref, &[ptr]);
-                    let results = ctx.builder.inst_results(call);
-                    return Some(from_tokvalue(ctx, results[0], results[1], result_ty));
+                if args.len() == 1 {
+                    return compile_builtin_1_tokvalue(ctx, &args[0], "tok_env", result_ty);
                 }
             }
             _ => {

@@ -1,0 +1,579 @@
+//! File-based import resolution for compiled mode.
+//!
+//! Resolves `@"./file.tok"` imports by parsing imported files,
+//! prefixing their names, and inlining them into the main HIR program.
+
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::process;
+
+use tok_hir::hir::*;
+use tok_types::Type;
+
+/// Cached info for a previously-loaded module.
+struct ModuleCache {
+    prefix: String,
+    exports: Vec<(String, Type)>,
+}
+
+/// State threaded through the import resolution pass.
+struct ImportCtx {
+    mod_counter: u32,
+    loaded: HashMap<PathBuf, ModuleCache>,
+    /// Stack of files currently being imported, for cycle detection.
+    import_stack: Vec<PathBuf>,
+    preamble: Vec<HirStmt>,
+}
+
+impl ImportCtx {
+    fn new() -> Self {
+        ImportCtx {
+            mod_counter: 0,
+            loaded: HashMap::new(),
+            import_stack: Vec::new(),
+            preamble: Vec::new(),
+        }
+    }
+
+    fn next_prefix(&mut self) -> String {
+        let prefix = format!("__mod{}_", self.mod_counter);
+        self.mod_counter += 1;
+        prefix
+    }
+}
+
+/// Known stdlib module names — anything else is a file import.
+const STDLIB_MODULES: &[&str] = &[
+    "math", "str", "os", "io", "json", "csv", "fs", "http", "re", "time", "tmpl", "toon", "llm",
+];
+
+/// Check if a path is a file-based import (not a stdlib module name).
+fn is_file_import(path: &str) -> bool {
+    !STDLIB_MODULES.contains(&path)
+}
+
+/// Resolve the actual file path for an import, adding .tok if needed.
+fn resolve_import_path(base_dir: &Path, import_path: &str) -> PathBuf {
+    let mut path = base_dir.join(import_path);
+    if !path.exists() && !import_path.ends_with(".tok") {
+        path = base_dir.join(format!("{}.tok", import_path));
+    }
+    path
+}
+
+/// Parse and lower a .tok file into HIR.
+fn compile_file_to_hir(file_path: &Path) -> HirProgram {
+    let source = std::fs::read_to_string(file_path).unwrap_or_else(|e| {
+        eprintln!("Error reading imported file {}: {}", file_path.display(), e);
+        process::exit(1);
+    });
+    crate::parse_source_to_hir(&source, Some(file_path))
+}
+
+/// Extract exported names and their types from an HIR program.
+/// Exports are top-level function declarations and variable assignments
+/// whose names don't start with `_`.
+fn extract_exports(hir: &HirProgram) -> Vec<(String, Type)> {
+    let mut exports = Vec::new();
+    for stmt in hir {
+        match stmt {
+            HirStmt::FuncDecl {
+                name,
+                params,
+                ret_type,
+                ..
+            } if !name.starts_with('_') => {
+                let param_tys: Vec<tok_types::ParamType> = params
+                    .iter()
+                    .map(|p| tok_types::ParamType {
+                        ty: p.ty.clone(),
+                        has_default: false,
+                    })
+                    .collect();
+                let func_ty = Type::Func(tok_types::FuncType {
+                    params: param_tys,
+                    ret: Box::new(ret_type.clone()),
+                    variadic: false,
+                });
+                exports.push((name.clone(), func_ty));
+            }
+            HirStmt::Assign { name, ty, .. } if !name.starts_with('_') => {
+                exports.push((name.clone(), ty.clone()));
+            }
+            _ => {}
+        }
+    }
+    exports
+}
+
+// ─── Generic HIR walker ──────────────────────────────────────────────
+//
+// A single recursive traversal that supports both renaming and import
+// transformation, eliminating the duplicated ~250-line traversals.
+
+/// Callbacks for the HIR walker. Implementations can override only what they need.
+trait HirVisitor {
+    /// Visit an identifier. Return a new name to rename it, or None to keep it.
+    fn visit_ident(&mut self, _name: &str) -> Option<String> {
+        None
+    }
+
+    /// Visit a RuntimeCall. Return true if the expression was replaced in-place.
+    fn visit_runtime_call(
+        &mut self,
+        _expr: &mut HirExpr,
+        _name: &str,
+        _args: &[HirExpr],
+    ) -> bool {
+        false
+    }
+}
+
+fn walk_stmts(stmts: &mut [HirStmt], visitor: &mut dyn HirVisitor) {
+    for stmt in stmts.iter_mut() {
+        walk_stmt(stmt, visitor);
+    }
+}
+
+fn walk_stmt(stmt: &mut HirStmt, visitor: &mut dyn HirVisitor) {
+    match stmt {
+        HirStmt::Assign { name, value, .. } => {
+            if let Some(new) = visitor.visit_ident(name) {
+                *name = new;
+            }
+            walk_expr(value, visitor);
+        }
+        HirStmt::FuncDecl { name, body, .. } => {
+            if let Some(new) = visitor.visit_ident(name) {
+                *name = new;
+            }
+            walk_stmts(body, visitor);
+        }
+        HirStmt::Expr(expr) => walk_expr(expr, visitor),
+        HirStmt::Return(Some(expr)) => walk_expr(expr, visitor),
+        HirStmt::IndexAssign {
+            target,
+            index,
+            value,
+        } => {
+            walk_expr(target, visitor);
+            walk_expr(index, visitor);
+            walk_expr(value, visitor);
+        }
+        HirStmt::MemberAssign { target, value, .. } => {
+            walk_expr(target, visitor);
+            walk_expr(value, visitor);
+        }
+        _ => {}
+    }
+}
+
+fn walk_expr(expr: &mut HirExpr, visitor: &mut dyn HirVisitor) {
+    // First try runtime call interception (before recursing into children).
+    // We extract (name, args) to avoid borrow conflict with the mutable `expr`.
+    let is_import_call = matches!(
+        &expr.kind,
+        HirExprKind::RuntimeCall { name, args }
+        if name == "tok_import" && !args.is_empty()
+    );
+    if is_import_call {
+        // Extract the info we need, then pass &mut expr
+        let (name_clone, args_clone) = match &expr.kind {
+            HirExprKind::RuntimeCall { name, args } => (name.clone(), args.clone()),
+            _ => unreachable!(),
+        };
+        if visitor.visit_runtime_call(expr, &name_clone, &args_clone) {
+            return; // Expression was replaced in-place
+        }
+    }
+
+    match &mut expr.kind {
+        HirExprKind::Ident(name) => {
+            if let Some(new) = visitor.visit_ident(name) {
+                *name = new;
+            }
+        }
+        HirExprKind::BinOp { left, right, .. } => {
+            walk_expr(left, visitor);
+            walk_expr(right, visitor);
+        }
+        HirExprKind::UnaryOp { operand, .. } => {
+            walk_expr(operand, visitor);
+        }
+        HirExprKind::Index { target, index } => {
+            walk_expr(target, visitor);
+            walk_expr(index, visitor);
+        }
+        HirExprKind::Member { target, .. } => {
+            walk_expr(target, visitor);
+        }
+        HirExprKind::Call { func, args } => {
+            walk_expr(func, visitor);
+            for arg in args.iter_mut() {
+                walk_expr(arg, visitor);
+            }
+        }
+        HirExprKind::RuntimeCall { args, .. } => {
+            for arg in args.iter_mut() {
+                walk_expr(arg, visitor);
+            }
+        }
+        HirExprKind::Array(elems) | HirExprKind::Tuple(elems) => {
+            for e in elems.iter_mut() {
+                walk_expr(e, visitor);
+            }
+        }
+        HirExprKind::Map(entries) => {
+            for (_, v) in entries.iter_mut() {
+                walk_expr(v, visitor);
+            }
+        }
+        HirExprKind::Lambda { body, .. } => {
+            walk_stmts(body, visitor);
+        }
+        HirExprKind::If {
+            cond,
+            then_body,
+            then_expr,
+            else_body,
+            else_expr,
+        } => {
+            walk_expr(cond, visitor);
+            walk_stmts(then_body, visitor);
+            if let Some(e) = then_expr {
+                walk_expr(e, visitor);
+            }
+            walk_stmts(else_body, visitor);
+            if let Some(e) = else_expr {
+                walk_expr(e, visitor);
+            }
+        }
+        HirExprKind::Loop { kind, body } => {
+            match kind.as_mut() {
+                HirLoopKind::While(cond) => walk_expr(cond, visitor),
+                HirLoopKind::ForRange { start, end, .. } => {
+                    walk_expr(start, visitor);
+                    walk_expr(end, visitor);
+                }
+                HirLoopKind::ForEach { iter, .. } | HirLoopKind::ForEachIndexed { iter, .. } => {
+                    walk_expr(iter, visitor);
+                }
+                HirLoopKind::Infinite => {}
+            }
+            walk_stmts(body, visitor);
+        }
+        HirExprKind::Block { stmts, expr } => {
+            walk_stmts(stmts, visitor);
+            if let Some(e) = expr {
+                walk_expr(e, visitor);
+            }
+        }
+        HirExprKind::Length(inner) | HirExprKind::Go(inner) | HirExprKind::Receive(inner) => {
+            walk_expr(inner, visitor);
+        }
+        HirExprKind::Range { start, end, .. } => {
+            walk_expr(start, visitor);
+            walk_expr(end, visitor);
+        }
+        HirExprKind::Send { chan, value } => {
+            walk_expr(chan, visitor);
+            walk_expr(value, visitor);
+        }
+        HirExprKind::Select(arms) => {
+            for arm in arms.iter_mut() {
+                match arm {
+                    HirSelectArm::Recv { chan, body, .. } => {
+                        walk_expr(chan, visitor);
+                        walk_stmts(body, visitor);
+                    }
+                    HirSelectArm::Send { chan, value, body } => {
+                        walk_expr(chan, visitor);
+                        walk_expr(value, visitor);
+                        walk_stmts(body, visitor);
+                    }
+                    HirSelectArm::Default(body) => {
+                        walk_stmts(body, visitor);
+                    }
+                }
+            }
+        }
+        // Literals don't need visiting
+        HirExprKind::Int(_)
+        | HirExprKind::Float(_)
+        | HirExprKind::Str(_)
+        | HirExprKind::Bool(_)
+        | HirExprKind::Nil => {}
+    }
+}
+
+// ─── Rename visitor ──────────────────────────────────────────────────
+
+/// Renames occurrences of `old` → `new` in the HIR.
+struct Renamer {
+    old: String,
+    new: String,
+}
+
+impl HirVisitor for Renamer {
+    fn visit_ident(&mut self, name: &str) -> Option<String> {
+        if name == self.old {
+            Some(self.new.clone())
+        } else {
+            None
+        }
+    }
+}
+
+/// Rename all top-level declarations in an HIR program with a prefix.
+/// Also renames references within function bodies to match.
+fn prefix_hir_names(hir: &mut HirProgram, prefix: &str, exported: &[(String, Type)]) {
+    // Build rename map: old_name → new_name
+    let renames: HashMap<String, String> = exported
+        .iter()
+        .map(|(name, _)| (name.clone(), format!("{}{}", prefix, name)))
+        .collect();
+
+    for stmt in hir.iter_mut() {
+        match stmt {
+            HirStmt::FuncDecl { name, body, .. } => {
+                if let Some(new_name) = renames.get(name.as_str()) {
+                    let old_name = name.clone();
+                    *name = new_name.clone();
+                    // Rename self-references in body (recursion)
+                    let mut renamer = Renamer {
+                        old: old_name,
+                        new: name.clone(),
+                    };
+                    walk_stmts(body, &mut renamer);
+                }
+                // Rename references to other exported names within this function
+                for (export_name, _) in exported {
+                    if let Some(new) = renames.get(export_name) {
+                        if *export_name != *name {
+                            let mut renamer = Renamer {
+                                old: export_name.clone(),
+                                new: new.clone(),
+                            };
+                            walk_stmts(body, &mut renamer);
+                        }
+                    }
+                }
+            }
+            HirStmt::Assign { name, value, .. } => {
+                if let Some(new_name) = renames.get(name.as_str()) {
+                    *name = new_name.clone();
+                }
+                // Rename references in the value expression
+                for (export_name, _) in exported {
+                    if let Some(new) = renames.get(export_name) {
+                        let mut renamer = Renamer {
+                            old: export_name.clone(),
+                            new: new.clone(),
+                        };
+                        walk_expr(value, &mut renamer);
+                    }
+                }
+            }
+            HirStmt::Expr(expr) => {
+                for (export_name, _) in exported {
+                    if let Some(new) = renames.get(export_name) {
+                        let mut renamer = Renamer {
+                            old: export_name.clone(),
+                            new: new.clone(),
+                        };
+                        walk_expr(expr, &mut renamer);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+// ─── Import transformer visitor ──────────────────────────────────────
+
+/// Transforms expression-level file imports (RuntimeCall("tok_import", [Str(path)]))
+/// into Map literals of the exported names, and adds imported code to the preamble.
+///
+/// This replaces the old separate `transform_expr_imports` traversal.
+struct ImportTransformer<'a> {
+    source_dir: PathBuf,
+    ictx: &'a mut ImportCtx,
+}
+
+impl<'a> HirVisitor for ImportTransformer<'a> {
+    fn visit_runtime_call(
+        &mut self,
+        expr: &mut HirExpr,
+        name: &str,
+        args: &[HirExpr],
+    ) -> bool {
+        if name != "tok_import" {
+            return false;
+        }
+        let path = match args.first() {
+            Some(HirExpr {
+                kind: HirExprKind::Str(p),
+                ..
+            }) => p.clone(),
+            _ => return false,
+        };
+        if !is_file_import(&path) {
+            return false;
+        }
+
+        let file_path = resolve_import_path(&self.source_dir, &path);
+        let canonical = file_path
+            .canonicalize()
+            .unwrap_or_else(|_| file_path.clone());
+
+        let (exports, use_prefix) = if let Some(cached) = self.ictx.loaded.get(&canonical) {
+            // Already loaded — reuse cached prefix and exports
+            (cached.exports.clone(), cached.prefix.clone())
+        } else {
+            // Check for circular imports
+            if self.ictx.import_stack.contains(&canonical) {
+                let cycle: Vec<String> = self
+                    .ictx
+                    .import_stack
+                    .iter()
+                    .map(|p| p.display().to_string())
+                    .collect();
+                eprintln!(
+                    "Circular import detected: {} -> {}",
+                    cycle.join(" -> "),
+                    canonical.display()
+                );
+                process::exit(1);
+            }
+
+            let prefix = self.ictx.next_prefix();
+            self.ictx.import_stack.push(canonical.clone());
+
+            let import_dir = file_path.parent().unwrap_or(Path::new(".")).to_path_buf();
+            let mut imported_hir = compile_file_to_hir(&file_path);
+            imported_hir = resolve_file_imports_inner(imported_hir, &import_dir, self.ictx);
+            let exports = extract_exports(&imported_hir);
+            prefix_hir_names(&mut imported_hir, &prefix, &exports);
+            self.ictx.preamble.extend(imported_hir);
+
+            self.ictx.import_stack.pop();
+            self.ictx.loaded.insert(
+                canonical,
+                ModuleCache {
+                    prefix: prefix.clone(),
+                    exports: exports.clone(),
+                },
+            );
+            (exports, prefix)
+        };
+
+        // Replace tok_import call with a Map literal
+        let map_entries: Vec<(String, HirExpr)> = exports
+            .iter()
+            .map(|(name, ty)| {
+                let prefixed = format!("{}{}", use_prefix, name);
+                (
+                    name.clone(),
+                    HirExpr::new(HirExprKind::Ident(prefixed), ty.clone()),
+                )
+            })
+            .collect();
+        expr.kind = HirExprKind::Map(map_entries);
+        expr.ty = Type::Map(Box::new(Type::Any));
+        true
+    }
+}
+
+// ─── Main import resolution ──────────────────────────────────────────
+
+/// Resolve all file-based imports in the HIR, inlining imported code.
+pub fn resolve_file_imports(program: HirProgram, source_dir: &Path) -> HirProgram {
+    let mut ictx = ImportCtx::new();
+    resolve_file_imports_inner(program, source_dir, &mut ictx)
+}
+
+fn resolve_file_imports_inner(
+    mut program: HirProgram,
+    source_dir: &Path,
+    ictx: &mut ImportCtx,
+) -> HirProgram {
+    let mut new_program = Vec::new();
+
+    for mut stmt in program.drain(..) {
+        match &stmt {
+            // Bare file import: @"./file.tok" → merge exports into scope
+            HirStmt::Import(path) if is_file_import(path) => {
+                let file_path = resolve_import_path(source_dir, path);
+                let canonical = file_path
+                    .canonicalize()
+                    .unwrap_or_else(|_| file_path.clone());
+
+                let (exports, use_prefix) = if let Some(cached) = ictx.loaded.get(&canonical) {
+                    (cached.exports.clone(), cached.prefix.clone())
+                } else {
+                    // Check for circular imports
+                    if ictx.import_stack.contains(&canonical) {
+                        let cycle: Vec<String> = ictx
+                            .import_stack
+                            .iter()
+                            .map(|p| p.display().to_string())
+                            .collect();
+                        eprintln!(
+                            "Circular import detected: {} -> {}",
+                            cycle.join(" -> "),
+                            canonical.display()
+                        );
+                        process::exit(1);
+                    }
+
+                    let prefix = ictx.next_prefix();
+                    ictx.import_stack.push(canonical.clone());
+
+                    let import_dir = file_path.parent().unwrap_or(Path::new(".")).to_path_buf();
+                    let mut imported_hir = compile_file_to_hir(&file_path);
+                    imported_hir = resolve_file_imports_inner(imported_hir, &import_dir, ictx);
+                    let exports = extract_exports(&imported_hir);
+                    prefix_hir_names(&mut imported_hir, &prefix, &exports);
+                    ictx.preamble.extend(imported_hir);
+
+                    ictx.import_stack.pop();
+                    let exports_clone = exports.clone();
+                    let prefix_clone = prefix.clone();
+                    ictx.loaded.insert(
+                        canonical,
+                        ModuleCache {
+                            prefix,
+                            exports: exports_clone.clone(),
+                        },
+                    );
+                    (exports_clone, prefix_clone)
+                };
+
+                // Create aliases: export_name = __mod0_export_name
+                for (name, ty) in &exports {
+                    let prefixed = format!("{}{}", use_prefix, name);
+                    new_program.push(HirStmt::Assign {
+                        name: name.clone(),
+                        ty: ty.clone(),
+                        value: HirExpr::new(HirExprKind::Ident(prefixed), ty.clone()),
+                    });
+                }
+            }
+            _ => {
+                // Walk this statement to resolve expression-level imports
+                let mut transformer = ImportTransformer {
+                    source_dir: source_dir.to_path_buf(),
+                    ictx,
+                };
+                walk_stmt(&mut stmt, &mut transformer);
+                new_program.push(stmt);
+            }
+        }
+    }
+
+    // Prepend preamble (imported functions/vars) before main statements
+    let mut result = std::mem::take(&mut ictx.preamble);
+    result.extend(new_program);
+    result
+}
