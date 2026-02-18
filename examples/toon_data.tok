@@ -1,0 +1,89 @@
+# toon_data.tok — TOON data format parsing and encoding
+#
+# TOON (Token-Oriented Object Notation) is a compact, LLM-friendly
+# serialization format that uses 30-60% fewer tokens than JSON.
+#
+# Compile & run:   cargo run -- run examples/toon_data.tok
+
+t=@"toon"
+j=@"json"
+
+pl("=== TOON Format Demo ===")
+pl("")
+
+# --- Parse a TOON document ---
+toon_input="metadata:
+  source: weather_api
+  version: 3
+  region: US-West
+stations[3]\{id,name,temp,humidity}:
+  1,Downtown,22.5,65
+  2,Airport,24.1,58
+  3,Harbor,19.8,72
+alerts[2]: wind,fog"
+
+doc=t.tparse(toon_input)
+
+pl("Source: {doc.metadata.source}")
+pl("Region: {doc.metadata.region}")
+pl("")
+
+# --- Iterate tabular data ---
+pl("Weather Stations:")
+~(s:doc.stations){
+  pl("  {s.name}: {s.temp}C, {s.humidity}% humidity")
+}
+pl("")
+
+# --- Filter ---
+warm=doc.stations?>\(s)=s.temp>20
+pl("Warm stations (>20C): {#warm}")
+~(s:warm){
+  pl("  {s.name}: {s.temp}C")
+}
+pl("")
+
+# --- Alerts ---
+pl("Active alerts: {#doc.alerts}")
+~(a:doc.alerts){
+  pl("  - {a}")
+}
+pl("")
+
+# --- Encode a value as TOON ---
+pl("=== Encoding ===")
+pl("")
+
+report={
+  title: "Daily Summary"
+  station_count: #doc.stations
+}
+toon_out=t.tstr(report)
+pl("TOON output:")
+pl(toon_out)
+pl("")
+
+# --- Compare JSON vs TOON ---
+pl("=== JSON vs TOON Comparison ===")
+pl("")
+
+users=[{id:1 name:"Alice" role:"admin"} {id:2 name:"Bob" role:"user"} {id:3 name:"Carol" role:"user"}]
+data={users:users}
+
+json_out=j.jstr(data)
+toon_enc=t.tstr(data)
+
+pl("JSON ({#json_out} chars):")
+pl(json_out)
+pl("")
+pl("TOON ({#toon_enc} chars):")
+pl(toon_enc)
+pl("")
+
+# --- Roundtrip ---
+pl("=== Roundtrip Test ===")
+back=t.tparse(toon_enc)
+pl("Users roundtripped: {#back.users}")
+~(u:back.users){
+  pl("  {u.name} ({u.role})")
+}

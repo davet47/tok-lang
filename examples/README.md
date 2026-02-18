@@ -78,6 +78,13 @@ Concurrency primitives: producer/consumer with buffered channels, parallel map (
 tok run examples/concurrency.tok
 ```
 
+### `toon_data.tok`
+TOON (Token-Oriented Object Notation) data format: parsing TOON documents with tabular arrays, filtering records, encoding values as TOON, and comparing JSON vs TOON output size. Demonstrates `@"toon"` and `@"json"` modules.
+
+```bash
+tok run examples/toon_data.tok
+```
+
 ### `http_api.tok`
 An HTTP server using `@"http"`. Starts on port 8080 with route handlers for GET and POST. Requires building separately since the server runs indefinitely.
 

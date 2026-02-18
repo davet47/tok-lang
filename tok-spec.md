@@ -670,6 +670,7 @@ _cache={}                     # private
 @"str"                        # string utilities (upper, lower, trim, split, replace, etc.)
 @"io"                         # file I/O (read_file, write_file, mkdir, ls, rm, etc.)
 @"json"                       # JSON encode/decode (parse, stringify, pretty)
+@"toon"                       # TOON encode/decode (compact, LLM-optimized format)
 @"os"                         # OS interaction (exec, env, cwd, pid, sleep, etc.)
 ```
 
@@ -801,7 +802,40 @@ results=[1 2 3 4 5]|>pmap(\(x)=heavy(x))
 | `jstr(v)` | Value to JSON string |
 | `jpretty(v)` | Value to pretty-printed JSON string |
 
-### 12.6 Regex Module (`@"re"`)
+### 12.6 TOON Module (`@"toon"`)
+
+TOON (Token-Oriented Object Notation) is a compact, JSON-compatible serialization format that uses 30-60% fewer LLM tokens than JSON. It replaces braces/brackets with indentation and repeating field names with CSV-style tabular headers.
+
+| Function | Description |
+|----------|-------------|
+| `tparse(s)` | Parse TOON string to value |
+| `tstr(v)` | Value to TOON string |
+
+TOON syntax uses indentation for objects, `key[N]: v1,v2,...` for primitive arrays, and `key[N]{f1,f2,...}:` with CSV rows for tabular arrays of uniform objects.
+
+```
+# Object
+name: Ada
+age: 30
+
+# Primitive array
+tags[3]: admin,ops,dev
+
+# Tabular array (fields declared once)
+users[2]{id,name,role}:
+  1,Alice,admin
+  2,Bob,user
+```
+
+Example:
+```
+t=@"toon"
+data=t.tparse("users[2]\{id,name}:\n  1,Alice\n  2,Bob")
+pl(data.users[0].name)               # Alice
+pl(t.tstr({x:1 y:2}))                # x: 1\ny: 2
+```
+
+### 12.7 Regex Module (`@"re"`)
 | Function | Description |
 |----------|-------------|
 | `rmatch(s pat)` | Test if string matches |
@@ -809,14 +843,14 @@ results=[1 2 3 4 5]|>pmap(\(x)=heavy(x))
 | `rall(s pat)` | Find all matches |
 | `rsub(s pat rep)` | Replace matches |
 
-### 12.7 Time Module (`@"time"`)
+### 12.8 Time Module (`@"time"`)
 | Function | Description |
 |----------|-------------|
 | `now()` | Current unix timestamp (float) |
 | `sleep(ms)` | Sleep for milliseconds |
 | `fmt(ts pat)` | Format timestamp (`%Y` `%m` `%d` `%H` `%M` `%S`) |
 
-### 12.8 Math Module (`@"math"`)
+### 12.9 Math Module (`@"math"`)
 
 Constants: `pi`, `e`, `inf`, `nan`
 
@@ -834,7 +868,7 @@ Constants: `pi`, `e`, `inf`, `nan`
 | `min(a b)` `max(a b)` | Min/max of two values |
 | `random()` | Random float 0..1 |
 
-### 12.9 String Module (`@"str"`)
+### 12.10 String Module (`@"str"`)
 | Function | Description |
 |----------|-------------|
 | `upper(s)` `lower(s)` | Case conversion |
@@ -852,7 +886,7 @@ Constants: `pi`, `e`, `inf`, `nan`
 | `rev(s)` | Reverse string |
 | `len(s)` | String length |
 
-### 12.10 OS Module (`@"os"`)
+### 12.11 OS Module (`@"os"`)
 | Function | Description |
 |----------|-------------|
 | `args()` | CLI arguments (all, including program) |

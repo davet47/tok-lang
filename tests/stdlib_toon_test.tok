@@ -1,0 +1,92 @@
+// Standard library: @"toon" module tests
+
+t=@"toon"
+
+// --- parse primitives ---
+pl(t.tparse("42"))
+pl(t.tparse("3.14"))
+pl(t.tparse("true"))
+pl(t.tparse("false"))
+pl(t.tparse("null"))
+pl(t.tparse("hello"))
+
+// --- parse simple object ---
+obj=t.tparse("id: 1\nname: Ada\nactive: true")
+pl(obj.id)
+pl(obj.name)
+pl(obj.active)
+
+// --- parse nested object ---
+nested=t.tparse("user:\n  id: 1\n  name: Ada")
+pl(nested.user.id)
+pl(nested.user.name)
+
+// --- parse inline primitive array ---
+data=t.tparse("tags[3]: foo,bar,baz")
+pl(#data.tags)
+pl(data.tags[0])
+pl(data.tags[1])
+pl(data.tags[2])
+
+// --- parse tabular array ---
+tbl=t.tparse("users[2]\{id,name,role}:\n  1,Alice,admin\n  2,Bob,user")
+pl(#tbl.users)
+pl(tbl.users[0].id)
+pl(tbl.users[0].name)
+pl(tbl.users[0].role)
+pl(tbl.users[1].id)
+pl(tbl.users[1].name)
+pl(tbl.users[1].role)
+
+// --- parse mixed array ---
+mix=t.tparse("items[3]:\n  - 1\n  - hello\n  - true")
+pl(#mix.items)
+pl(mix.items[0])
+pl(mix.items[1])
+pl(mix.items[2])
+
+// --- parse empty array ---
+empty=t.tparse("items[0]:")
+pl(#empty.items)
+
+// --- parse root array (primitives) ---
+rootarr=t.tparse("[3]: 10,20,30")
+pl(#rootarr)
+pl(rootarr[0])
+pl(rootarr[1])
+pl(rootarr[2])
+
+// --- parse quoted string ---
+qs=t.tparse("msg: \"hello: world\"")
+pl(qs.msg)
+
+// --- stringify simple values ---
+pl(t.tstr(42))
+pl(t.tstr("hello"))
+
+// --- stringify map ---
+pl(t.tstr({name:"tok" version:1}))
+
+// --- stringify with nested map ---
+pl(t.tstr({user:{id:1 name:"Ada"}}))
+
+// --- stringify primitive array in map ---
+pl(t.tstr({tags:["a" "b" "c"]}))
+
+// --- stringify tabular array ---
+users=[{id:1 name:"Alice"} {id:2 name:"Bob"}]
+pl(t.tstr({users:users}))
+
+// --- roundtrip object ---
+original={id:1 name:"Ada" score:99}
+back=t.tparse(t.tstr(original))
+pl(back.id)
+pl(back.name)
+pl(back.score)
+
+// --- pipe delimiter ---
+pipe=t.tparse("items[2|]\{id|name}:\n  1|Alice\n  2|Bob")
+pl(pipe.items[0].id)
+pl(pipe.items[0].name)
+pl(pipe.items[1].id)
+pl(pipe.items[1].name)

@@ -139,7 +139,7 @@ m=@"str"                    # import as namespace
 pl(sqrt(pow(2 8)))          # 16.0
 ```
 
-Nine standard library modules:
+Ten standard library modules:
 
 | Module | Functions |
 |---|---|
@@ -149,6 +149,7 @@ Nine standard library modules:
 | `@"fs"` | `fread` `fwrite` `fappend` `fexists` `fls` `fmk` `frm` |
 | `@"http"` | `hget` `hpost` `hput` `hdel` `serve` |
 | `@"json"` | `jparse` `jstr` `jpretty` |
+| `@"toon"` | `tparse` `tstr` |
 | `@"re"` | `rmatch` `rfind` `rall` `rsub` |
 | `@"time"` | `now` `sleep` `fmt` |
 | `@"os"` | `args` `env` `set_env` `cwd` `pid` `exec` `exit` |
@@ -249,7 +250,7 @@ The C-ABI runtime library linked into every compiled binary. All heap types are 
 | **Math** | abs, floor, ceil, rand + dynamic-dispatch variants |
 | **Conversions** | int, float, str, type_of, to_string |
 | **Dynamic ops** | add, sub, mul, div, mod, negate, eq, lt, truthiness (for `Any` type) |
-| **Stdlib** | math, str, io, fs, http, json, re, time, os module constructors |
+| **Stdlib** | math, str, io, fs, http, json, toon, re, time, os module constructors |
 
 ### Value Representation
 
@@ -292,7 +293,7 @@ All 9 phases of the language spec are complete:
 
 **Compiler backend**: Cranelift AOT compilation to native binaries. All language features compile to native code, including concurrency primitives.
 
-**Standard library**: 9 modules (math, str, io, fs, http, json, re, time, os) accessible via all import forms. Stdlib calls are optimized with direct dispatch (no map lookup or indirect call overhead).
+**Standard library**: 10 modules (math, str, io, fs, http, json, toon, re, time, os) accessible via all import forms. Stdlib calls are optimized with direct dispatch (no map lookup or indirect call overhead).
 
 ## Limitations
 
@@ -324,6 +325,7 @@ cargo run -- run tests/stdlib_math_test.tok
 cargo run -- run tests/stdlib_str_test.tok
 cargo run -- run tests/stdlib_io_test.tok
 cargo run -- run tests/stdlib_json_test.tok
+cargo run -- run tests/stdlib_toon_test.tok
 cargo run -- run tests/stdlib_os_test.tok
 cargo run -- run tests/stdlib_fs_test.tok
 cargo run -- run tests/stdlib_re_test.tok

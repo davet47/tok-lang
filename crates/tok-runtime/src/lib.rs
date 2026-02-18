@@ -35,6 +35,7 @@ pub mod stdlib_os;
 pub mod stdlib_re;
 pub mod stdlib_str;
 pub mod stdlib_time;
+pub mod stdlib_toon;
 pub mod string;
 pub mod tuple;
 pub mod value;

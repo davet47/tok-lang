@@ -875,6 +875,60 @@ func main() {
 
 ---
 
+## Example 16: TOON Data Processing
+
+### Tok
+```tok
+t=@"toon"
+
+# Parse a TOON document with tabular data
+doc=t.tparse("metadata:
+  source: sensors
+  version: 2
+readings[3]\{id,temp,status}:
+  1,22.5,ok
+  2,31.8,warn
+  3,18.2,ok")
+
+pl("Source: {doc.metadata.source}")
+
+# Filter and process
+ok=doc.readings?>\(r)=r.status=="ok"
+pl("OK readings: {#ok}")
+
+# Roundtrip: value -> TOON -> value
+config={host:"localhost" port:8080 tags:["api" "v2"]}
+encoded=t.tstr(config)
+decoded=t.tparse(encoded)
+pl("Host: {decoded.host}, Port: {decoded.port}")
+```
+
+### Python
+```python
+import json
+
+doc = {
+    "metadata": {"source": "sensors", "version": 2},
+    "readings": [
+        {"id": 1, "temp": 22.5, "status": "ok"},
+        {"id": 2, "temp": 31.8, "status": "warn"},
+        {"id": 3, "temp": 18.2, "status": "ok"},
+    ],
+}
+
+print(f"Source: {doc['metadata']['source']}")
+
+ok = [r for r in doc["readings"] if r["status"] == "ok"]
+print(f"OK readings: {len(ok)}")
+
+config = {"host": "localhost", "port": 8080, "tags": ["api", "v2"]}
+encoded = json.dumps(config)
+decoded = json.loads(encoded)
+print(f"Host: {decoded['host']}, Port: {decoded['port']}")
+```
+
+---
+
 ## Token Efficiency Analysis
 
 All token counts measured with `cl100k_base` (GPT-4 / Claude tokenizer) via `tiktoken`.
