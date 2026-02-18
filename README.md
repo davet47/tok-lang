@@ -139,7 +139,7 @@ m=@"str"                    # import as namespace
 pl(sqrt(pow(2 8)))          # 16.0
 ```
 
-Eleven standard library modules:
+Twelve standard library modules:
 
 | Module | Functions |
 |---|---|
@@ -150,6 +150,7 @@ Eleven standard library modules:
 | `@"http"` | `hget` `hpost` `hput` `hdel` `serve` |
 | `@"json"` | `jparse` `jstr` `jpretty` |
 | `@"csv"` | `cparse` `cstr` |
+| `@"tmpl"` | `render` `compile` `apply` |
 | `@"toon"` | `tparse` `tstr` |
 | `@"re"` | `rmatch` `rfind` `rall` `rsub` |
 | `@"time"` | `now` `sleep` `fmt` |
@@ -294,7 +295,7 @@ All 9 phases of the language spec are complete:
 
 **Compiler backend**: Cranelift AOT compilation to native binaries. All language features compile to native code, including concurrency primitives.
 
-**Standard library**: 11 modules (math, str, io, fs, http, json, csv, toon, re, time, os) accessible via all import forms. Stdlib calls are optimized with direct dispatch (no map lookup or indirect call overhead).
+**Standard library**: 12 modules (math, str, io, fs, http, json, csv, tmpl, toon, re, time, os) accessible via all import forms. Stdlib calls are optimized with direct dispatch (no map lookup or indirect call overhead).
 
 ## Limitations
 
@@ -328,6 +329,7 @@ cargo run -- run tests/stdlib_io_test.tok
 cargo run -- run tests/stdlib_json_test.tok
 cargo run -- run tests/stdlib_toon_test.tok
 cargo run -- run tests/stdlib_csv_test.tok
+cargo run -- run tests/stdlib_tmpl_test.tok
 cargo run -- run tests/stdlib_os_test.tok
 cargo run -- run tests/stdlib_fs_test.tok
 cargo run -- run tests/stdlib_re_test.tok

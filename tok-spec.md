@@ -671,6 +671,7 @@ _cache={}                     # private
 @"io"                         # file I/O (read_file, write_file, mkdir, ls, rm, etc.)
 @"json"                       # JSON encode/decode (parse, stringify, pretty)
 @"csv"                        # CSV parse/encode (headers-to-maps, RFC 4180)
+@"tmpl"                       # Template rendering ({.key.} syntax, sections, loops)
 @"toon"                       # TOON encode/decode (compact, LLM-optimized format)
 @"os"                         # OS interaction (exec, env, cwd, pid, sleep, etc.)
 ```
@@ -856,7 +857,39 @@ pl(data[0].score)                    # 95
 pl(c.cstr([{x:1 y:2} {x:3 y:4}]))   # x,y\n1,2\n3,4
 ```
 
-### 12.8 Regex Module (`@"re"`)
+### 12.8 Template Module (`@"tmpl"`)
+
+Template rendering with `{.key.}` syntax — compact, tok-flavored delimiters.
+
+| Function | Description |
+|----------|-------------|
+| `render(template data)` | Parse template string + render with data map → string |
+| `compile(template)` | Parse template → compiled object (reusable) |
+| `apply(compiled data)` | Render compiled template with data → string |
+
+Template syntax:
+
+| Syntax | Description |
+|--------|-------------|
+| `{.key.}` | Variable substitution |
+| `{.obj.field.}` | Dot-notation access |
+| `{.#key.}...{./key.}` | Section (loop if array, conditional if truthy) |
+| `{.^key.}...{./key.}` | Inverted section (render if falsy/empty) |
+| `{.!comment.}` | Comment (ignored in output) |
+| `{...}` | Current element (for primitive arrays) |
+
+Sections iterate arrays, act as conditionals for other types. Inverted sections render when the key is falsy, nil, or an empty array. Use backtick raw strings in Tok to avoid interpolation conflicts.
+
+Example:
+```
+t=@"tmpl"
+out=t.render(`Hello {.name.}!` {name: "World"})     # Hello World!
+
+tpl=t.compile(`{.#users.}{.name.}: {.role.}\n{./users.}`)
+t.apply(tpl {users: [{name:"Alice" role:"admin"} {name:"Bob" role:"user"}]})
+```
+
+### 12.9 Regex Module (`@"re"`)
 | Function | Description |
 |----------|-------------|
 | `rmatch(s pat)` | Test if string matches |
@@ -864,14 +897,14 @@ pl(c.cstr([{x:1 y:2} {x:3 y:4}]))   # x,y\n1,2\n3,4
 | `rall(s pat)` | Find all matches |
 | `rsub(s pat rep)` | Replace matches |
 
-### 12.9 Time Module (`@"time"`)
+### 12.10 Time Module (`@"time"`)
 | Function | Description |
 |----------|-------------|
 | `now()` | Current unix timestamp (float) |
 | `sleep(ms)` | Sleep for milliseconds |
 | `fmt(ts pat)` | Format timestamp (`%Y` `%m` `%d` `%H` `%M` `%S`) |
 
-### 12.10 Math Module (`@"math"`)
+### 12.11 Math Module (`@"math"`)
 
 Constants: `pi`, `e`, `inf`, `nan`
 
@@ -889,7 +922,7 @@ Constants: `pi`, `e`, `inf`, `nan`
 | `min(a b)` `max(a b)` | Min/max of two values |
 | `random()` | Random float 0..1 |
 
-### 12.11 String Module (`@"str"`)
+### 12.12 String Module (`@"str"`)
 | Function | Description |
 |----------|-------------|
 | `upper(s)` `lower(s)` | Case conversion |
@@ -907,7 +940,7 @@ Constants: `pi`, `e`, `inf`, `nan`
 | `rev(s)` | Reverse string |
 | `len(s)` | String length |
 
-### 12.12 OS Module (`@"os"`)
+### 12.13 OS Module (`@"os"`)
 | Function | Description |
 |----------|-------------|
 | `args()` | CLI arguments (all, including program) |

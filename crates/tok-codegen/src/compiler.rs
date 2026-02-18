@@ -440,6 +440,7 @@ impl Compiler {
         self.declare_runtime_func("tok_stdlib_http", &[], &[PTR]);
         self.declare_runtime_func("tok_stdlib_re", &[], &[PTR]);
         self.declare_runtime_func("tok_stdlib_time", &[], &[PTR]);
+        self.declare_runtime_func("tok_stdlib_tmpl", &[], &[PTR]);
         self.declare_runtime_func("tok_stdlib_toon", &[], &[PTR]);
 
         // ── Stdlib trampoline direct-call declarations ──────────────
@@ -541,6 +542,13 @@ impl Compiler {
         // @"csv" — 1-arg
         for name in &["tok_csv_parse_t", "tok_csv_stringify_t"] {
             self.declare_runtime_func(name, sig1, ret);
+        }
+
+        // @"tmpl" — 1-arg
+        self.declare_runtime_func("tok_tmpl_compile_t", sig1, ret);
+        // @"tmpl" — 2-arg
+        for name in &["tok_tmpl_render_t", "tok_tmpl_apply_t"] {
+            self.declare_runtime_func(name, sig2, ret);
         }
 
         // @"toon" — 1-arg
@@ -2091,8 +2099,9 @@ fn compile_expr(ctx: &mut FuncCtx, expr: &HirExpr) -> Option<Value> {
                             "http" => "tok_stdlib_http",
                             "re"   => "tok_stdlib_re",
                             "time" => "tok_stdlib_time",
+                            "tmpl" => "tok_stdlib_tmpl",
                             "toon" => "tok_stdlib_toon",
-                            other  => panic!("Unknown module: @\"{}\" — only stdlib modules (math, str, os, io, json, csv, fs, http, re, time, toon) are supported in compiled mode", other),
+                            other  => panic!("Unknown module: @\"{}\" — only stdlib modules (math, str, os, io, json, csv, fs, http, re, time, tmpl, toon) are supported in compiled mode", other),
                         };
                         let func_ref = ctx.get_runtime_func_ref(constructor);
                         let call = ctx.builder.ins().call(func_ref, &[]);
@@ -3022,6 +3031,12 @@ fn get_stdlib_func(module: &str, field: &str) -> Option<(&'static str, usize)> {
         ("csv", "cstr") => Some(("tok_csv_stringify_t", 1)),
         ("csv", "parse") => Some(("tok_csv_parse_t", 1)),
         ("csv", "stringify") => Some(("tok_csv_stringify_t", 1)),
+
+        // @"tmpl" — 2-arg
+        ("tmpl", "render") => Some(("tok_tmpl_render_t", 2)),
+        ("tmpl", "apply") => Some(("tok_tmpl_apply_t", 2)),
+        // @"tmpl" — 1-arg
+        ("tmpl", "compile") => Some(("tok_tmpl_compile_t", 1)),
 
         // @"toon" — 1-arg
         ("toon", "tparse") => Some(("tok_toon_parse_t", 1)),

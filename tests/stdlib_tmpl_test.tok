@@ -1,0 +1,151 @@
+// stdlib_tmpl_test.tok — Tests for @"tmpl" module
+//
+// Compile & run:  cargo run -- run tests/stdlib_tmpl_test.tok
+
+t=@"tmpl"
+pass=0
+fail=0
+
+f check(name got want){
+  got==want?{
+    pl("PASS: {name}")
+    pass=pass+1
+  }:{
+    pl("FAIL: {name}")
+    pl("  got:  {got}")
+    pl("  want: {want}")
+    fail=fail+1
+  }
+}
+
+pl("=== @\"tmpl\" tests ===")
+pl("")
+
+// --- Variable substitution ---
+out=t.render(`Hello {.name.}!` {name: "World"})
+check("var substitution" out "Hello World!")
+
+// --- Multiple variables ---
+out=t.render(`{.a.} and {.b.}` {a: "X" b: "Y"})
+check("multi vars" out "X and Y")
+
+// --- Dot notation ---
+out=t.render(`Hi {.user.name.}!` {user: {name: "Alice"}})
+check("dot notation" out "Hi Alice!")
+
+// --- Deep dot notation ---
+out=t.render(`{.a.b.c.}` {a: {b: {c: "deep"}}})
+check("deep dot" out "deep")
+
+// --- Missing key produces empty ---
+out=t.render(`Hello {.missing.}!` {name: "World"})
+check("missing key" out "Hello !")
+
+// --- Section: loop over array ---
+out=t.render(`{.#items.}{.name.} {./items.}` {items: [{name: "A"} {name: "B"} {name: "C"}]})
+check("section loop" out "A B C ")
+
+// --- Section: conditional (truthy map) ---
+out=t.render(`{.#user.}Hi {.name.}!{./user.}` {user: {name: "Bob"}})
+check("section map" out "Hi Bob!")
+
+// --- Section: conditional (truthy bool) ---
+out=t.render(`{.#show.}visible{./show.}` {show: T})
+check("section bool true" out "visible")
+
+// --- Section: falsy bool skipped ---
+out=t.render(`{.#show.}visible{./show.}` {show: F})
+check("section bool false" out "")
+
+// --- Section: missing key skipped ---
+out=t.render(`{.#nope.}content{./nope.}` {other: 1})
+check("section missing" out "")
+
+// --- Inverted section: falsy renders ---
+out=t.render(`{.^items.}No items{./items.}` {items: []})
+check("inverted empty array" out "No items")
+
+// --- Inverted section: missing key renders ---
+out=t.render(`{.^missing.}fallback{./missing.}` {})
+check("inverted missing" out "fallback")
+
+// --- Inverted section: truthy skipped ---
+out=t.render(`{.^items.}No items{./items.}` {items: [1 2]})
+check("inverted truthy" out "")
+
+// --- Self reference with primitive array ---
+out=t.render(`{.#tags.}{...}, {./tags.}` {tags: ["a" "b" "c"]})
+check("self ref" out "a, b, c, ")
+
+// --- Comments ignored ---
+out=t.render(`before{.! this is a comment .}after` {})
+check("comment" out "beforeafter")
+
+// --- Nested sections ---
+data={groups: [{name: "Team 1" members: [{n: "Alice"} {n: "Bob"}]} {name: "Team 2" members: [{n: "Carol"}]}]}
+out=t.render(`{.#groups.}[{.name.}: {.#members.}{.n.} {./members.}]{./groups.}` data)
+check("nested sections" out "[Team 1: Alice Bob ][Team 2: Carol ]")
+
+// --- Empty template ---
+out=t.render("" {name: "test"})
+check("empty template" out "")
+
+// --- No tags template ---
+out=t.render("just text" {})
+check("no tags" out "just text")
+
+// --- Integer value ---
+out=t.render(`count: {.n.}` {n: 42})
+check("int value" out "count: 42")
+
+// --- Float value ---
+out=t.render(`pi: {.v.}` {v: 3.14})
+check("float value" out "pi: 3.14")
+
+// --- Bool value ---
+out=t.render(`flag: {.v.}` {v: T})
+check("bool value" out "flag: true")
+
+// --- Nil value produces empty ---
+out=t.render(`val: {.v.}` {v: N})
+check("nil value" out "val: ")
+
+// --- Section with int: 0 is falsy ---
+out=t.render(`{.#n.}yes{./n.}` {n: 0})
+check("section int 0" out "")
+
+// --- Section with int: nonzero is truthy ---
+out=t.render(`{.#n.}yes{./n.}` {n: 5})
+check("section int nonzero" out "yes")
+
+// --- Section with string: empty is falsy ---
+out=t.render(`{.#s.}yes{./s.}` {s: ""})
+check("section str empty" out "")
+
+// --- Section with string: nonempty is truthy ---
+out=t.render(`{.#s.}yes{./s.}` {s: "hi"})
+check("section str nonempty" out "yes")
+
+// --- compile + apply roundtrip ---
+tpl=t.compile(`{.greeting.} {.name.}!`)
+out1=t.apply(tpl {greeting: "Hello" name: "Alice"})
+out2=t.apply(tpl {greeting: "Hi" name: "Bob"})
+check("compile+apply 1" out1 "Hello Alice!")
+check("compile+apply 2" out2 "Hi Bob!")
+
+// --- compile + apply with sections ---
+tpl2=t.compile(`{.#items.}{.name.} {./items.}`)
+out3=t.apply(tpl2 {items: [{name: "X"} {name: "Y"}]})
+check("compile+apply section" out3 "X Y ")
+
+// --- Inverted section with nil ---
+out=t.render(`{.^v.}nil{./v.}` {v: N})
+check("inverted nil" out "nil")
+
+// --- Inverted section with bool false ---
+out=t.render(`{.^v.}no{./v.}` {v: F})
+check("inverted false" out "no")
+
+pl("")
+pl("=== Results: {pass} passed, {fail} failed ===")
+fail>0?pl("SOME TESTS FAILED"):N

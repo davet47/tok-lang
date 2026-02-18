@@ -1,0 +1,72 @@
+// template_demo.tok — Template rendering with @"tmpl"
+//
+// Demonstrates {.key.} template syntax: variable substitution,
+// loops over arrays, conditional sections, and compile/apply.
+//
+// Compile & run:   cargo run -- run examples/template_demo.tok
+
+t=@"tmpl"
+
+pl("=== Template Rendering ===")
+pl("")
+
+// --- Simple variable substitution ---
+out=t.render(`Hello, {.name.}! Welcome to {.city.}.` {name: "Alice" city: "Tok Town"})
+pl(out)
+pl("")
+
+// --- Loop over array of objects ---
+users=[{name: "Alice" role: "admin"} {name: "Bob" role: "user"} {name: "Carol" role: "editor"}]
+roster=t.render(`Team Roster:
+{.#members.}  - {.name.} ({.role.})
+{./members.}` {members: users})
+pl(roster)
+
+// --- Conditional sections ---
+pl("=== Conditional Sections ===")
+tpl=t.compile(`{.#premium.}Premium user: {.name.}{./premium.}{.^premium.}Free user: {.name.}{./premium.}`)
+pl(t.apply(tpl {name: "Alice" premium: T}))
+pl(t.apply(tpl {name: "Bob" premium: F}))
+pl("")
+
+// --- Nested sections ---
+pl("=== Nested Data ===")
+report={
+  title: "Q4 Report"
+  teams: [
+    {name: "Engineering" members: [{n: "Alice"} {n: "Bob"}]}
+    {name: "Design" members: [{n: "Carol"}]}
+  ]
+}
+out2=t.render(`{.title.}
+{.#teams.}
+[{.name.}]
+{.#members.}  * {.n.}
+{./members.}{./teams.}` report)
+pl(out2)
+
+// --- Primitive array with self-reference ---
+pl("=== Tags ===")
+out3=t.render(`Tags: {.#tags.}{...} {./tags.}` {tags: ["rust" "tok" "template"]})
+pl(out3)
+pl("")
+
+// --- Compile once, apply many ---
+pl("=== Compile + Apply ===")
+email=t.compile(`Dear {.name.},
+
+{.#items.}Your order includes {.product.} (x{.qty.}).
+{./items.}{.^items.}Your cart is empty.
+{./items.}
+Thank you!`)
+
+o1=t.apply(email {name: "Alice" items: [{product: "Widget" qty: 3} {product: "Gadget" qty: 1}]})
+pl(o1)
+
+o2=t.apply(email {name: "Bob" items: []})
+pl(o2)
+
+// --- Missing keys are empty ---
+pl("=== Missing Keys ===")
+out4=t.render(`Name: {.name.}, Age: {.age.}` {name: "Eve"})
+pl(out4)

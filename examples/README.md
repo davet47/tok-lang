@@ -92,6 +92,13 @@ CSV parsing and data analysis: parse CSV text into structured maps, filter by re
 tok run examples/csv_data.tok
 ```
 
+### `template_demo.tok`
+Template rendering with `{.key.}` syntax: variable substitution, loops over arrays, conditional and inverted sections, compile/apply for reuse, and nested data. Demonstrates `@"tmpl"` module.
+
+```bash
+tok run examples/template_demo.tok
+```
+
 ### `http_api.tok`
 An HTTP server using `@"http"`. Starts on port 8080 with route handlers for GET and POST. Requires building separately since the server runs indefinitely.
 

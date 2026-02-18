@@ -972,6 +972,50 @@ print(out.getvalue().strip())
 
 ---
 
+## Example 18: Template Rendering
+
+### Tok
+```tok
+t=@"tmpl"
+
+// One-shot render
+out=t.render(`Hello {.name.}!` {name: "World"})
+pl(out)
+
+// Loop over array
+users=[{name: "Alice" role: "admin"} {name: "Bob" role: "user"}]
+pl(t.render(`{.#users.}{.name.}: {.role.}\n{./users.}` {users: users}))
+
+// Compile once, apply many
+tpl=t.compile(`{.#items.}- {.name.}\n{./items.}{.^items.}(empty){./items.}`)
+pl(t.apply(tpl {items: [{name: "X"} {name: "Y"}]}))
+pl(t.apply(tpl {items: []}))
+```
+
+### Python
+```python
+from string import Template
+# Python's Template is limited; Jinja2 needed for sections
+from jinja2 import Environment
+
+env = Environment()
+
+# One-shot render
+print(Template("Hello $name!").substitute(name="World"))
+
+# Loop over array
+users = [{"name": "Alice", "role": "admin"}, {"name": "Bob", "role": "user"}]
+tpl = env.from_string("{% for u in users %}{{ u.name }}: {{ u.role }}\n{% endfor %}")
+print(tpl.render(users=users))
+
+# Compile once, apply many
+tpl2 = env.from_string("{% for i in items %}- {{ i.name }}\n{% endfor %}{% if not items %}(empty){% endif %}")
+print(tpl2.render(items=[{"name": "X"}, {"name": "Y"}]))
+print(tpl2.render(items=[]))
+```
+
+---
+
 ## Token Efficiency Analysis
 
 All token counts measured with `cl100k_base` (GPT-4 / Claude tokenizer) via `tiktoken`.
