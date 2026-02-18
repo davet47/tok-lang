@@ -335,4 +335,103 @@ pl(split("" ","))
 f fib(n)=n<2?n:fib(n-1)+fib(n-2)
 pl(fib(10))
 // expect: 55
+// ============================================================
+// SECTION 16: Variable reuse across types (Bug 1 regression)
+// ============================================================
+vr1=[1 2 3]
+vr1=42
+pl(vr1)
+// expect: 42
+
+vr2="hello"
+vr2=3.14
+pl(vr2)
+// expect: 3.14
+
+vr3={a:1 b:2}
+vr3=99
+pl(vr3)
+// expect: 99
+
+// ============================================================
+// SECTION 17: Break/continue in conditional blocks (Bug 2)
+// ============================================================
+// cond?{!} — break inside conditional block
+r2=0
+~(i:0..100){
+  i>=5?{!}
+  r2=i
+}
+pl(r2)
+// expect: 4
+
+// cond?! — inline conditional break
+r3=0
+~(i:0..100){
+  i>=5?!
+  r3=i
+}
+pl(r3)
+// expect: 4
+
+// cond?>! — inline conditional continue
+s17=""
+~(i:0..10){
+  i%2==0?>!
+  s17=s17+str(i)
+}
+pl(s17)
+// expect: 13579
+
+// ============================================================
+// SECTION 18: Countdown/reverse ranges (Bug 3 regression)
+// ============================================================
+s18=""
+~(i:5..0){s18=s18+str(i)}
+pl(s18)
+// expect: 54321
+
+s18b=""
+~(i:3..=0){s18b=s18b+str(i)}
+pl(s18b)
+// expect: 3210
+
+// Same start/end exclusive — zero iterations
+s18c="x"
+~(i:5..5){s18c=s18c+"y"}
+pl(s18c)
+// expect: x
+
+// Same start/end inclusive — one iteration
+s18d=""
+~(i:5..=5){s18d=s18d+str(i)}
+pl(s18d)
+// expect: 5
+
+// ============================================================
+// SECTION 19: Map key-value foreach (Bug 4 regression)
+// ============================================================
+m19={x:10 y:20 z:30}
+s19=""
+~(k v:m19){
+  s19=s19+k+str(v)
+}
+pl(s19)
+// expect: x10y20z30
+
+// ============================================================
+// SECTION 20: Any-typed float comparisons (Bug 5 regression)
+// ============================================================
+rr=rand()
+pl(type(rr))
+// expect: float
+pl(rr<1.0)
+// expect: T
+pl(rr>=0.0)
+// expect: T
+
+xx=abs(-3.14)
+pl(xx>3.0)
+// expect: T
+
 pl("coverage tests complete")

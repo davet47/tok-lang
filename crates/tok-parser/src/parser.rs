@@ -832,9 +832,28 @@ impl Parser {
             match self.peek().clone() {
                 Token::Question => {
                     self.advance();
-                    // Ternary: expr ? then : else
-                    // or expr ? then (without else)
-                    let then_expr = self.parse_ternary()?;
+                    // Special case: cond?! (conditional break) and cond?>! (conditional continue)
+                    let then_expr = if matches!(self.peek(), Token::Bang)
+                        && matches!(
+                            self.peek_at(1),
+                            Token::Newline | Token::Eof | Token::RBrace | Token::Colon
+                        )
+                    {
+                        self.advance(); // consume !
+                        Expr::Break
+                    } else if matches!(self.peek(), Token::GtBang)
+                        && matches!(
+                            self.peek_at(1),
+                            Token::Newline | Token::Eof | Token::RBrace | Token::Colon
+                        )
+                    {
+                        self.advance(); // consume >!
+                        Expr::Continue
+                    } else {
+                        // Ternary: expr ? then : else
+                        // or expr ? then (without else)
+                        self.parse_ternary()?
+                    };
                     let else_expr = if matches!(self.peek(), Token::Colon) {
                         self.advance();
                         Some(Box::new(self.parse_ternary()?))
@@ -891,16 +910,39 @@ impl Parser {
                     };
                 }
                 Token::QuestionGt => {
-                    self.advance();
-                    // Filter: expr ?> func
-                    // Parse at parse_or level so `/>` isn't consumed
-                    let pred = self.parse_or()?;
-                    expr = Expr::Filter {
-                        expr: Box::new(expr),
-                        pred: Box::new(pred),
-                    };
-                    // After filter, allow chaining with />
-                    // (handled by the loop continuing)
+                    // Special case: cond?>! is conditional continue (? then >!)
+                    if matches!(self.peek_at(1), Token::Bang)
+                        && matches!(
+                            self.peek_at(2),
+                            Token::Newline | Token::Eof | Token::RBrace | Token::Colon
+                        )
+                    {
+                        self.advance(); // consume ?>
+                        self.advance(); // consume !
+                        let then_expr = Expr::Continue;
+                        let else_expr = if matches!(self.peek(), Token::Colon) {
+                            self.advance();
+                            Some(Box::new(self.parse_ternary()?))
+                        } else {
+                            None
+                        };
+                        expr = Expr::Ternary {
+                            cond: Box::new(expr),
+                            then_expr: Box::new(then_expr),
+                            else_expr,
+                        };
+                    } else {
+                        self.advance();
+                        // Filter: expr ?> func
+                        // Parse at parse_or level so `/>` isn't consumed
+                        let pred = self.parse_or()?;
+                        expr = Expr::Filter {
+                            expr: Box::new(expr),
+                            pred: Box::new(pred),
+                        };
+                        // After filter, allow chaining with />
+                        // (handled by the loop continuing)
+                    }
                 }
                 Token::SlashGt => {
                     self.advance();

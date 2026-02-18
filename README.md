@@ -304,14 +304,6 @@ All 9 phases of the language spec are complete:
 - **Reference counting only** -- no cycle detection, so reference cycles will leak memory
 - **File-based imports in compiled mode** -- only stdlib modules (`@"math"`, etc.) work; `@"file.tok"` imports are not yet supported in the compiler
 
-### Known Codegen Bugs
-
-- **Variable reuse across types** -- reassigning a variable from one type to another (e.g., `t=top(...)` then `t=clock()`) can crash at cleanup. Workaround: use unique variable names.
-- **Break/continue in conditional blocks** -- `cond?{!}` crashes; `!` and `>!` only work as standalone statements. `cond?!` doesn't parse.
-- **Countdown ranges** -- `~(i:5..0)` silently produces zero iterations (codegen only emits forward comparison).
-- **Map key-value foreach** -- `~(k v:map){}` crashes; indexed foreach only works on arrays.
-- **Any-typed float comparisons** -- comparing dynamically-typed floats from builtins like `rand()` (e.g., `r<1.0`) can crash. Workaround: use `type(r)` checks instead of direct comparison.
-
 ## Tests
 
 ```bash

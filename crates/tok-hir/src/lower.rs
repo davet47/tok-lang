@@ -1659,10 +1659,17 @@ impl<'a> Lowerer<'a> {
                 val_var,
                 iter,
             } => {
-                self.define_local(idx_var, Type::Int);
                 let iter_ty = self.infer_expr_type(iter);
+                // For maps, idx is the string key; for arrays, idx is the integer index
+                let idx_ty = if matches!(iter_ty, Type::Map(_)) {
+                    Type::Str
+                } else {
+                    Type::Int
+                };
+                self.define_local(idx_var, idx_ty);
                 let elem_ty = match iter_ty {
                     Type::Array(inner) => *inner,
+                    Type::Map(inner) => *inner,
                     Type::Str => Type::Str,
                     Type::Range => Type::Int,
                     _ => Type::Any,

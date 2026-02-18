@@ -1632,12 +1632,54 @@ fn compile_stmt(ctx: &mut FuncCtx, stmt: &HirStmt) -> Option<Value> {
                         }
                         _ => v,
                     };
-                    ctx.builder.def_var(var, coerced);
+                    // Determine the effective type after coercion.
+                    // Coercion arms 1-5 produce values matching existing_ty.
+                    // The catch-all (_ => v) passes through the raw value, which
+                    // may have a different type — track it so cleanup uses the
+                    // correct type for RC dec.
+                    let effective_ty = match (&existing_ty, &value.ty) {
+                        // Arms that extract concrete from Any → stays existing_ty
+                        (Type::Int, Type::Any)
+                        | (Type::Float, Type::Any)
+                        | (Type::Bool, Type::Any) => existing_ty.clone(),
+                        (_, Type::Any) if !matches!(existing_ty, Type::Any) => {
+                            existing_ty.clone()
+                        }
+                        // Wrap concrete→Any → stays Any
+                        (Type::Any, vt)
+                            if !matches!(vt, Type::Any | Type::Nil | Type::Never) =>
+                        {
+                            existing_ty.clone()
+                        }
+                        // Catch-all: actual type may have changed
+                        _ => value.ty.clone(),
+                    };
+
+                    let new_ct = cl_type_or_i64(&effective_ty);
+                    let old_ct = cl_type_or_i64(&existing_ty);
+                    let type_changed = std::mem::discriminant(&effective_ty)
+                        != std::mem::discriminant(&existing_ty);
+
+                    if new_ct != old_ct {
+                        // Cranelift type changed (e.g., F64↔I64) — need a new variable
+                        let new_var = ctx.new_var(new_ct);
+                        ctx.builder.def_var(new_var, coerced);
+                        ctx.vars.insert(name.clone(), (new_var, effective_ty));
+                    } else {
+                        ctx.builder.def_var(var, coerced);
+                        if type_changed {
+                            ctx.vars.insert(name.clone(), (var, effective_ty));
+                        }
+                    }
+
                     // RC: decrement old value now that new value is stored.
-                    // Guard against aliasing (e.g., x = push(x, v) returns same ptr).
                     if let Some(old) = old_val {
-                        if is_heap_type(&existing_ty) {
-                            // Concrete pointer type: only dec if old != new pointer
+                        if type_changed {
+                            // Types differ, so values can't alias — always dec old
+                            emit_rc_dec(ctx, old, &existing_ty);
+                        } else if is_heap_type(&existing_ty) {
+                            // Same concrete heap type: only dec if old != new pointer
+                            // (guards against aliasing, e.g., x = push(x, v))
                             let same = ctx.builder.ins().icmp(
                                 cranelift_codegen::ir::condcodes::IntCC::Equal,
                                 old,
@@ -1772,6 +1814,9 @@ fn compile_stmt(ctx: &mut FuncCtx, stmt: &HirStmt) -> Option<Value> {
         HirStmt::Break => {
             if let Some(&(_, break_block)) = ctx.loop_stack.last() {
                 ctx.builder.ins().jump(break_block, &[]);
+                let dead_block = ctx.builder.create_block();
+                ctx.builder.switch_to_block(dead_block);
+                ctx.builder.seal_block(dead_block);
                 ctx.block_terminated = true;
             }
             None
@@ -5069,14 +5114,21 @@ fn compile_loop(ctx: &mut FuncCtx, kind: &HirLoopKind, body: &[HirStmt]) {
             ctx.builder.def_var(loop_var, start_val);
             ctx.vars.insert(var.clone(), (loop_var, Type::Int));
 
-            let cc = if *inclusive {
+            let cc_asc = if *inclusive {
                 cranelift_codegen::ir::condcodes::IntCC::SignedLessThanOrEqual
             } else {
                 cranelift_codegen::ir::condcodes::IntCC::SignedLessThan
             };
 
-            // Try loop unrolling for simple bodies (non-inclusive ranges only)
-            if !*inclusive && can_unroll_loop(body) {
+            // Determine if range is statically ascending (for unrolling optimization)
+            let static_ascending = match (&start.kind, &end.kind) {
+                (HirExprKind::Int(s), HirExprKind::Int(e)) => *s < *e,
+                _ => false,
+            };
+
+            // Try loop unrolling for simple bodies (ascending, non-inclusive ranges only)
+            if !*inclusive && can_unroll_loop(body) && static_ascending {
+                let cc = cc_asc;
                 // Unrolled loop: main loop steps by UNROLL_FACTOR, remainder loop handles leftovers
                 let unrolled_body_block = ctx.builder.create_block();
                 let unrolled_inc_block = ctx.builder.create_block();
@@ -5176,39 +5228,82 @@ fn compile_loop(ctx: &mut FuncCtx, kind: &HirLoopKind, body: &[HirStmt]) {
                 ctx.builder.seal_block(exit_block);
                 ctx.block_terminated = false;
             } else {
-                // Standard rotated loop (non-unrolled path)
+                // Standard rotated loop with runtime direction support.
+                // Handles both ascending (0..5) and descending (5..0) ranges.
+                let cc_desc = if *inclusive {
+                    cranelift_codegen::ir::condcodes::IntCC::SignedGreaterThanOrEqual
+                } else {
+                    cranelift_codegen::ir::condcodes::IntCC::SignedGreaterThan
+                };
+
                 let body_block = ctx.builder.create_block();
-                let inc_block = ctx.builder.create_block();
+                let dispatch_block = ctx.builder.create_block();
+                let asc_inc_block = ctx.builder.create_block();
+                let desc_inc_block = ctx.builder.create_block();
                 let exit_block = ctx.builder.create_block();
 
-                // Guard: skip loop entirely if start >= end
-                let guard_cond = ctx.builder.ins().icmp(cc, start_val, end_val);
+                // Determine direction at runtime
+                let is_ascending = ctx.builder.ins().icmp(
+                    cranelift_codegen::ir::condcodes::IntCC::SignedLessThan,
+                    start_val,
+                    end_val,
+                );
+
+                // Guard: check if range has any iterations in either direction
+                let asc_guard = ctx.builder.ins().icmp(cc_asc, start_val, end_val);
+                let desc_guard = ctx.builder.ins().icmp(cc_desc, start_val, end_val);
+                // Enter loop if ascending guard OR descending guard passes
+                let enter_loop = ctx.builder.ins().bor(asc_guard, desc_guard);
                 ctx.builder
                     .ins()
-                    .brif(guard_cond, body_block, &[], exit_block, &[]);
+                    .brif(enter_loop, body_block, &[], exit_block, &[]);
 
                 // Body block
                 ctx.builder.switch_to_block(body_block);
 
-                ctx.loop_stack.push((inc_block, exit_block));
+                // continue jumps to dispatch_block which routes to correct inc
+                ctx.loop_stack.push((dispatch_block, exit_block));
                 compile_body(ctx, body, &Type::Nil);
                 ctx.loop_stack.pop();
 
                 if !ctx.block_terminated {
-                    ctx.builder.ins().jump(inc_block, &[]);
+                    ctx.builder.ins().jump(dispatch_block, &[]);
                 }
 
-                // Increment + back-edge condition check
-                ctx.builder.switch_to_block(inc_block);
-                ctx.builder.seal_block(inc_block);
+                // Dispatch block: route to ascending or descending increment
+                ctx.builder.switch_to_block(dispatch_block);
+                ctx.builder.seal_block(dispatch_block);
+                ctx.builder.ins().brif(
+                    is_ascending,
+                    asc_inc_block,
+                    &[],
+                    desc_inc_block,
+                    &[],
+                );
+
+                // Ascending increment: i += 1, check i < end
+                ctx.builder.switch_to_block(asc_inc_block);
+                ctx.builder.seal_block(asc_inc_block);
                 let current = ctx.builder.use_var(loop_var);
                 let one = ctx.builder.ins().iconst(types::I64, 1);
                 let next = ctx.builder.ins().iadd(current, one);
                 ctx.builder.def_var(loop_var, next);
-                let cond = ctx.builder.ins().icmp(cc, next, end_val);
+                let asc_cond = ctx.builder.ins().icmp(cc_asc, next, end_val);
                 ctx.builder
                     .ins()
-                    .brif(cond, body_block, &[], exit_block, &[]);
+                    .brif(asc_cond, body_block, &[], exit_block, &[]);
+
+                // Descending increment: i -= 1, check i > end
+                ctx.builder.switch_to_block(desc_inc_block);
+                ctx.builder.seal_block(desc_inc_block);
+                let current = ctx.builder.use_var(loop_var);
+                let one = ctx.builder.ins().iconst(types::I64, 1);
+                let next = ctx.builder.ins().isub(current, one);
+                ctx.builder.def_var(loop_var, next);
+                let desc_cond = ctx.builder.ins().icmp(cc_desc, next, end_val);
+                ctx.builder
+                    .ins()
+                    .brif(desc_cond, body_block, &[], exit_block, &[]);
 
                 ctx.builder.seal_block(body_block);
                 ctx.builder.switch_to_block(exit_block);
@@ -5340,19 +5435,51 @@ fn compile_loop(ctx: &mut FuncCtx, kind: &HirLoopKind, body: &[HirStmt]) {
             val_var: val_name,
             iter,
         } => {
-            // Similar to ForEach but also binds an index variable
+            // Indexed foreach: ~(i v:collection){...}
+            // For arrays: i = integer index, v = element
+            // For maps: i = string key, v = value
             let iter_val = compile_expr(ctx, iter).unwrap();
-            let len_ref = ctx.get_runtime_func_ref("tok_array_len");
-            let len_call = ctx.builder.ins().call(len_ref, &[iter_val]);
-            let len_val = ctx.builder.inst_results(len_call)[0];
+            let is_map = matches!(&iter.ty, Type::Map(_));
 
-            let idx_var = ctx.new_var(types::I64);
+            // Get length and (for maps) extract keys/vals arrays
+            let (len_val, keys_arr, vals_arr) = if is_map {
+                let len_ref = ctx.get_runtime_func_ref("tok_map_len");
+                let len_call = ctx.builder.ins().call(len_ref, &[iter_val]);
+                let len_val = ctx.builder.inst_results(len_call)[0];
+
+                let keys_ref = ctx.get_runtime_func_ref("tok_map_keys");
+                let keys_call = ctx.builder.ins().call(keys_ref, &[iter_val]);
+                let keys_arr = ctx.builder.inst_results(keys_call)[0];
+
+                let vals_ref = ctx.get_runtime_func_ref("tok_map_vals");
+                let vals_call = ctx.builder.ins().call(vals_ref, &[iter_val]);
+                let vals_arr = ctx.builder.inst_results(vals_call)[0];
+
+                (len_val, Some(keys_arr), Some(vals_arr))
+            } else {
+                let len_ref = ctx.get_runtime_func_ref("tok_array_len");
+                let len_call = ctx.builder.ins().call(len_ref, &[iter_val]);
+                let len_val = ctx.builder.inst_results(len_call)[0];
+                (len_val, None, None)
+            };
+
+            // Internal integer loop counter (always i64)
+            let int_idx_var = ctx.new_var(types::I64);
             let zero = ctx.builder.ins().iconst(types::I64, 0);
-            ctx.builder.def_var(idx_var, zero);
-            ctx.vars.insert(idx_name.clone(), (idx_var, Type::Int));
+            ctx.builder.def_var(int_idx_var, zero);
 
+            // User-visible index/key variable
+            let idx_type = if is_map { Type::Str } else { Type::Int };
+            let idx_ct = cl_type_or_i64(&idx_type);
+            let idx_var = ctx.new_var(idx_ct);
+            let idx_zero = zero_value(&mut ctx.builder, idx_ct);
+            ctx.builder.def_var(idx_var, idx_zero);
+            ctx.vars.insert(idx_name.clone(), (idx_var, idx_type));
+
+            // Value variable
             let elem_type = match &iter.ty {
                 Type::Array(inner) => inner.as_ref().clone(),
+                Type::Map(inner) => inner.as_ref().clone(),
                 _ => Type::Any,
             };
             let ct = cl_type_or_i64(&elem_type);
@@ -5370,7 +5497,7 @@ fn compile_loop(ctx: &mut FuncCtx, kind: &HirLoopKind, body: &[HirStmt]) {
             ctx.builder.ins().jump(header_block, &[]);
             ctx.builder.switch_to_block(header_block);
 
-            let current_idx = ctx.builder.use_var(idx_var);
+            let current_idx = ctx.builder.use_var(int_idx_var);
             let cond = ctx.builder.ins().icmp(
                 cranelift_codegen::ir::condcodes::IntCC::SignedLessThan,
                 current_idx,
@@ -5383,25 +5510,52 @@ fn compile_loop(ctx: &mut FuncCtx, kind: &HirLoopKind, body: &[HirStmt]) {
             ctx.builder.switch_to_block(body_block);
             ctx.builder.seal_block(body_block);
 
-            let current_idx = ctx.builder.use_var(idx_var);
-            let get_ref = ctx.get_runtime_func_ref("tok_array_get");
-            let get_call = ctx.builder.ins().call(get_ref, &[iter_val, current_idx]);
-            let results = ctx.builder.inst_results(get_call);
-            let elem = from_tokvalue(ctx, results[0], results[1], &elem_type);
-            ctx.builder.def_var(elem_var, elem);
+            let current_idx = ctx.builder.use_var(int_idx_var);
+
+            if is_map {
+                // Map iteration: fetch key from keys array, value from vals array
+                let get_ref = ctx.get_runtime_func_ref("tok_array_get");
+
+                let get_key_call =
+                    ctx.builder
+                        .ins()
+                        .call(get_ref, &[keys_arr.unwrap(), current_idx]);
+                let key_results = ctx.builder.inst_results(get_key_call);
+                let key = from_tokvalue(ctx, key_results[0], key_results[1], &Type::Str);
+                ctx.builder.def_var(idx_var, key);
+
+                let get_val_call =
+                    ctx.builder
+                        .ins()
+                        .call(get_ref, &[vals_arr.unwrap(), current_idx]);
+                let val_results = ctx.builder.inst_results(get_val_call);
+                let val = from_tokvalue(ctx, val_results[0], val_results[1], &elem_type);
+                ctx.builder.def_var(elem_var, val);
+            } else {
+                // Array iteration: index is the integer, value from array
+                ctx.builder.def_var(idx_var, current_idx);
+
+                let get_ref = ctx.get_runtime_func_ref("tok_array_get");
+                let get_call = ctx.builder.ins().call(get_ref, &[iter_val, current_idx]);
+                let results = ctx.builder.inst_results(get_call);
+                let elem = from_tokvalue(ctx, results[0], results[1], &elem_type);
+                ctx.builder.def_var(elem_var, elem);
+            }
 
             ctx.loop_stack.push((inc_block, exit_block));
             compile_body(ctx, body, &Type::Nil);
             ctx.loop_stack.pop();
 
-            ctx.builder.ins().jump(inc_block, &[]);
+            if !ctx.block_terminated {
+                ctx.builder.ins().jump(inc_block, &[]);
+            }
 
             ctx.builder.switch_to_block(inc_block);
             ctx.builder.seal_block(inc_block);
-            let current_idx = ctx.builder.use_var(idx_var);
+            let current_idx = ctx.builder.use_var(int_idx_var);
             let one = ctx.builder.ins().iconst(types::I64, 1);
             let next_idx = ctx.builder.ins().iadd(current_idx, one);
-            ctx.builder.def_var(idx_var, next_idx);
+            ctx.builder.def_var(int_idx_var, next_idx);
             ctx.builder.ins().jump(header_block, &[]);
 
             ctx.builder.seal_block(header_block);
