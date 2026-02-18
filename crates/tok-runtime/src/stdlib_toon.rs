@@ -417,10 +417,10 @@ fn parse_bracket_header(s: &str) -> Option<(usize, char, Option<Vec<String>>, &s
     let inside = &s[1..bracket_end];
 
     // Detect delimiter
-    let (count_str, delim) = if inside.ends_with('|') {
-        (&inside[..inside.len() - 1], '|')
-    } else if inside.ends_with('\t') {
-        (&inside[..inside.len() - 1], '\t')
+    let (count_str, delim) = if let Some(stripped) = inside.strip_suffix('|') {
+        (stripped, '|')
+    } else if let Some(stripped) = inside.strip_suffix('\t') {
+        (stripped, '\t')
     } else {
         (inside, ',')
     };
@@ -652,12 +652,8 @@ unsafe fn encode_value(tv: &TokValue, out: &mut String, indent: usize, is_root: 
 }
 
 /// Encode an empty array.
-fn encode_empty_array(out: &mut String, is_root: bool) {
-    if is_root {
-        out.push_str("[0]:");
-    } else {
-        out.push_str("[0]:");
-    }
+fn encode_empty_array(out: &mut String, _is_root: bool) {
+    out.push_str("[0]:");
 }
 
 /// Encode a map (object) as indented key-value pairs.
@@ -681,7 +677,7 @@ unsafe fn encode_map(
                 if p.is_null() || (*p).data.is_empty() {
                     out.push(':');
                 } else {
-                    out.push_str(":");
+                    out.push(':');
                     encode_map(&(*p).data, out, indent + 2, false);
                 }
             }
