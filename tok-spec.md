@@ -670,6 +670,7 @@ _cache={}                     # private
 @"str"                        # string utilities (upper, lower, trim, split, replace, etc.)
 @"io"                         # file I/O (read_file, write_file, mkdir, ls, rm, etc.)
 @"json"                       # JSON encode/decode (parse, stringify, pretty)
+@"csv"                        # CSV parse/encode (headers-to-maps, RFC 4180)
 @"toon"                       # TOON encode/decode (compact, LLM-optimized format)
 @"os"                         # OS interaction (exec, env, cwd, pid, sleep, etc.)
 ```
@@ -835,7 +836,27 @@ pl(data.users[0].name)               # Alice
 pl(t.tstr({x:1 y:2}))                # x: 1\ny: 2
 ```
 
-### 12.7 Regex Module (`@"re"`)
+### 12.7 CSV Module (`@"csv"`)
+
+CSV parsing and encoding with automatic type detection.
+
+| Function | Description |
+|----------|-------------|
+| `cparse(s)` | Parse CSV string to array of maps (first row = headers) |
+| `cstr(v)` | Encode array of maps to CSV string |
+
+Parsing auto-detects field types: integers, floats, booleans, null/empty → Nil. Supports RFC 4180 quoting (commas and `""` inside quoted fields).
+
+Example:
+```
+c=@"csv"
+data=c.cparse("name,score\nAlice,95\nBob,87")
+pl(data[0].name)                     # Alice
+pl(data[0].score)                    # 95
+pl(c.cstr([{x:1 y:2} {x:3 y:4}]))   # x,y\n1,2\n3,4
+```
+
+### 12.8 Regex Module (`@"re"`)
 | Function | Description |
 |----------|-------------|
 | `rmatch(s pat)` | Test if string matches |
@@ -843,14 +864,14 @@ pl(t.tstr({x:1 y:2}))                # x: 1\ny: 2
 | `rall(s pat)` | Find all matches |
 | `rsub(s pat rep)` | Replace matches |
 
-### 12.8 Time Module (`@"time"`)
+### 12.9 Time Module (`@"time"`)
 | Function | Description |
 |----------|-------------|
 | `now()` | Current unix timestamp (float) |
 | `sleep(ms)` | Sleep for milliseconds |
 | `fmt(ts pat)` | Format timestamp (`%Y` `%m` `%d` `%H` `%M` `%S`) |
 
-### 12.9 Math Module (`@"math"`)
+### 12.10 Math Module (`@"math"`)
 
 Constants: `pi`, `e`, `inf`, `nan`
 
@@ -868,7 +889,7 @@ Constants: `pi`, `e`, `inf`, `nan`
 | `min(a b)` `max(a b)` | Min/max of two values |
 | `random()` | Random float 0..1 |
 
-### 12.10 String Module (`@"str"`)
+### 12.11 String Module (`@"str"`)
 | Function | Description |
 |----------|-------------|
 | `upper(s)` `lower(s)` | Case conversion |
@@ -886,7 +907,7 @@ Constants: `pi`, `e`, `inf`, `nan`
 | `rev(s)` | Reverse string |
 | `len(s)` | String length |
 
-### 12.11 OS Module (`@"os"`)
+### 12.12 OS Module (`@"os"`)
 | Function | Description |
 |----------|-------------|
 | `args()` | CLI arguments (all, including program) |

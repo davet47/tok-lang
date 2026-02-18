@@ -1,0 +1,80 @@
+// stdlib_csv_test.tok — CSV module tests
+//
+// Compile & run:   cargo run -- run tests/stdlib_csv_test.tok
+
+c=@"csv"
+
+pl("=== CSV Parse Tests ===")
+
+// --- Basic parse: headers + rows ---
+data=c.cparse("name,age,city\nAlice,30,NYC\nBob,25,LA")
+pl(#data)        // 2
+pl(data[0].name) // Alice
+pl(data[0].age)  // 30
+pl(data[0].city) // NYC
+pl(data[1].name) // Bob
+pl(data[1].age)  // 25
+pl(data[1].city) // LA
+
+// --- Numeric auto-detection ---
+nums=c.cparse("x,y\n1,2.5\n-3,0.0")
+pl(nums[0].x)  // 1
+pl(nums[0].y)  // 2.5
+pl(nums[1].x)  // -3
+
+// --- Empty fields become nil ---
+sparse=c.cparse("a,b,c\n1,,3\n,,")
+pl(sparse[0].a) // 1
+pl(sparse[0].b) // N
+pl(sparse[0].c) // 3
+pl(sparse[1].a) // N
+
+// --- Quoted fields with commas ---
+quoted=c.cparse("name,desc\nAlice,\"hello, world\"\nBob,simple")
+pl(quoted[0].desc) // hello, world
+pl(quoted[1].desc) // simple
+
+// --- Quoted fields with escaped quotes ---
+esc=c.cparse("msg\n\"She said \"\"hi\"\"\"")
+pl(esc[0].msg) // She said "hi"
+
+// --- Fewer fields than headers ---
+short=c.cparse("a,b,c\n1,2")
+pl(short[0].a) // 1
+pl(short[0].b) // 2
+pl(short[0].c) // N
+
+// --- Empty input ---
+empty=c.cparse("")
+pl(#empty) // 0
+
+// --- Single column ---
+single=c.cparse("id\n1\n2\n3")
+pl(#single)      // 3
+pl(single[2].id) // 3
+
+pl("")
+pl("=== CSV Stringify Tests ===")
+
+// --- Basic encode ---
+rows=[{name:"Alice" age:30} {name:"Bob" age:25}]
+out=c.cstr(rows)
+pl(out)
+
+// --- Fields needing quoting ---
+special=[{msg:"hello, world"} {msg:"normal"}]
+sout=c.cstr(special)
+pl(sout)
+
+// --- Roundtrip ---
+pl("")
+pl("=== Roundtrip Test ===")
+csv_text="name,score\nAlice,95\nBob,87\nCarol,92"
+parsed=c.cparse(csv_text)
+encoded=c.cstr(parsed)
+reparsed=c.cparse(encoded)
+pl(#reparsed)          // 3
+pl(reparsed[0].name)   // Alice
+pl(reparsed[0].score)  // 95
+pl(reparsed[2].name)   // Carol
+pl(reparsed[2].score)  // 92

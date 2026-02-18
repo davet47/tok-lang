@@ -85,6 +85,13 @@ TOON (Token-Oriented Object Notation) data format: parsing TOON documents with t
 tok run examples/toon_data.tok
 ```
 
+### `csv_data.tok`
+CSV parsing and data analysis: parse CSV text into structured maps, filter by region, compute aggregate statistics, and encode filtered data back to CSV. Demonstrates `@"csv"` module.
+
+```bash
+tok run examples/csv_data.tok
+```
+
 ### `http_api.tok`
 An HTTP server using `@"http"`. Starts on port 8080 with route handlers for GET and POST. Requires building separately since the server runs indefinitely.
 

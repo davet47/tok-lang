@@ -1,0 +1,60 @@
+// csv_data.tok — CSV parsing and data analysis
+//
+// Demonstrates @"csv" module: parse CSV text into structured data,
+// filter rows, compute statistics, and encode back to CSV.
+//
+// Compile & run:   cargo run -- run examples/csv_data.tok
+
+c=@"csv"
+
+pl("=== CSV Data Processing ===")
+pl("")
+
+// --- Parse CSV data ---
+sales_csv="product,units,price,region
+Widget A,150,12.99,North
+Widget B,89,24.50,South
+Widget A,210,12.99,South
+Widget C,45,8.75,North
+Widget B,178,24.50,North
+Widget C,92,8.75,South"
+
+sales=c.cparse(sales_csv)
+pl("Total records: {#sales}")
+pl("")
+
+// --- Display all records ---
+pl("All Sales:")
+~(s:sales){
+  pl("  {s.product}: {s.units} units @ ${s.price} ({s.region})")
+}
+pl("")
+
+// --- Filter by region ---
+north=sales?>\(s)=s.region=="North"
+south=sales?>\(s)=s.region=="South"
+pl("North region records: {#north}")
+pl("South region records: {#south}")
+pl("")
+
+// --- Compute total units ---
+total_units=0
+~(s:sales){
+  total_units=total_units+s.units
+}
+pl("Total units sold: {total_units}")
+pl("")
+
+// --- Encode filtered data back to CSV ---
+pl("=== North Region CSV ===")
+north_csv=c.cstr(north)
+pl(north_csv)
+pl("")
+
+// --- Roundtrip verification ---
+pl("=== Roundtrip ===")
+back=c.cparse(north_csv)
+pl("Roundtripped {#back} records")
+~(r:back){
+  pl("  {r.product}: {r.units} units")
+}

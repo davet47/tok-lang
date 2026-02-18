@@ -929,6 +929,49 @@ print(f"Host: {decoded['host']}, Port: {decoded['port']}")
 
 ---
 
+## Example 17: CSV Data Processing
+
+### Tok
+```tok
+c=@"csv"
+
+// Parse CSV, first row = headers -> array of maps
+data=c.cparse("name,score,grade\nAlice,95,A\nBob,87,B\nCarol,92,A")
+pl("Students: {#data}")
+
+// Filter high scorers
+top=data?>\(s)=s.score>90
+pl("Top students: {#top}")
+~(s:top){ pl("  {s.name}: {s.score}") }
+
+// Encode back to CSV
+pl(c.cstr(top))
+```
+
+### Python
+```python
+import csv
+import io
+
+text = "name,score,grade\nAlice,95,A\nBob,87,B\nCarol,92,A"
+reader = csv.DictReader(io.StringIO(text))
+data = [dict(r) for r in reader]
+print(f"Students: {len(data)}")
+
+top = [s for s in data if int(s["score"]) > 90]
+print(f"Top students: {len(top)}")
+for s in top:
+    print(f"  {s['name']}: {s['score']}")
+
+out = io.StringIO()
+writer = csv.DictWriter(out, fieldnames=top[0].keys())
+writer.writeheader()
+writer.writerows(top)
+print(out.getvalue().strip())
+```
+
+---
+
 ## Token Efficiency Analysis
 
 All token counts measured with `cl100k_base` (GPT-4 / Claude tokenizer) via `tiktoken`.
