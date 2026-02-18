@@ -28,6 +28,7 @@ pub mod handle;
 pub mod map;
 pub mod stdlib_csv;
 pub mod stdlib_fs;
+pub mod stdlib_helpers;
 pub mod stdlib_http;
 pub mod stdlib_io;
 pub mod stdlib_json;

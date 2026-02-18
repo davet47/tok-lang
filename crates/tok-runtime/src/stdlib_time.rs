@@ -5,42 +5,11 @@
 use crate::closure::TokClosure;
 use crate::map::TokMap;
 use crate::string::TokString;
-use crate::value::{TokValue, TAG_FLOAT, TAG_INT};
+use crate::value::TokValue;
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-// ═══════════════════════════════════════════════════════════════
-// Helpers
-// ═══════════════════════════════════════════════════════════════
-
-#[inline]
-fn arg_to_f64(tag: i64, data: i64) -> f64 {
-    match tag as u8 {
-        TAG_FLOAT => f64::from_bits(data as u64),
-        TAG_INT => data as f64,
-        _ => 0.0,
-    }
-}
-
-#[inline]
-fn arg_to_i64(tag: i64, data: i64) -> i64 {
-    match tag as u8 {
-        TAG_INT => data,
-        TAG_FLOAT => f64::from_bits(data as u64) as i64,
-        _ => 0,
-    }
-}
-
-#[inline]
-unsafe fn arg_to_str<'a>(tag: i64, data: i64) -> &'a str {
-    if tag as u8 == crate::value::TAG_STRING {
-        let ptr = data as *mut TokString;
-        if !ptr.is_null() {
-            return &(*ptr).data;
-        }
-    }
-    ""
-}
+use crate::stdlib_helpers::{arg_to_f64, arg_to_i64, arg_to_str};
 
 // ═══════════════════════════════════════════════════════════════
 // Trampolines

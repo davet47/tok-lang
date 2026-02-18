@@ -6,31 +6,9 @@ use crate::array::TokArray;
 use crate::closure::TokClosure;
 use crate::map::TokMap;
 use crate::string::TokString;
-use crate::value::{TokValue, TAG_INT, TAG_STRING};
+use crate::value::TokValue;
 
-// ═══════════════════════════════════════════════════════════════
-// Helpers
-// ═══════════════════════════════════════════════════════════════
-
-#[inline]
-unsafe fn arg_to_str<'a>(tag: i64, data: i64) -> &'a str {
-    if tag as u8 == TAG_STRING {
-        let ptr = data as *mut TokString;
-        if !ptr.is_null() {
-            return &(*ptr).data;
-        }
-    }
-    ""
-}
-
-#[inline]
-fn arg_to_i64(tag: i64, data: i64) -> i64 {
-    if tag as u8 == TAG_INT {
-        data
-    } else {
-        0
-    }
-}
+use crate::stdlib_helpers::{arg_to_i64, arg_to_str};
 
 // ═══════════════════════════════════════════════════════════════
 // Trampolines

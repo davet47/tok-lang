@@ -710,10 +710,6 @@ struct FuncCtx<'a> {
     tco_param_vars: Vec<Variable>,
 }
 
-// We need a separate lifetime for the FunctionBuilderContext because
-// the builder borrows it. The Compiler is borrowed mutably through
-// a raw pointer trick -- we ensure safety by never aliasing.
-
 /// Compile an HIR program to a native object file (bytes).
 pub fn compile(program: &HirProgram) -> Vec<u8> {
     let mut compiler = Compiler::new();
@@ -835,11 +831,8 @@ fn compile_function(
 
     let next_var_start = if return_var.is_some() { 1 } else { 0 };
 
-    // Build FuncCtx — we use a raw pointer to compiler to avoid borrow issues.
-    // Safety: we only use compiler through func_ctx, never aliasing.
-    let compiler_ptr = compiler as *mut Compiler;
     let mut func_ctx = FuncCtx {
-        compiler: unsafe { &mut *compiler_ptr },
+        compiler,
         builder,
         vars: HashMap::new(),
         next_var: next_var_start,
@@ -1113,9 +1106,8 @@ fn compile_lambda_body(compiler: &mut Compiler, lambda: &PendingLambda) {
     let zero_val = builder.ins().iconst(types::I64, 0);
     builder.def_var(rv, zero_val);
 
-    let compiler_ptr = compiler as *mut Compiler;
     let mut func_ctx = FuncCtx {
-        compiler: unsafe { &mut *compiler_ptr },
+        compiler,
         builder,
         vars: HashMap::new(),
         next_var: 1, // 0 is used by return var
@@ -1243,9 +1235,8 @@ fn compile_specialized_lambda_body(compiler: &mut Compiler, lambda: &PendingLamb
     let zero_val = builder.ins().iconst(types::I64, 0);
     builder.def_var(rv, zero_val);
 
-    let compiler_ptr = compiler as *mut Compiler;
     let mut func_ctx = FuncCtx {
-        compiler: unsafe { &mut *compiler_ptr },
+        compiler,
         builder,
         vars: HashMap::new(),
         next_var: 1,
@@ -1401,9 +1392,8 @@ fn compile_main(compiler: &mut Compiler, stmts: &[HirStmt]) {
     builder.switch_to_block(entry_block);
     builder.seal_block(entry_block);
 
-    let compiler_ptr = compiler as *mut Compiler;
     let mut func_ctx = FuncCtx {
-        compiler: unsafe { &mut *compiler_ptr },
+        compiler,
         builder,
         vars: HashMap::new(),
         next_var: 0,

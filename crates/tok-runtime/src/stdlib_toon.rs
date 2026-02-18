@@ -12,20 +12,7 @@ use crate::value::{
     TAG_TUPLE,
 };
 
-// ═══════════════════════════════════════════════════════════════
-// Helpers
-// ═══════════════════════════════════════════════════════════════
-
-#[inline]
-unsafe fn arg_to_str<'a>(tag: i64, data: i64) -> &'a str {
-    if tag as u8 == TAG_STRING {
-        let ptr = data as *mut TokString;
-        if !ptr.is_null() {
-            return &(*ptr).data;
-        }
-    }
-    ""
-}
+use crate::stdlib_helpers::arg_to_str;
 
 // ═══════════════════════════════════════════════════════════════
 // TOON Parser

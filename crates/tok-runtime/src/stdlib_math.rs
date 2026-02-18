@@ -9,18 +9,7 @@ use crate::value::{TokValue, TAG_FLOAT, TAG_INT};
 
 use std::f64::consts;
 
-// ═══════════════════════════════════════════════════════════════
-// Helper: extract a float from a TokValue (tag, data)
-// ═══════════════════════════════════════════════════════════════
-
-#[inline]
-fn arg_to_f64(tag: i64, data: i64) -> f64 {
-    match tag as u8 {
-        TAG_FLOAT => f64::from_bits(data as u64),
-        TAG_INT => data as f64,
-        _ => 0.0,
-    }
-}
+use crate::stdlib_helpers::arg_to_f64;
 
 // ═══════════════════════════════════════════════════════════════
 // Trampolines — closure ABI: (env, tag, data, ...) -> TokValue
