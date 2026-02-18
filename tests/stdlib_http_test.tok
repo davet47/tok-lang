@@ -3,8 +3,12 @@
 
 h=@"http"
 
-# --- hget ---
-# Use httpbin.org for testing (http only, no TLS)
+# --- hget (HTTP) ---
 body err=h.hget("http://httpbin.org/get")
 pl(type(body))
 pl(err)
+
+# --- hget (HTTPS) ---
+body2 err2=h.hget("https://httpbin.org/get")
+pl(type(body2))
+pl(err2)

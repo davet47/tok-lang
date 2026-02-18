@@ -39,6 +39,28 @@ pl(m.min(3 5))
 pl(m.max(3 5))
 pl(m.min(1.5 2.5))
 
+// --- log2/log10 ---
+pl(m.log2(8.0))
+// expect: 3.0
+pl(m.log10(1000.0))
+// expect: 3.0 (approx)
+
+// --- inverse trig ---
+pl(m.asin(0.0))
+// expect: 0.0
+pl(m.acos(1.0))
+// expect: 0.0
+pl(m.atan(0.0))
+// expect: 0.0
+
+// --- atan2 ---
+pl(m.atan2(1.0 1.0))
+// expect: 0.7853981633974483 (pi/4)
+
+// --- nan constant ---
+pl(type(m.nan))
+// expect: float
+
 // --- random ---
 r=m.random()
 pl(type(r))

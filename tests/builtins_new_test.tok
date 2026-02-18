@@ -16,8 +16,8 @@ pl(pop([42]))
 pl(pop([]))
 
 # --- freq(arr) ---
-m=freq([1 1 2 3 3 3])
-pl(m)
+fm=freq([1 1 2 3 3 3])
+pl(fm)
 
 # --- zip(a, b) ---
 z=zip([1 2 3] ["a" "b" "c"])
@@ -28,13 +28,29 @@ z2=zip([1 2] ["a" "b" "c"])
 pl(z2)
 
 # --- top(map, n) ---
-t=top({a:3 b:1 c:5 d:2} 2)
-pl(t)
+tp=top({a:3 b:1 c:5 d:2} 2)
+pl(tp)
 
 # --- args() ---
-a=args()
-pl(type(a))
+ar=args()
+pl(type(ar))
 
 # --- env(key) ---
 pl(type(env("HOME")))
 pl(env("TOK_NONEXISTENT_VAR_99999"))
+
+# --- clock() ---
+ct=clock()
+pl(type(ct))
+pl(ct>0)
+
+# --- len() ---
+pl(len([1 2 3]))
+pl(len("hello"))
+pl(len({a:1 b:2}))
+
+# --- floor/ceil/abs ---
+pl(floor(3.7))
+pl(ceil(3.2))
+pl(abs(-99))
+pl(abs(3.14))

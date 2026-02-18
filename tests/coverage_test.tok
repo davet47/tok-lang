@@ -1,0 +1,338 @@
+// coverage_test.tok — Tests for language features with zero/weak test coverage
+//
+// Compile & run:  cargo run -- run tests/coverage_test.tok
+
+// ============================================================
+// SECTION 1: Power Operator **
+// ============================================================
+
+pl(2**3)
+// expect: 8
+pl(2**10)
+// expect: 1024
+pl(3**0)
+// expect: 1
+pl(10**1)
+// expect: 10
+pl(2.0**0.5)
+// expect: 1.4142135623730951
+
+// === Power in expressions ===
+pl(1+2**3)
+// expect: 9 (** has higher precedence than +)
+pl((1+2)**3)
+// expect: 27
+
+// === Power with variables ===
+base=5
+exp=3
+pl(base**exp)
+// expect: 125
+
+// ============================================================
+// SECTION 2: Inclusive Range ..=
+// ============================================================
+
+// === Basic inclusive range ===
+~(i:0..=3){p(i)}
+pl("")
+// expect: 0123
+
+// === Inclusive range collects all endpoints ===
+a=[]
+~(i:1..=5){a=a<<i}
+pl(a)
+// expect: [1 2 3 4 5]
+
+// === Inclusive range single element ===
+~(i:3..=3){pl(i)}
+// expect: 3
+
+// ============================================================
+// SECTION 3: Loop as Expression (collect)
+// ============================================================
+
+// === Collect range into array ===
+squares=~(i:0..5)=i*i
+pl(squares)
+// expect: [0 1 4 9 16]
+
+// === Collect with transformation ===
+doubled=~(i:1..=4)=i*2
+pl(doubled)
+// expect: [2 4 6 8]
+
+// === Collect strings ===
+labels=~(i:0..3)="item{i}"
+pl(labels)
+// expect: [item0 item1 item2]
+
+// ============================================================
+// SECTION 4: Foreach with Index
+// ============================================================
+
+// === Array foreach with index ===
+arr=["a" "b" "c"]
+~(i v:arr){pl("{i}:{v}")}
+// expect:
+// 0:a
+// 1:b
+// 2:c
+
+// ============================================================
+// SECTION 5: Append Operator << and <<=
+// ============================================================
+
+// === << creates new array ===
+a1=[1 2 3]
+a2=a1<<4
+pl(a2)
+// expect: [1 2 3 4]
+
+// === << chained ===
+pl([]<<1<<2<<3)
+// expect: [1 2 3]
+
+// === <<= compound assign ===
+arr2=[10 20]
+arr2<<=30
+pl(arr2)
+// expect: [10 20 30]
+arr2<<=40
+pl(arr2)
+// expect: [10 20 30 40]
+
+// ============================================================
+// SECTION 6: Hex, Binary, Octal Literals
+// ============================================================
+
+pl(0xff)
+// expect: 255
+pl(0xFF)
+// expect: 255
+pl(0b1010)
+// expect: 10
+pl(0b11111111)
+// expect: 255
+pl(0o77)
+// expect: 63
+pl(0o10)
+// expect: 8
+
+// === In expressions ===
+pl(0xff + 1)
+// expect: 256
+pl(0b1010 * 2)
+// expect: 20
+
+// ============================================================
+// SECTION 7: Raw Strings (backticks)
+// ============================================================
+
+// === No interpolation in backtick strings ===
+name="world"
+pl(`hello {name}`)
+// expect: hello {name}
+
+// === No escape sequences ===
+pl(`line1\nline2`)
+// expect: line1\nline2
+
+// === Backtick with special chars ===
+pl(`"quotes" and 'apostrophes'`)
+// expect: "quotes" and 'apostrophes'
+
+// ============================================================
+// SECTION 8: Bitwise Operators
+// ============================================================
+
+// === Bitwise AND (&&) ===
+pl(0b1100 && 0b1010)
+// expect: 8 (0b1000)
+
+// === Bitwise OR (||) ===
+pl(0b1100 || 0b1010)
+// expect: 14 (0b1110)
+
+// === Bitwise XOR (^^) ===
+pl(0b1100 ^^ 0b1010)
+// expect: 6 (0b0110)
+
+// === Shift right (>>) ===
+pl(16>>2)
+// expect: 4
+pl(255>>4)
+// expect: 15
+
+// === Combined bitwise ===
+pl((0xff && 0x0f) ^^ 0x05)
+// expect: 10
+
+// ============================================================
+// SECTION 9: String Escape Sequences
+// ============================================================
+
+// === Tab ===
+pl("a\tb")
+// expect: a	b
+
+// === Backslash ===
+pl("back\\slash")
+// expect: back\slash
+
+// === Escaped quote ===
+pl("say \"hi\"")
+// expect: say "hi"
+
+// === Escaped brace ===
+pl("literal \{brace}")
+// expect: literal {brace}
+
+// === Null character (verify no crash, check length) ===
+s="a\0b"
+pl(#s)
+// expect: 3
+
+// === Hex escape ===
+pl("\x41\x42\x43")
+// expect: ABC
+
+// === Unicode escape ===
+pl("\u{0041}")
+// expect: A
+
+// ============================================================
+// SECTION 10: Map Destructuring
+// ============================================================
+
+// === Basic map destructure ===
+point={x:10 y:20 z:30}
+{x y}=point
+pl(x)
+// expect: 10
+pl(y)
+// expect: 20
+
+// === Map destructure from function return ===
+f make_config()={host:"localhost" port:8080}
+{host port}=make_config()
+pl(host)
+// expect: localhost
+pl(port)
+// expect: 8080
+
+// ============================================================
+// SECTION 11: clock() and len() builtins
+// ============================================================
+
+// === clock() returns a positive number ===
+t=clock()
+pl(type(t))
+// expect: float
+pl(t>0)
+// expect: T
+
+// === len() is alias for # ===
+pl(len([1 2 3]))
+// expect: 3
+pl(len("hello"))
+// expect: 5
+pl(len({a:1 b:2}))
+// expect: 2
+
+// ============================================================
+// SECTION 12: Chained Pipes + Complex Compositions
+// ============================================================
+
+// === Multi-step pipe chain ===
+result=[5 3 1 4 2]|>sort|>rev
+pl(result)
+// expect: [5 4 3 2 1]
+
+// === Filter then pipe to sum ===
+total=[1 2 3 4 5 6 7 8 9 10]?>\(x)=x%2==0|>sum
+pl(total)
+// expect: 30
+
+// === Filter then reduce ===
+product=[1 2 3 4 5]?>\(x)=x>2/>\(a x)=a*x
+pl(product)
+// expect: 60
+
+// ============================================================
+// SECTION 13: Nested Closures
+// ============================================================
+
+// === Closure returning closure (make_adder) ===
+f make_adder(n){
+  \(x)=x+n
+}
+add5=make_adder(5)
+pl(add5(10))
+// expect: 15
+pl(add5(0))
+// expect: 5
+
+// === Nested lambda captures ===
+f make_counter(start){
+  val=start
+  add=\(n)=val+n
+  add
+}
+counter=make_counter(100)
+pl(counter(42))
+// expect: 142
+
+// ============================================================
+// SECTION 14: Edge Cases — Empty Collections
+// ============================================================
+
+// === sort/rev on empty array ===
+pl(sort([]))
+// expect: []
+pl(rev([]))
+// expect: []
+
+// === keys/vals on empty map ===
+pl(keys({}))
+// expect: []
+pl(vals({}))
+// expect: []
+
+// === sum on empty array ===
+pl(sum([]))
+// expect: 0
+
+// === # on empty collections ===
+pl(#[])
+// expect: 0
+pl(#"")
+// expect: 0
+pl(#{})
+// expect: 0
+
+// === flat on empty ===
+pl(flat([]))
+// expect: []
+pl(flat([[]]))
+// expect: []
+
+// === uniq on empty ===
+pl(uniq([]))
+// expect: []
+
+// === join on empty ===
+pl(join([] ","))
+// expect: (empty string)
+
+// === split empty string ===
+pl(split("" ","))
+// expect: []
+
+// ============================================================
+// SECTION 15: Regression — previous phases
+// ============================================================
+f fib(n)=n<2?n:fib(n-1)+fib(n-2)
+pl(fib(10))
+// expect: 55
+pl("coverage tests complete")
