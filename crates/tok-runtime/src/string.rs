@@ -365,4 +365,107 @@ mod tests {
             drop(Box::from_raw(s));
         }
     }
+
+    /// COW must not mutate a string in-place when another thread holds a reference.
+    /// With rc > 1, concat must allocate a new string, leaving the original intact.
+    #[test]
+    fn test_cow_no_mutate_when_shared() {
+        let a = alloc_str("hello");
+        unsafe {
+            // Simulate a second owner (e.g., another goroutine holds a reference)
+            (*a).rc_inc();
+            assert_eq!((*a).rc.load(Ordering::Relaxed), 2);
+
+            let b = alloc_str(" world");
+            let c = tok_string_concat(a, b);
+
+            // COW must NOT reuse `a` since rc > 1
+            assert_ne!(c, a, "COW must allocate when refcount > 1");
+            assert_eq!(&(*a).data, "hello", "original must be unchanged");
+            assert_eq!(&(*c).data, "hello world");
+
+            // Clean up: a has rc=2, dec twice
+            (*a).rc_dec();
+            free_str(a);
+            free_str(b);
+            free_str(c);
+        }
+    }
+
+    /// COW should mutate in-place when the string has refcount 1 (sole owner).
+    #[test]
+    fn test_cow_mutates_in_place_when_sole_owner() {
+        let a = alloc_str("hello");
+        unsafe {
+            assert_eq!((*a).rc.load(Ordering::Relaxed), 1);
+
+            let b = alloc_str(" world");
+            let c = tok_string_concat(a, b);
+
+            // COW should reuse `a` since rc == 1
+            assert_eq!(c, a, "COW should reuse pointer when refcount == 1");
+            assert_eq!(&(*c).data, "hello world");
+
+            free_str(b);
+            free_str(c); // c == a, so this frees both
+        }
+    }
+
+    /// Concurrent test: multiple threads do rc_inc/rc_dec while one thread
+    /// checks the COW condition. The original string must never be corrupted.
+    #[test]
+    fn test_cow_concurrent_refcount() {
+        use std::sync::{Arc, Barrier};
+        use std::thread;
+
+        let s = alloc_str("base");
+        // Wrap the raw pointer in a usize for Send
+        let ptr = s as usize;
+
+        // Bump refcount so the string is shared across threads
+        unsafe { (*s).rc_inc() }; // rc = 2
+
+        let barrier = Arc::new(Barrier::new(4));
+        let mut handles = Vec::new();
+
+        // 3 threads: each does inc, read, concat (should allocate), dec
+        for _ in 0..3 {
+            let bar = Arc::clone(&barrier);
+            handles.push(thread::spawn(move || {
+                let s = ptr as *mut TokString;
+                bar.wait();
+                unsafe {
+                    (*s).rc_inc(); // briefly hold a reference
+                    // Verify the data is still intact
+                    assert_eq!(&(*s).data, "base");
+
+                    // Concat while shared — must not mutate in place
+                    let suffix = alloc_str("X");
+                    let result = tok_string_concat(s, suffix);
+                    assert_ne!(result, s, "must not COW-mutate a shared string");
+                    assert_eq!(&(*result).data, "baseX");
+                    assert_eq!(&(*s).data, "base", "original must survive");
+
+                    free_str(suffix);
+                    free_str(result);
+                    (*s).rc_dec(); // release our reference
+                }
+            }));
+        }
+
+        // Main thread also waits at barrier then lets threads run
+        barrier.wait();
+        for h in handles {
+            h.join().unwrap();
+        }
+
+        unsafe {
+            // Original string should still be intact with rc == 2
+            // (1 original + 1 from our initial rc_inc, threads balanced their inc/dec)
+            assert_eq!(&(*s).data, "base");
+            assert_eq!((*s).rc.load(Ordering::Relaxed), 2);
+            (*s).rc_dec();
+            free_str(s);
+        }
+    }
 }
