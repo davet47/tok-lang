@@ -3,7 +3,7 @@
 Tok Token Efficiency Benchmark
 
 Compares LLM token counts for equivalent programs written in Tok vs
-Python, Go, and JavaScript. Proves Tok's core value proposition:
+Python, Go, JavaScript, and C#. Proves Tok's core value proposition:
 fewer tokens = cheaper and faster LLM code generation.
 
 Usage:
@@ -33,9 +33,10 @@ LANG_EXTENSIONS = {
     ".py": "Python",
     ".go": "Go",
     ".js": "JavaScript",
+    ".cs": "C#",
 }
 
-LANG_ORDER = ["Tok", "Python", "Go", "JavaScript"]
+LANG_ORDER = ["Tok", "Python", "Go", "JavaScript", "C#"]
 
 
 def strip_comments(source: str, ext: str) -> str:
@@ -48,7 +49,7 @@ def strip_comments(source: str, ext: str) -> str:
             continue
         if ext in (".tok", ".py") and trimmed.startswith("#"):
             continue
-        if ext in (".tok", ".go", ".js") and trimmed.startswith("//"):
+        if ext in (".tok", ".go", ".js", ".cs") and trimmed.startswith("//"):
             continue
         stripped.append(line)
     return "\n".join(stripped)
@@ -107,8 +108,8 @@ def format_table(benchmarks: dict, encoding_name: str) -> str:
     lines.append(f"")
 
     # Header
-    header = "| Benchmark | Tok | Python | Go | JS | vs Python | vs Go | vs JS |"
-    sep = "|---|--:|--:|--:|--:|--:|--:|--:|"
+    header = "| Benchmark | Tok | Python | Go | JS | C# | vs Python | vs Go | vs JS | vs C# |"
+    sep = "|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|"
     lines.append(header)
     lines.append(sep)
 
@@ -119,32 +120,36 @@ def format_table(benchmarks: dict, encoding_name: str) -> str:
         py_tokens = langs.get("Python", {}).get("tokens", 0)
         go_tokens = langs.get("Go", {}).get("tokens", 0)
         js_tokens = langs.get("JavaScript", {}).get("tokens", 0)
+        cs_tokens = langs.get("C#", {}).get("tokens", 0)
 
         totals["Tok"] += tok_tokens
         totals["Python"] += py_tokens
         totals["Go"] += go_tokens
         totals["JavaScript"] += js_tokens
+        totals["C#"] += cs_tokens
 
         vs_py = f"{savings(tok_tokens, py_tokens):+.1f}%" if py_tokens else "—"
         vs_go = f"{savings(tok_tokens, go_tokens):+.1f}%" if go_tokens else "—"
         vs_js = f"{savings(tok_tokens, js_tokens):+.1f}%" if js_tokens else "—"
+        vs_cs = f"{savings(tok_tokens, cs_tokens):+.1f}%" if cs_tokens else "—"
 
         lines.append(
-            f"| {bench_name} | {tok_tokens} | {py_tokens} | {go_tokens} | {js_tokens} | {vs_py} | {vs_go} | {vs_js} |"
+            f"| {bench_name} | {tok_tokens} | {py_tokens} | {go_tokens} | {js_tokens} | {cs_tokens} | {vs_py} | {vs_go} | {vs_js} | {vs_cs} |"
         )
 
     # Totals row
     vs_py = f"**{savings(totals['Tok'], totals['Python']):+.1f}%**"
     vs_go = f"**{savings(totals['Tok'], totals['Go']):+.1f}%**"
     vs_js = f"**{savings(totals['Tok'], totals['JavaScript']):+.1f}%**"
+    vs_cs = f"**{savings(totals['Tok'], totals['C#']):+.1f}%**"
     lines.append(
-        f"| **Total** | **{totals['Tok']}** | **{totals['Python']}** | **{totals['Go']}** | **{totals['JavaScript']}** | {vs_py} | {vs_go} | {vs_js} |"
+        f"| **Total** | **{totals['Tok']}** | **{totals['Python']}** | **{totals['Go']}** | **{totals['JavaScript']}** | **{totals['C#']}** | {vs_py} | {vs_go} | {vs_js} | {vs_cs} |"
     )
 
     lines.append("")
 
     # Summary line
-    other_avg = (totals["Python"] + totals["Go"] + totals["JavaScript"]) / 3
+    other_avg = (totals["Python"] + totals["Go"] + totals["JavaScript"] + totals["C#"]) / 4
     avg_savings = savings(totals["Tok"], other_avg)
     lines.append(
         f"**Tok uses {abs(avg_savings):.0f}% fewer tokens on average** across all benchmarks."

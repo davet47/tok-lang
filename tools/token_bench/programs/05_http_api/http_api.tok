@@ -6,8 +6,8 @@ f handle_echo(req)={body:req.body status:200}
 f handle_404(req)={status:404 body:"not found"}
 
 h.serve(8080 {
-  "GET /":handle_root
-  "GET /health":handle_health
-  "POST /echo":handle_echo
-  "*":handle_404
+ "GET /":handle_root
+ "GET /health":handle_health
+ "POST /echo":handle_echo
+ "*":handle_404
 })

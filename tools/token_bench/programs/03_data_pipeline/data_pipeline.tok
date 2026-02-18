@@ -3,32 +3,32 @@ f lcg(seed)=(seed*1103515245+12345)%2147483648
 records=[]
 seed=42
 ~(i:0..5000){
-  seed=lcg(seed)
-  score=seed%100
-  cat=score%4
-  category=cat?={0:"alpha"; 1:"beta"; 2:"gamma"; _:"delta"}
-  records<<={name:"item"+str(i) score:score category:category}
+ seed=lcg(seed)
+ score=seed%100
+ cat=score%4
+ category=cat?={0:"alpha"; 1:"beta"; 2:"gamma"; _:"delta"}
+ records<<={name:"item"+str(i) score:score category:category}
 }
 
 high_scores=records?>\(r)=r.score>=50
 
 transformed=[]
 ~(r:high_scores){
-  transformed<<={name:r.name score:r.score*2 category:r.category}
+ transformed<<={name:r.name score:r.score*2 category:r.category}
 }
 
 groups={}
 ~(r:transformed){
-  key=r.category
-  has(groups key)?{
-    groups[key]<<= r.score
-  }:{
-    groups[key]=[r.score]
-  }
+ key=r.category
+ has(groups key)?{
+  groups[key]<<= r.score
+ }:{
+  groups[key]=[r.score]
+ }
 }
 
 ~(k:keys(groups)){
-  scores=sort(groups[k])
-  avg=sum(scores)/#scores
-  pl("{k}: count={#scores} avg={avg} min={scores[0]} max={scores[#scores-1]}")
+ scores=sort(groups[k])
+ avg=sum(scores)/#scores
+ pl("{k}: count={#scores} avg={avg} min={scores[0]} max={scores[#scores-1]}")
 }

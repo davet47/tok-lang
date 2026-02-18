@@ -1,9 +1,9 @@
 f qsort(a){
-  #a<=1?^a
-  p=a[#a/2]
-  lo=a?>\(x)=x<p
-  eq=a?>\(x)=x==p
-  hi=a?>\(x)=x>p
-  [..qsort(lo) ..eq ..qsort(hi)]
+ #a<=1?^a
+ p=a[#a/2]
+ lo=a?>\(x)=x<p
+ eq=a?>\(x)=x==p
+ hi=a?>\(x)=x>p
+ [..qsort(lo) ..eq ..qsort(hi)]
 }
 pl(qsort([3 6 8 10 1 2 1]))
