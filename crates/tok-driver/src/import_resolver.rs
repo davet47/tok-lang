@@ -119,12 +119,7 @@ trait HirVisitor {
     }
 
     /// Visit a RuntimeCall. Return true if the expression was replaced in-place.
-    fn visit_runtime_call(
-        &mut self,
-        _expr: &mut HirExpr,
-        _name: &str,
-        _args: &[HirExpr],
-    ) -> bool {
+    fn visit_runtime_call(&mut self, _expr: &mut HirExpr, _name: &str, _args: &[HirExpr]) -> bool {
         false
     }
 }
@@ -402,12 +397,7 @@ struct ImportTransformer<'a> {
 }
 
 impl<'a> HirVisitor for ImportTransformer<'a> {
-    fn visit_runtime_call(
-        &mut self,
-        expr: &mut HirExpr,
-        name: &str,
-        args: &[HirExpr],
-    ) -> bool {
+    fn visit_runtime_call(&mut self, expr: &mut HirExpr, name: &str, args: &[HirExpr]) -> bool {
         if name != "tok_import" {
             return false;
         }

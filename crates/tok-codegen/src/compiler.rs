@@ -3218,11 +3218,7 @@ fn compile_builtin_1_tokvalue(
 }
 
 /// Compile a 2-arg builtin: compile both → unwrap → call → return ptr
-fn compile_builtin_2_ptr(
-    ctx: &mut FuncCtx,
-    args: &[HirExpr],
-    runtime_fn: &str,
-) -> Option<Value> {
+fn compile_builtin_2_ptr(ctx: &mut FuncCtx, args: &[HirExpr], runtime_fn: &str) -> Option<Value> {
     let a_raw = compile_expr(ctx, &args[0]).unwrap();
     let a = unwrap_any_ptr(ctx, a_raw, &args[0].ty);
     let b_raw = compile_expr(ctx, &args[1]).unwrap();
