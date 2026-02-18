@@ -435,7 +435,7 @@ mod tests {
                 let s = ptr as *mut TokString;
                 bar.wait();
                 unsafe {
-                    (*s).rc_inc(); // briefly hold a reference
+                    (*s).rc_inc();
                     // Verify the data is still intact
                     assert_eq!(&(*s).data, "base");
 
