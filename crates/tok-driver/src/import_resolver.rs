@@ -40,6 +40,59 @@ impl ImportCtx {
         self.mod_counter += 1;
         prefix
     }
+
+    /// Load a file-based module, returning its (exports, prefix).
+    /// Uses caching so each file is compiled at most once.
+    /// Detects circular imports and exits with an error message.
+    fn load_module(
+        &mut self,
+        source_dir: &Path,
+        import_path: &str,
+    ) -> (Vec<(String, Type)>, String) {
+        let file_path = resolve_import_path(source_dir, import_path);
+        let canonical = file_path
+            .canonicalize()
+            .unwrap_or_else(|_| file_path.clone());
+
+        if let Some(cached) = self.loaded.get(&canonical) {
+            return (cached.exports.clone(), cached.prefix.clone());
+        }
+
+        // Circular import detection
+        if self.import_stack.contains(&canonical) {
+            let cycle: Vec<String> = self
+                .import_stack
+                .iter()
+                .map(|p| p.display().to_string())
+                .collect();
+            eprintln!(
+                "Circular import detected: {} -> {}",
+                cycle.join(" -> "),
+                canonical.display()
+            );
+            process::exit(1);
+        }
+
+        let prefix = self.next_prefix();
+        self.import_stack.push(canonical.clone());
+
+        let import_dir = file_path.parent().unwrap_or(Path::new(".")).to_path_buf();
+        let mut imported_hir = compile_file_to_hir(&file_path);
+        imported_hir = resolve_file_imports_inner(imported_hir, &import_dir, self);
+        let exports = extract_exports(&imported_hir);
+        prefix_hir_names(&mut imported_hir, &prefix, &exports);
+        self.preamble.extend(imported_hir);
+
+        self.import_stack.pop();
+        self.loaded.insert(
+            canonical,
+            ModuleCache {
+                prefix: prefix.clone(),
+                exports: exports.clone(),
+            },
+        );
+        (exports, prefix)
+    }
 }
 
 /// Known stdlib module names — anything else is a file import.
@@ -412,51 +465,7 @@ impl<'a> HirVisitor for ImportTransformer<'a> {
             return false;
         }
 
-        let file_path = resolve_import_path(&self.source_dir, &path);
-        let canonical = file_path
-            .canonicalize()
-            .unwrap_or_else(|_| file_path.clone());
-
-        let (exports, use_prefix) = if let Some(cached) = self.ictx.loaded.get(&canonical) {
-            // Already loaded — reuse cached prefix and exports
-            (cached.exports.clone(), cached.prefix.clone())
-        } else {
-            // Check for circular imports
-            if self.ictx.import_stack.contains(&canonical) {
-                let cycle: Vec<String> = self
-                    .ictx
-                    .import_stack
-                    .iter()
-                    .map(|p| p.display().to_string())
-                    .collect();
-                eprintln!(
-                    "Circular import detected: {} -> {}",
-                    cycle.join(" -> "),
-                    canonical.display()
-                );
-                process::exit(1);
-            }
-
-            let prefix = self.ictx.next_prefix();
-            self.ictx.import_stack.push(canonical.clone());
-
-            let import_dir = file_path.parent().unwrap_or(Path::new(".")).to_path_buf();
-            let mut imported_hir = compile_file_to_hir(&file_path);
-            imported_hir = resolve_file_imports_inner(imported_hir, &import_dir, self.ictx);
-            let exports = extract_exports(&imported_hir);
-            prefix_hir_names(&mut imported_hir, &prefix, &exports);
-            self.ictx.preamble.extend(imported_hir);
-
-            self.ictx.import_stack.pop();
-            self.ictx.loaded.insert(
-                canonical,
-                ModuleCache {
-                    prefix: prefix.clone(),
-                    exports: exports.clone(),
-                },
-            );
-            (exports, prefix)
-        };
+        let (exports, use_prefix) = self.ictx.load_module(&self.source_dir, &path);
 
         // Replace tok_import call with a Map literal
         let map_entries: Vec<(String, HirExpr)> = exports
@@ -494,51 +503,7 @@ fn resolve_file_imports_inner(
         match &stmt {
             // Bare file import: @"./file.tok" → merge exports into scope
             HirStmt::Import(path) if is_file_import(path) => {
-                let file_path = resolve_import_path(source_dir, path);
-                let canonical = file_path
-                    .canonicalize()
-                    .unwrap_or_else(|_| file_path.clone());
-
-                let (exports, use_prefix) = if let Some(cached) = ictx.loaded.get(&canonical) {
-                    (cached.exports.clone(), cached.prefix.clone())
-                } else {
-                    // Check for circular imports
-                    if ictx.import_stack.contains(&canonical) {
-                        let cycle: Vec<String> = ictx
-                            .import_stack
-                            .iter()
-                            .map(|p| p.display().to_string())
-                            .collect();
-                        eprintln!(
-                            "Circular import detected: {} -> {}",
-                            cycle.join(" -> "),
-                            canonical.display()
-                        );
-                        process::exit(1);
-                    }
-
-                    let prefix = ictx.next_prefix();
-                    ictx.import_stack.push(canonical.clone());
-
-                    let import_dir = file_path.parent().unwrap_or(Path::new(".")).to_path_buf();
-                    let mut imported_hir = compile_file_to_hir(&file_path);
-                    imported_hir = resolve_file_imports_inner(imported_hir, &import_dir, ictx);
-                    let exports = extract_exports(&imported_hir);
-                    prefix_hir_names(&mut imported_hir, &prefix, &exports);
-                    ictx.preamble.extend(imported_hir);
-
-                    ictx.import_stack.pop();
-                    let exports_clone = exports.clone();
-                    let prefix_clone = prefix.clone();
-                    ictx.loaded.insert(
-                        canonical,
-                        ModuleCache {
-                            prefix,
-                            exports: exports_clone.clone(),
-                        },
-                    );
-                    (exports_clone, prefix_clone)
-                };
+                let (exports, use_prefix) = ictx.load_module(source_dir, path);
 
                 // Create aliases: export_name = __mod0_export_name
                 for (name, ty) in &exports {
