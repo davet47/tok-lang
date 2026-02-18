@@ -1,6 +1,6 @@
 # Tok Token Efficiency Benchmark
 
-Measures LLM token counts for equivalent programs in Tok, Python, Go, and JavaScript using [tiktoken](https://github.com/openai/tiktoken) (GPT-4's tokenizer).
+Measures LLM token counts for equivalent programs in Tok, Python, Go, JavaScript, and C# using [tiktoken](https://github.com/openai/tiktoken) (GPT-4's tokenizer).
 
 ## Setup
 
