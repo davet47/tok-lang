@@ -1016,6 +1016,52 @@ print(tpl2.render(items=[]))
 
 ---
 
+## Example 19: LLM API Calls
+
+### Tok
+```tok
+l=@"llm"
+
+// One-shot (auto-detects provider from ANTHROPIC_API_KEY or OPENAI_API_KEY)
+resp err=l.ask("What is the capital of France?")
+pl(resp)
+
+// Multi-turn chat with options
+msgs=[{role:"user" content:"My name is Alice"} {role:"assistant" content:"Hi Alice!"} {role:"user" content:"What's my name?"}]
+resp2 err2=l.chat(msgs {max_tokens:50})
+pl(resp2)
+```
+
+### Python
+```python
+from anthropic import Anthropic
+
+client = Anthropic()
+
+# One-shot
+response = client.messages.create(
+    model="claude-sonnet-4-20250514",
+    max_tokens=4096,
+    messages=[{"role": "user", "content": "What is the capital of France?"}]
+)
+print(response.content[0].text)
+
+# Multi-turn chat with options
+messages = [
+    {"role": "user", "content": "My name is Alice"},
+    {"role": "assistant", "content": "Hi Alice!"},
+    {"role": "user", "content": "What's my name?"}
+]
+response2 = client.messages.create(
+    model="claude-sonnet-4-20250514",
+    max_tokens=50,
+    messages=messages
+)
+print(response2.content[0].text)
+```
+
+---
+
 ## Token Efficiency Analysis
 
 All token counts measured with `cl100k_base` (GPT-4 / Claude tokenizer) via `tiktoken`.

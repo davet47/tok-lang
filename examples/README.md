@@ -99,6 +99,13 @@ Template rendering with `{.key.}` syntax: variable substitution, loops over arra
 tok run examples/template_demo.tok
 ```
 
+### `llm_demo.tok`
+LLM API calls: one-shot `ask`, multi-turn `chat`, system messages, and provider selection. Requires `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` in environment. Demonstrates `@"llm"` module.
+
+```bash
+ANTHROPIC_API_KEY=sk-... tok run examples/llm_demo.tok
+```
+
 ### `http_api.tok`
 An HTTP server using `@"http"`. Starts on port 8080 with route handlers for GET and POST. Requires building separately since the server runs indefinitely.
 

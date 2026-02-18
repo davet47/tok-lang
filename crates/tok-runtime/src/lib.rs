@@ -31,6 +31,7 @@ pub mod stdlib_fs;
 pub mod stdlib_http;
 pub mod stdlib_io;
 pub mod stdlib_json;
+pub mod stdlib_llm;
 pub mod stdlib_math;
 pub mod stdlib_os;
 pub mod stdlib_re;

@@ -1,0 +1,57 @@
+// stdlib_llm_test.tok — Tests for @"llm" module
+//
+// Compile & run:  cargo run -- run tests/stdlib_llm_test.tok
+//
+// Most tests are offline (no API key needed).
+// LIVE tests require ANTHROPIC_API_KEY or OPENAI_API_KEY set in env.
+
+l=@"llm"
+
+pl("=== @\"llm\" module tests ===")
+pl("")
+
+// --- Module loads correctly ---
+pl(type(l))   // map
+
+// --- ask with empty prompt → error ---
+resp err=l.ask("")
+pl(type(resp)) // nil
+pl(type(err))  // string
+pl(err)        // ask: prompt cannot be empty
+
+// --- chat with empty array → error ---
+resp2 err2=l.chat([] {})
+pl(type(resp2)) // nil
+pl(type(err2))  // string
+pl(err2)        // chat: messages array is empty
+
+// --- chat with no API key → error (if no keys in env) ---
+// This test only meaningful when no API keys are set
+// resp3 err3=l.chat([{role:"user" content:"hi"}] {provider:"openai"})
+// pl(err3) // OPENAI_API_KEY not set
+
+pl("")
+pl("=== Offline tests passed ===")
+
+// ═══════════════════════════════════════════════════════════════
+// LIVE TESTS — uncomment with appropriate API key set
+// ═══════════════════════════════════════════════════════════════
+
+// --- LIVE: ask (auto-detect provider) ---
+// resp4 err4=l.ask("Reply with just the word 'hello'")
+// err4==N?pl("ask response: {resp4}"):pl("ask error: {err4}")
+
+// --- LIVE: chat with Anthropic ---
+// msgs=[{role:"user" content:"Reply with just the word 'hi'"}]
+// resp5 err5=l.chat(msgs {provider:"anthropic" max_tokens:10})
+// err5==N?pl("anthropic: {resp5}"):pl("anthropic error: {err5}")
+
+// --- LIVE: chat with OpenAI ---
+// msgs2=[{role:"user" content:"Reply with just the word 'hey'"}]
+// resp6 err6=l.chat(msgs2 {provider:"openai"})
+// err6==N?pl("openai: {resp6}"):pl("openai error: {err6}")
+
+// --- LIVE: chat with system message ---
+// msgs3=[{role:"user" content:"What are you?"}]
+// resp7 err7=l.chat(msgs3 {system:"You are a pirate. Always say arr." max_tokens:50})
+// err7==N?pl("system: {resp7}"):pl("system error: {err7}")

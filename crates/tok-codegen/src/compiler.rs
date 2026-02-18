@@ -435,6 +435,7 @@ impl Compiler {
         self.declare_runtime_func("tok_stdlib_os", &[], &[PTR]);
         self.declare_runtime_func("tok_stdlib_io", &[], &[PTR]);
         self.declare_runtime_func("tok_stdlib_json", &[], &[PTR]);
+        self.declare_runtime_func("tok_stdlib_llm", &[], &[PTR]);
         self.declare_runtime_func("tok_stdlib_csv", &[], &[PTR]);
         self.declare_runtime_func("tok_stdlib_fs", &[], &[PTR]);
         self.declare_runtime_func("tok_stdlib_http", &[], &[PTR]);
@@ -538,6 +539,11 @@ impl Compiler {
         ] {
             self.declare_runtime_func(name, sig1, ret);
         }
+
+        // @"llm" — 1-arg
+        self.declare_runtime_func("tok_llm_ask_t", sig1, ret);
+        // @"llm" — 2-arg
+        self.declare_runtime_func("tok_llm_chat_2_t", sig2, ret);
 
         // @"csv" — 1-arg
         for name in &["tok_csv_parse_t", "tok_csv_stringify_t"] {
@@ -2094,6 +2100,7 @@ fn compile_expr(ctx: &mut FuncCtx, expr: &HirExpr) -> Option<Value> {
                             "os"   => "tok_stdlib_os",
                             "io"   => "tok_stdlib_io",
                             "json" => "tok_stdlib_json",
+                            "llm"  => "tok_stdlib_llm",
                             "csv"  => "tok_stdlib_csv",
                             "fs"   => "tok_stdlib_fs",
                             "http" => "tok_stdlib_http",
@@ -2101,7 +2108,7 @@ fn compile_expr(ctx: &mut FuncCtx, expr: &HirExpr) -> Option<Value> {
                             "time" => "tok_stdlib_time",
                             "tmpl" => "tok_stdlib_tmpl",
                             "toon" => "tok_stdlib_toon",
-                            other  => panic!("Unknown module: @\"{}\" — only stdlib modules (math, str, os, io, json, csv, fs, http, re, time, tmpl, toon) are supported in compiled mode", other),
+                            other  => panic!("Unknown module: @\"{}\" — only stdlib modules (math, str, os, io, json, csv, fs, http, re, time, tmpl, toon, llm) are supported in compiled mode", other),
                         };
                         let func_ref = ctx.get_runtime_func_ref(constructor);
                         let call = ctx.builder.ins().call(func_ref, &[]);
@@ -3025,6 +3032,11 @@ fn get_stdlib_func(module: &str, field: &str) -> Option<(&'static str, usize)> {
         ("json", "parse") => Some(("tok_json_parse_t", 1)),
         ("json", "stringify") => Some(("tok_json_stringify_t", 1)),
         ("json", "pretty") => Some(("tok_json_pretty_t", 1)),
+
+        // @"llm" — 1-arg
+        ("llm", "ask") => Some(("tok_llm_ask_t", 1)),
+        // @"llm" — 2-arg
+        ("llm", "chat") => Some(("tok_llm_chat_2_t", 2)),
 
         // @"csv" — 1-arg
         ("csv", "cparse") => Some(("tok_csv_parse_t", 1)),

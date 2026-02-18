@@ -1,7 +1,7 @@
 //! Standard library: `@"http"` module.
 //!
 //! Provides HTTP client functions: hget, hpost, hput, hdel, serve.
-//! Uses raw TCP sockets — no external HTTP library dependency.
+//! Supports both HTTP and HTTPS (via rustls).
 
 use crate::closure::TokClosure;
 use crate::map::TokMap;
@@ -11,6 +11,22 @@ use crate::value::{TokValue, TAG_FUNC, TAG_INT, TAG_MAP, TAG_STRING};
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
+use std::sync::{Arc, OnceLock};
+
+static TLS_CONFIG: OnceLock<Arc<rustls::ClientConfig>> = OnceLock::new();
+
+fn get_tls_config() -> Arc<rustls::ClientConfig> {
+    TLS_CONFIG
+        .get_or_init(|| {
+            let root_store =
+                rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+            let config = rustls::ClientConfig::builder()
+                .with_root_certificates(root_store)
+                .with_no_client_auth();
+            Arc::new(config)
+        })
+        .clone()
+}
 
 // ═══════════════════════════════════════════════════════════════
 // Helpers
@@ -36,15 +52,15 @@ fn arg_to_i64(tag: i64, data: i64) -> i64 {
     }
 }
 
-/// Parse a URL into (host, port, path). Only supports http:// for now.
-fn parse_url(url: &str) -> Option<(String, u16, String)> {
+/// Parse a URL into (host, port, path, is_https).
+fn parse_url(url: &str) -> Option<(String, u16, String, bool)> {
     let url = url.trim();
-    let without_scheme = if url.starts_with("https://") {
-        return None; // TLS not supported without external deps
+    let (without_scheme, is_https) = if let Some(rest) = url.strip_prefix("https://") {
+        (rest, true)
     } else if let Some(rest) = url.strip_prefix("http://") {
-        rest
+        (rest, false)
     } else {
-        url
+        (url, false)
     };
 
     let (host_port, path) = match without_scheme.find('/') {
@@ -52,76 +68,157 @@ fn parse_url(url: &str) -> Option<(String, u16, String)> {
         None => (without_scheme, "/"),
     };
 
+    let default_port: u16 = if is_https { 443 } else { 80 };
     let (host, port) = match host_port.find(':') {
         Some(idx) => {
-            let port = host_port[idx + 1..].parse::<u16>().unwrap_or(80);
+            let port = host_port[idx + 1..].parse::<u16>().unwrap_or(default_port);
             (&host_port[..idx], port)
         }
-        None => (host_port, 80),
+        None => (host_port, default_port),
     };
 
-    Some((host.to_string(), port, path.to_string()))
+    Some((host.to_string(), port, path.to_string(), is_https))
 }
 
-/// Make an HTTP request and return the response body.
-fn http_request(method: &str, url: &str, body: Option<&str>) -> Result<String, String> {
-    let (host, port, path) =
-        parse_url(url).ok_or_else(|| "Invalid URL (only http:// supported)".to_string())?;
+/// Make an HTTP/HTTPS request and return the response body.
+/// Supports custom headers via `extra_headers` (e.g. `&[("Authorization", "Bearer ...")]`).
+/// Timeout in seconds (default 30 for normal HTTP, callers can override).
+pub(crate) fn http_request(method: &str, url: &str, body: Option<&str>) -> Result<String, String> {
+    http_request_with_headers(method, url, body, &[], 30)
+}
 
-    let mut stream = TcpStream::connect(format!("{}:{}", host, port))
+/// Full HTTP/HTTPS request with custom headers and configurable timeout.
+pub(crate) fn http_request_with_headers(
+    method: &str,
+    url: &str,
+    body: Option<&str>,
+    extra_headers: &[(&str, &str)],
+    timeout_secs: u64,
+) -> Result<String, String> {
+    let (host, port, path, is_https) = parse_url(url).ok_or_else(|| "Invalid URL".to_string())?;
+
+    let tcp = TcpStream::connect(format!("{}:{}", host, port))
         .map_err(|e| format!("Connection failed: {}", e))?;
 
-    stream
-        .set_read_timeout(Some(std::time::Duration::from_secs(30)))
+    tcp.set_read_timeout(Some(std::time::Duration::from_secs(timeout_secs)))
         .ok();
 
     // Build request
     let body_str = body.unwrap_or("");
-    let request = if body_str.is_empty() {
+    let mut request = if body_str.is_empty() {
         format!(
-            "{} {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n",
+            "{} {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n",
             method, path, host
         )
     } else {
         format!(
-            "{} {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
-            method, path, host, body_str.len(), body_str
+            "{} {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: {}\r\n",
+            method, path, host, body_str.len()
         )
     };
 
-    stream
-        .write_all(request.as_bytes())
-        .map_err(|e| format!("Write failed: {}", e))?;
-    stream.flush().map_err(|e| format!("Flush failed: {}", e))?;
+    // Append custom headers
+    for (key, val) in extra_headers {
+        request.push_str(&format!("{}: {}\r\n", key, val));
+    }
+    request.push_str("\r\n");
+    if !body_str.is_empty() {
+        request.push_str(body_str);
+    }
 
-    // Read response
-    let mut response = Vec::new();
-    stream
-        .read_to_end(&mut response)
-        .map_err(|e| format!("Read failed: {}", e))?;
+    // Read response via plain TCP or TLS
+    let response = if is_https {
+        let config = get_tls_config();
+        let server_name = rustls::pki_types::ServerName::try_from(host.clone())
+            .map_err(|_| format!("Invalid hostname: {}", host))?;
+        let conn = rustls::ClientConnection::new(config, server_name)
+            .map_err(|e| format!("TLS handshake failed: {}", e))?;
+        let mut tls = rustls::StreamOwned::new(conn, tcp);
+        tls.write_all(request.as_bytes())
+            .map_err(|e| format!("TLS write failed: {}", e))?;
+        tls.flush()
+            .map_err(|e| format!("TLS flush failed: {}", e))?;
+        let mut buf = Vec::new();
+        tls.read_to_end(&mut buf)
+            .map_err(|e| format!("TLS read failed: {}", e))?;
+        buf
+    } else {
+        let mut tcp = tcp;
+        tcp.write_all(request.as_bytes())
+            .map_err(|e| format!("Write failed: {}", e))?;
+        tcp.flush().map_err(|e| format!("Flush failed: {}", e))?;
+        let mut buf = Vec::new();
+        tcp.read_to_end(&mut buf)
+            .map_err(|e| format!("Read failed: {}", e))?;
+        buf
+    };
 
     let response_str = String::from_utf8_lossy(&response).to_string();
+    parse_http_response(&response_str)
+}
 
-    // Split headers from body
+/// Parse an HTTP response: extract status, handle chunked encoding, return body.
+fn parse_http_response(response_str: &str) -> Result<String, String> {
     if let Some(idx) = response_str.find("\r\n\r\n") {
         let headers = &response_str[..idx];
         let body = &response_str[idx + 4..];
 
         // Check status code
+        let mut status_code: u16 = 200;
         if let Some(status_line) = headers.lines().next() {
             let parts: Vec<&str> = status_line.split_whitespace().collect();
             if parts.len() >= 2 {
-                let code: u16 = parts[1].parse().unwrap_or(0);
-                if code >= 400 {
-                    return Err(format!("HTTP {}", code));
-                }
+                status_code = parts[1].parse().unwrap_or(0);
             }
         }
 
-        Ok(body.to_string())
+        // Decode body (handle chunked transfer-encoding)
+        let headers_lower = headers.to_lowercase();
+        let final_body = if headers_lower.contains("transfer-encoding: chunked") {
+            decode_chunked(body)
+        } else {
+            body.to_string()
+        };
+
+        if status_code >= 400 {
+            // Include body in error for API error messages
+            if final_body.is_empty() {
+                return Err(format!("HTTP {}", status_code));
+            }
+            return Err(format!("HTTP {}: {}", status_code, final_body));
+        }
+
+        Ok(final_body)
     } else {
-        Ok(response_str)
+        Ok(response_str.to_string())
     }
+}
+
+/// Decode HTTP chunked transfer-encoding.
+fn decode_chunked(body: &str) -> String {
+    let mut result = String::new();
+    let mut remaining = body;
+    while let Some(size_end) = remaining.find("\r\n") {
+        let size_str = remaining[..size_end].trim();
+        // Strip chunk extensions (after semicolon)
+        let size_hex = size_str.split(';').next().unwrap_or("0").trim();
+        let chunk_size = match usize::from_str_radix(size_hex, 16) {
+            Ok(0) => break, // terminal chunk
+            Ok(s) => s,
+            Err(_) => break,
+        };
+        let data_start = size_end + 2;
+        if data_start + chunk_size > remaining.len() {
+            result.push_str(&remaining[data_start..]);
+            break;
+        }
+        result.push_str(&remaining[data_start..data_start + chunk_size]);
+        remaining = &remaining[data_start + chunk_size..];
+        if remaining.starts_with("\r\n") {
+            remaining = &remaining[2..];
+        }
+    }
+    result
 }
 
 /// Helper: wrap result as (body, err) tuple

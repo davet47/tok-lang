@@ -139,7 +139,7 @@ m=@"str"                    # import as namespace
 pl(sqrt(pow(2 8)))          # 16.0
 ```
 
-Twelve standard library modules:
+Thirteen standard library modules:
 
 | Module | Functions |
 |---|---|
@@ -149,6 +149,7 @@ Twelve standard library modules:
 | `@"fs"` | `fread` `fwrite` `fappend` `fexists` `fls` `fmk` `frm` |
 | `@"http"` | `hget` `hpost` `hput` `hdel` `serve` |
 | `@"json"` | `jparse` `jstr` `jpretty` |
+| `@"llm"` | `ask` `chat` |
 | `@"csv"` | `cparse` `cstr` |
 | `@"tmpl"` | `render` `compile` `apply` |
 | `@"toon"` | `tparse` `tstr` |
@@ -252,7 +253,7 @@ The C-ABI runtime library linked into every compiled binary. All heap types are 
 | **Math** | abs, floor, ceil, rand + dynamic-dispatch variants |
 | **Conversions** | int, float, str, type_of, to_string |
 | **Dynamic ops** | add, sub, mul, div, mod, negate, eq, lt, truthiness (for `Any` type) |
-| **Stdlib** | math, str, io, fs, http, json, csv, toon, re, time, os module constructors |
+| **Stdlib** | math, str, io, fs, http, json, llm, csv, tmpl, toon, re, time, os module constructors |
 
 ### Value Representation
 
@@ -295,7 +296,7 @@ All 9 phases of the language spec are complete:
 
 **Compiler backend**: Cranelift AOT compilation to native binaries. All language features compile to native code, including concurrency primitives.
 
-**Standard library**: 12 modules (math, str, io, fs, http, json, csv, tmpl, toon, re, time, os) accessible via all import forms. Stdlib calls are optimized with direct dispatch (no map lookup or indirect call overhead).
+**Standard library**: 13 modules (math, str, io, fs, http, json, llm, csv, tmpl, toon, re, time, os) accessible via all import forms. HTTP module supports both HTTP and HTTPS. Stdlib calls are optimized with direct dispatch (no map lookup or indirect call overhead).
 
 ## Limitations
 
@@ -330,6 +331,7 @@ cargo run -- run tests/stdlib_json_test.tok
 cargo run -- run tests/stdlib_toon_test.tok
 cargo run -- run tests/stdlib_csv_test.tok
 cargo run -- run tests/stdlib_tmpl_test.tok
+cargo run -- run tests/stdlib_llm_test.tok
 cargo run -- run tests/stdlib_os_test.tok
 cargo run -- run tests/stdlib_fs_test.tok
 cargo run -- run tests/stdlib_re_test.tok

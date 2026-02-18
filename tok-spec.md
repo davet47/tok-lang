@@ -668,12 +668,17 @@ _cache={}                     # private
 ```
 @"math"                       # math functions + constants (pi, e, sqrt, sin, cos, pow, etc.)
 @"str"                        # string utilities (upper, lower, trim, split, replace, etc.)
-@"io"                         # file I/O (read_file, write_file, mkdir, ls, rm, etc.)
-@"json"                       # JSON encode/decode (parse, stringify, pretty)
+@"io"                         # stdin I/O (input, readall)
+@"fs"                         # filesystem (fread, fwrite, fappend, fexists, fls, fmk, frm)
+@"http"                       # HTTP/HTTPS client + server (hget, hpost, hput, hdel, serve)
+@"json"                       # JSON encode/decode (jparse, jstr, jpretty)
+@"llm"                        # LLM API calls (OpenAI + Anthropic, auto-detect)
 @"csv"                        # CSV parse/encode (headers-to-maps, RFC 4180)
 @"tmpl"                       # Template rendering ({.key.} syntax, sections, loops)
 @"toon"                       # TOON encode/decode (compact, LLM-optimized format)
-@"os"                         # OS interaction (exec, env, cwd, pid, sleep, etc.)
+@"re"                         # regex (rmatch, rfind, rall, rsub)
+@"time"                       # time (now, sleep, fmt)
+@"os"                         # OS interaction (exec, env, cwd, pid, exit, args)
 ```
 
 All import forms work with stdlib modules:
@@ -789,12 +794,15 @@ results=[1 2 3 4 5]|>pmap(\(x)=heavy(x))
 | `frm(path)` | Remove file/dir |
 
 ### 12.4 HTTP Module (`@"http"`)
+
+Supports both HTTP and HTTPS (via rustls). All request functions return `(body err)` result tuples.
+
 | Function | Description |
 |----------|-------------|
-| `hget(url)` | HTTP GET, returns `(body err)` |
-| `hpost(url body)` | HTTP POST |
-| `hput(url body)` | HTTP PUT |
-| `hdel(url)` | HTTP DELETE |
+| `hget(url)` | HTTP/HTTPS GET, returns `(body err)` |
+| `hpost(url body)` | HTTP/HTTPS POST |
+| `hput(url body)` | HTTP/HTTPS PUT |
+| `hdel(url)` | HTTP/HTTPS DELETE |
 | `serve(port routes)` | Start HTTP server |
 
 ### 12.5 JSON Module (`@"json"`)
@@ -837,7 +845,32 @@ pl(data.users[0].name)               # Alice
 pl(t.tstr({x:1 y:2}))                # x: 1\ny: 2
 ```
 
-### 12.7 CSV Module (`@"csv"`)
+### 12.7 LLM Module (`@"llm"`)
+
+LLM API calls with automatic provider detection from environment variables.
+
+| Function | Description |
+|----------|-------------|
+| `ask(prompt)` | One-shot completion → `(response, error)` tuple |
+| `chat(messages opts)` | Multi-turn chat → `(response, error)` tuple |
+
+Provider auto-detection: checks `ANTHROPIC_API_KEY` then `OPENAI_API_KEY`. Override with `opts.provider` (`"anthropic"` or `"openai"`) or `opts.url` for custom endpoints.
+
+Options map keys: `provider`, `model`, `url`, `api_key`, `temperature`, `max_tokens`, `system`.
+
+Example:
+```
+l=@"llm"
+resp err=l.ask("What is 2+2?")
+
+msgs=[{role:"user" content:"Hello"}]
+resp err=l.chat(msgs {model:"claude-sonnet-4-20250514" max_tokens:100})
+
+// Local endpoint (Ollama)
+resp err=l.chat(msgs {url:"http://localhost:11434/v1/chat/completions" model:"llama3"})
+```
+
+### 12.8 CSV Module (`@"csv"`)
 
 CSV parsing and encoding with automatic type detection.
 
@@ -857,7 +890,7 @@ pl(data[0].score)                    # 95
 pl(c.cstr([{x:1 y:2} {x:3 y:4}]))   # x,y\n1,2\n3,4
 ```
 
-### 12.8 Template Module (`@"tmpl"`)
+### 12.9 Template Module (`@"tmpl"`)
 
 Template rendering with `{.key.}` syntax — compact, tok-flavored delimiters.
 
@@ -889,7 +922,7 @@ tpl=t.compile(`{.#users.}{.name.}: {.role.}\n{./users.}`)
 t.apply(tpl {users: [{name:"Alice" role:"admin"} {name:"Bob" role:"user"}]})
 ```
 
-### 12.9 Regex Module (`@"re"`)
+### 12.10 Regex Module (`@"re"`)
 | Function | Description |
 |----------|-------------|
 | `rmatch(s pat)` | Test if string matches |
@@ -897,14 +930,14 @@ t.apply(tpl {users: [{name:"Alice" role:"admin"} {name:"Bob" role:"user"}]})
 | `rall(s pat)` | Find all matches |
 | `rsub(s pat rep)` | Replace matches |
 
-### 12.10 Time Module (`@"time"`)
+### 12.11 Time Module (`@"time"`)
 | Function | Description |
 |----------|-------------|
 | `now()` | Current unix timestamp (float) |
 | `sleep(ms)` | Sleep for milliseconds |
 | `fmt(ts pat)` | Format timestamp (`%Y` `%m` `%d` `%H` `%M` `%S`) |
 
-### 12.11 Math Module (`@"math"`)
+### 12.12 Math Module (`@"math"`)
 
 Constants: `pi`, `e`, `inf`, `nan`
 
@@ -922,7 +955,7 @@ Constants: `pi`, `e`, `inf`, `nan`
 | `min(a b)` `max(a b)` | Min/max of two values |
 | `random()` | Random float 0..1 |
 
-### 12.12 String Module (`@"str"`)
+### 12.13 String Module (`@"str"`)
 | Function | Description |
 |----------|-------------|
 | `upper(s)` `lower(s)` | Case conversion |
@@ -940,7 +973,7 @@ Constants: `pi`, `e`, `inf`, `nan`
 | `rev(s)` | Reverse string |
 | `len(s)` | String length |
 
-### 12.13 OS Module (`@"os"`)
+### 12.14 OS Module (`@"os"`)
 | Function | Description |
 |----------|-------------|
 | `args()` | CLI arguments (all, including program) |

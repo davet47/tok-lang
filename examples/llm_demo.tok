@@ -1,0 +1,42 @@
+// llm_demo.tok — LLM API calls with @"llm"
+//
+// Requires: ANTHROPIC_API_KEY or OPENAI_API_KEY set in environment.
+//
+// Compile & run:
+//   ANTHROPIC_API_KEY=sk-... cargo run -- run examples/llm_demo.tok
+
+l=@"llm"
+
+// --- One-shot ask (auto-detects provider from env) ---
+pl("=== ask ===")
+resp err=l.ask("What is 2+2? Reply with just the number.")
+err==N?pl("Response: {resp}"):pl("Error: {err}")
+pl("")
+
+// --- Multi-turn chat ---
+pl("=== chat ===")
+msgs=[{role:"user" content:"My name is Alice."} {role:"assistant" content:"Hello Alice!"} {role:"user" content:"What is my name?"}]
+resp2 err2=l.chat(msgs {max_tokens: 50})
+err2==N?pl("Response: {resp2}"):pl("Error: {err2}")
+pl("")
+
+// --- Chat with system message ---
+pl("=== system message ===")
+msgs3=[{role:"user" content:"Tell me about the weather"}]
+resp3 err3=l.chat(msgs3 {system:"You are a pirate. Keep it under 20 words." max_tokens:50})
+err3==N?pl("Response: {resp3}"):pl("Error: {err3}")
+pl("")
+
+// --- Explicit provider selection ---
+// Uncomment the provider you want to test:
+
+// Anthropic:
+// resp4 err4=l.chat([{role:"user" content:"Say hi"}] {provider:"anthropic" model:"claude-sonnet-4-20250514"})
+
+// OpenAI:
+// resp4 err4=l.chat([{role:"user" content:"Say hi"}] {provider:"openai" model:"gpt-4o"})
+
+// Local (Ollama):
+// resp4 err4=l.chat([{role:"user" content:"Say hi"}] {url:"http://localhost:11434/v1/chat/completions" model:"llama3"})
+
+pl("Done.")
