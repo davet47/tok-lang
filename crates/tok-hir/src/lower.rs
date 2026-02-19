@@ -274,52 +274,11 @@ impl<'a> Lowerer<'a> {
     }
 
     fn infer_binop_type(&self, op: &BinOp, lt: &Type, rt: &Type) -> Type {
-        match op {
-            BinOp::Add => match (lt, rt) {
-                (Type::Int, Type::Int) => Type::Int,
-                (Type::Float, Type::Float) => Type::Float,
-                (Type::Int, Type::Float) | (Type::Float, Type::Int) => Type::Float,
-                (Type::Str, Type::Str) => Type::Str,
-                (Type::Str, _) | (_, Type::Str) => Type::Str,
-                _ => Type::Any,
-            },
-            BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod | BinOp::Pow => match (lt, rt) {
-                (Type::Int, Type::Int) => Type::Int,
-                (Type::Float, Type::Float) => Type::Float,
-                (Type::Int, Type::Float) | (Type::Float, Type::Int) => Type::Float,
-                // String multiplication: "ha" * 3 or 3 * "ha"
-                (Type::Str, Type::Int) | (Type::Int, Type::Str) if matches!(op, BinOp::Mul) => {
-                    Type::Str
-                }
-                _ => Type::Any,
-            },
-            BinOp::Eq | BinOp::Neq | BinOp::Lt | BinOp::Gt | BinOp::LtEq | BinOp::GtEq => {
-                Type::Bool
-            }
-            BinOp::And | BinOp::Or => Type::Bool,
-            BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor | BinOp::Shr => match (lt, rt) {
-                (Type::Int, Type::Int) => Type::Int,
-                _ => Type::Any,
-            },
-            BinOp::Append => match lt {
-                Type::Array(inner) => Type::Array(inner.clone()),
-                _ => Type::Array(Box::new(Type::Any)),
-            },
-        }
+        tok_types::infer_binop_type(op, lt, rt)
     }
 
     fn infer_member_type(&self, target_ty: &Type, field: &str) -> Type {
-        match target_ty {
-            Type::Map(_) => Type::Any,
-            Type::Tuple(elts) => {
-                if let Ok(idx) = field.parse::<usize>() {
-                    elts.get(idx).cloned().unwrap_or(Type::Any)
-                } else {
-                    Type::Any
-                }
-            }
-            _ => Type::Any,
-        }
+        tok_types::infer_member_type(target_ty, field)
     }
 
     // ═══════════════════════════════════════════════════════════

@@ -5,6 +5,7 @@
 /// have been lowered into simpler primitives that are easy for codegen to consume.
 ///
 /// Every `HirExpr` carries its resolved `Type` from the type checker.
+use tok_parser::ast::BinOp;
 use tok_types::Type;
 
 /// HIR Program = sequence of HIR statements.
@@ -190,6 +191,35 @@ pub enum HirBinOp {
     BitOr,
     BitXor,
     Shr,
+}
+
+impl HirBinOp {
+    /// Convert back to parser `BinOp` for use with shared type inference.
+    ///
+    /// Note: `BinOp::Append` is desugared before reaching HIR, so it has no
+    /// `HirBinOp` variant and this conversion is total.
+    pub fn to_parser_op(self) -> BinOp {
+        match self {
+            HirBinOp::Add => BinOp::Add,
+            HirBinOp::Sub => BinOp::Sub,
+            HirBinOp::Mul => BinOp::Mul,
+            HirBinOp::Div => BinOp::Div,
+            HirBinOp::Mod => BinOp::Mod,
+            HirBinOp::Pow => BinOp::Pow,
+            HirBinOp::Eq => BinOp::Eq,
+            HirBinOp::Neq => BinOp::Neq,
+            HirBinOp::Lt => BinOp::Lt,
+            HirBinOp::Gt => BinOp::Gt,
+            HirBinOp::LtEq => BinOp::LtEq,
+            HirBinOp::GtEq => BinOp::GtEq,
+            HirBinOp::And => BinOp::And,
+            HirBinOp::Or => BinOp::Or,
+            HirBinOp::BitAnd => BinOp::BitAnd,
+            HirBinOp::BitOr => BinOp::BitOr,
+            HirBinOp::BitXor => BinOp::BitXor,
+            HirBinOp::Shr => BinOp::Shr,
+        }
+    }
 }
 
 /// Unary operators.

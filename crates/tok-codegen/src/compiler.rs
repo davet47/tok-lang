@@ -5956,24 +5956,9 @@ fn retype_expr(expr: &HirExpr, type_map: &HashMap<String, Type>) -> HirExpr {
 }
 
 /// Infer the result type of a binary operation given the types of both operands.
+/// Delegates to the canonical `tok_types::infer_binop_type` via `HirBinOp::to_parser_op()`.
 fn infer_binop_type(left: &Type, right: &Type, op: HirBinOp) -> Type {
-    use HirBinOp::*;
-    match op {
-        // Comparison ops always return Bool
-        Eq | Neq | Lt | Gt | LtEq | GtEq => Type::Bool,
-        // Logical ops return Bool
-        And | Or => Type::Bool,
-        // Arithmetic: Int op Int → Int, Float involved → Float
-        Add | Sub | Mul | Div | Mod | Pow | BitAnd | BitOr | BitXor | Shr => {
-            match (left, right) {
-                (Type::Int, Type::Int) => Type::Int,
-                (Type::Float, Type::Float) => Type::Float,
-                (Type::Int, Type::Float) | (Type::Float, Type::Int) => Type::Float,
-                (Type::Str, Type::Str) if matches!(op, Add) => Type::Str,
-                _ => Type::Any, // Can't determine — leave as Any
-            }
-        }
-    }
+    tok_types::infer_binop_type(&op.to_parser_op(), left, right)
 }
 
 // ─── Free variable analysis for closure captures ──────────────────────

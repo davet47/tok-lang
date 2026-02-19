@@ -85,6 +85,72 @@ pub struct TypeWarning {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// Shared type inference helpers
+// ═══════════════════════════════════════════════════════════════
+
+/// Infer the result type of a binary operation from its operand types.
+///
+/// Canonical implementation — used by the type checker, HIR lowering, and codegen.
+pub fn infer_binop_type(op: &BinOp, lt: &Type, rt: &Type) -> Type {
+    match op {
+        // Arithmetic
+        BinOp::Add => match (lt, rt) {
+            (Type::Int, Type::Int) => Type::Int,
+            (Type::Float, Type::Float) => Type::Float,
+            (Type::Int, Type::Float) | (Type::Float, Type::Int) => Type::Float,
+            (Type::Str, Type::Str) => Type::Str,
+            (Type::Str, _) | (_, Type::Str) => Type::Str,
+            _ => Type::Any,
+        },
+        BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod | BinOp::Pow => match (lt, rt) {
+            (Type::Int, Type::Int) => Type::Int,
+            (Type::Float, Type::Float) => Type::Float,
+            (Type::Int, Type::Float) | (Type::Float, Type::Int) => Type::Float,
+            // String multiplication: "ha" * 3 or 3 * "ha"
+            (Type::Str, Type::Int) | (Type::Int, Type::Str) if matches!(op, BinOp::Mul) => {
+                Type::Str
+            }
+            _ => Type::Any,
+        },
+
+        // Comparison — always bool
+        BinOp::Eq | BinOp::Neq | BinOp::Lt | BinOp::Gt | BinOp::LtEq | BinOp::GtEq => Type::Bool,
+
+        // Logic — always bool
+        BinOp::And | BinOp::Or => Type::Bool,
+
+        // Bitwise — int
+        BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor | BinOp::Shr => match (lt, rt) {
+            (Type::Int, Type::Int) => Type::Int,
+            _ => Type::Any,
+        },
+
+        // Append — array
+        BinOp::Append => match lt {
+            Type::Array(inner) => Type::Array(inner.clone()),
+            _ => Type::Array(Box::new(Type::Any)),
+        },
+    }
+}
+
+/// Infer the type of a member access (`target.field`).
+///
+/// Canonical implementation — used by the type checker and HIR lowering.
+pub fn infer_member_type(target_ty: &Type, field: &str) -> Type {
+    match target_ty {
+        Type::Map(_) => Type::Any,
+        Type::Tuple(elts) => {
+            if let Ok(idx) = field.parse::<usize>() {
+                elts.get(idx).cloned().unwrap_or(Type::Any)
+            } else {
+                Type::Any
+            }
+        }
+        _ => Type::Any,
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
 // Unification
 // ═══════════════════════════════════════════════════════════════
 
@@ -1063,61 +1129,11 @@ impl TypeChecker {
     // ─── Helpers ──────────────────────────────────────────────
 
     fn check_binop(&self, op: &BinOp, lt: &Type, rt: &Type) -> Type {
-        match op {
-            // Arithmetic
-            BinOp::Add => match (lt, rt) {
-                (Type::Int, Type::Int) => Type::Int,
-                (Type::Float, Type::Float) => Type::Float,
-                (Type::Int, Type::Float) | (Type::Float, Type::Int) => Type::Float,
-                (Type::Str, Type::Str) => Type::Str,
-                (Type::Str, _) | (_, Type::Str) => Type::Str,
-                _ => Type::Any,
-            },
-            BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod | BinOp::Pow => match (lt, rt) {
-                (Type::Int, Type::Int) => Type::Int,
-                (Type::Float, Type::Float) => Type::Float,
-                (Type::Int, Type::Float) | (Type::Float, Type::Int) => Type::Float,
-                // String multiplication: "ha" * 3 or 3 * "ha"
-                (Type::Str, Type::Int) | (Type::Int, Type::Str) if matches!(op, BinOp::Mul) => {
-                    Type::Str
-                }
-                _ => Type::Any,
-            },
-
-            // Comparison — always bool
-            BinOp::Eq | BinOp::Neq | BinOp::Lt | BinOp::Gt | BinOp::LtEq | BinOp::GtEq => {
-                Type::Bool
-            }
-
-            // Logic — always bool
-            BinOp::And | BinOp::Or => Type::Bool,
-
-            // Bitwise — int
-            BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor | BinOp::Shr => match (lt, rt) {
-                (Type::Int, Type::Int) => Type::Int,
-                _ => Type::Any,
-            },
-
-            // Append — array
-            BinOp::Append => match lt {
-                Type::Array(inner) => Type::Array(inner.clone()),
-                _ => Type::Array(Box::new(Type::Any)),
-            },
-        }
+        infer_binop_type(op, lt, rt)
     }
 
     fn resolve_member(&self, target_ty: &Type, field: &str) -> Type {
-        match target_ty {
-            Type::Map(_) => Type::Any,
-            Type::Tuple(elts) => {
-                if let Ok(idx) = field.parse::<usize>() {
-                    elts.get(idx).cloned().unwrap_or(Type::Any)
-                } else {
-                    Type::Any
-                }
-            }
-            _ => Type::Any,
-        }
+        infer_member_type(target_ty, field)
     }
 
     fn check_call(&mut self, func: &Expr, args: &[Expr]) -> Type {
