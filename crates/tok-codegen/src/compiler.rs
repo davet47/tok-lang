@@ -178,18 +178,26 @@ pub struct Compiler {
 impl Compiler {
     fn new() -> Self {
         let mut settings_builder = settings::builder();
-        settings_builder.set("opt_level", "speed").unwrap();
-        settings_builder.set("is_pic", "true").unwrap();
+        settings_builder
+            .set("opt_level", "speed")
+            .expect("codegen: invalid cranelift setting opt_level");
+        settings_builder
+            .set("is_pic", "true")
+            .expect("codegen: invalid cranelift setting is_pic");
         // Use the host triple
-        let triple = Triple::from_str(&target_lexicon::HOST.to_string()).unwrap();
+        let triple = Triple::from_str(&target_lexicon::HOST.to_string())
+            .expect("codegen: unsupported host triple");
         let flags = settings::Flags::new(settings_builder);
-        let isa = isa::lookup(triple.clone()).unwrap().finish(flags).unwrap();
+        let isa = isa::lookup(triple.clone())
+            .expect("codegen: unsupported ISA for host triple")
+            .finish(flags)
+            .expect("codegen: failed to build ISA");
 
         let call_conv = isa.default_call_conv();
 
         let obj_builder =
             ObjectBuilder::new(isa, "tok_output", cranelift_module::default_libcall_names())
-                .unwrap();
+                .expect("codegen: failed to create object builder");
         let module = ObjectModule::new(obj_builder);
 
         Compiler {
@@ -234,7 +242,7 @@ impl Compiler {
         let id = self
             .module
             .declare_function(name, Linkage::Import, &sig)
-            .unwrap();
+            .expect("codegen: failed to declare runtime function");
         self.runtime_funcs.insert(name.to_string(), id);
         id
     }
@@ -624,10 +632,12 @@ impl Compiler {
         let data_id = self
             .module
             .declare_data(&name, Linkage::Local, false, false)
-            .unwrap();
+            .expect("codegen: failed to declare string data");
         let mut desc = DataDescription::new();
         desc.define(s.as_bytes().to_vec().into_boxed_slice());
-        self.module.define_data(data_id, &desc).unwrap();
+        self.module
+            .define_data(data_id, &desc)
+            .expect("codegen: failed to define string data");
         let entry = (data_id, s.len());
         self.string_literals.push(entry);
         entry
@@ -659,7 +669,7 @@ impl Compiler {
         let id = self
             .module
             .declare_function(name, Linkage::Local, &sig)
-            .unwrap();
+            .expect("codegen: failed to declare user function");
         self.declared_funcs.insert(name.to_string(), id);
         let param_types: Vec<Type> = params.iter().map(|p| p.ty.clone()).collect();
         self.func_sigs
@@ -771,7 +781,7 @@ pub fn compile(program: &HirProgram) -> Vec<u8> {
 
     // Produce the object file bytes.
     let product: ObjectProduct = compiler.module.finish();
-    product.emit().unwrap()
+    product.emit().expect("codegen: failed to emit object file")
 }
 
 /// Compile a named function.
@@ -1067,7 +1077,10 @@ fn compile_function(
     func_ctx.builder.finalize();
 
     let mut ctx = Context::for_function(func);
-    compiler.module.define_function(func_id, &mut ctx).unwrap();
+    compiler
+        .module
+        .define_function(func_id, &mut ctx)
+        .expect("codegen: failed to define function");
 }
 
 /// Compile a deferred lambda body into its own Cranelift function.
@@ -1196,7 +1209,7 @@ fn compile_lambda_body(compiler: &mut Compiler, lambda: &PendingLambda) {
     compiler
         .module
         .define_function(lambda.func_id, &mut ctx)
-        .unwrap();
+        .expect("codegen: failed to define lambda function");
 }
 
 /// Compile a specialized lambda body with native-typed calling convention.
@@ -1204,7 +1217,10 @@ fn compile_lambda_body(compiler: &mut Compiler, lambda: &PendingLambda) {
 /// Specialized calling convention: (env_ptr: PTR, arg0: T0, arg1: T1, ...) -> RetT
 /// Params are native types, no boxing/unboxing.
 fn compile_specialized_lambda_body(compiler: &mut Compiler, lambda: &PendingLambda) {
-    let spec_types = lambda.specialized_param_types.as_ref().unwrap();
+    let spec_types = lambda
+        .specialized_param_types
+        .as_ref()
+        .expect("codegen: specialized lambda missing param types");
     let sig = compiler
         .module
         .declarations()
@@ -1367,7 +1383,7 @@ fn compile_specialized_lambda_body(compiler: &mut Compiler, lambda: &PendingLamb
     compiler
         .module
         .define_function(lambda.func_id, &mut ctx)
-        .unwrap();
+        .expect("codegen: failed to define specialized lambda");
 }
 
 /// Compile top-level statements into `_tok_main`.
@@ -1377,7 +1393,7 @@ fn compile_main(compiler: &mut Compiler, stmts: &[HirStmt]) {
     let func_id = compiler
         .module
         .declare_function("_tok_main", Linkage::Export, &sig)
-        .unwrap();
+        .expect("codegen: failed to declare _tok_main");
 
     let mut func = Function::new();
     func.signature = sig;
@@ -1440,7 +1456,10 @@ fn compile_main(compiler: &mut Compiler, stmts: &[HirStmt]) {
     if std::env::var("CLIF_DUMP").is_ok() {
         eprintln!("=== _tok_main IR ===\n{}", ctx.func.display());
     }
-    compiler.module.define_function(func_id, &mut ctx).unwrap();
+    compiler
+        .module
+        .define_function(func_id, &mut ctx)
+        .expect("codegen: failed to define function");
 }
 
 /// Compile the C `main` entry point that calls `_tok_main`.
@@ -1453,7 +1472,7 @@ fn compile_entry(compiler: &mut Compiler) {
     let func_id = compiler
         .module
         .declare_function("main", Linkage::Export, &sig)
-        .unwrap();
+        .expect("codegen: failed to declare main");
 
     let mut func = Function::new();
     func.signature = sig;
@@ -1464,7 +1483,7 @@ fn compile_entry(compiler: &mut Compiler) {
     let tok_main_id = compiler
         .module
         .declare_function("_tok_main", Linkage::Export, &tok_main_sig)
-        .unwrap();
+        .expect("codegen: failed to declare _tok_main reference");
     let tok_main_ref = compiler.module.declare_func_in_func(tok_main_id, &mut func);
 
     let mut func_builder_ctx = FunctionBuilderContext::new();
@@ -1485,7 +1504,10 @@ fn compile_entry(compiler: &mut Compiler) {
     builder.finalize();
 
     let mut ctx = Context::for_function(func);
-    compiler.module.define_function(func_id, &mut ctx).unwrap();
+    compiler
+        .module
+        .define_function(func_id, &mut ctx)
+        .expect("codegen: failed to define function");
 }
 
 // ─── FuncCtx helpers ──────────────────────────────────────────────────
@@ -1713,9 +1735,10 @@ fn compile_stmt(ctx: &mut FuncCtx, stmt: &HirStmt) -> Option<Value> {
             index,
             value,
         } => {
-            let target_val = compile_expr(ctx, target).unwrap();
-            let idx_val = compile_expr(ctx, index).unwrap();
-            let val = compile_expr(ctx, value).unwrap();
+            let target_val =
+                compile_expr(ctx, target).expect("codegen: target expr produced no value");
+            let idx_val = compile_expr(ctx, index).expect("codegen: index expr produced no value");
+            let val = compile_expr(ctx, value).expect("codegen: value expr produced no value");
             // Call appropriate runtime set function based on target type
             match &target.ty {
                 Type::Array(_) => {
@@ -1746,8 +1769,9 @@ fn compile_stmt(ctx: &mut FuncCtx, stmt: &HirStmt) -> Option<Value> {
             field,
             value,
         } => {
-            let target_val = compile_expr(ctx, target).unwrap();
-            let val = compile_expr(ctx, value).unwrap();
+            let target_val =
+                compile_expr(ctx, target).expect("codegen: target expr produced no value");
+            let val = compile_expr(ctx, value).expect("codegen: value expr produced no value");
             // Allocate key string
             let (data_id, len) = ctx.compiler.declare_string_data(field);
             let gv = ctx.get_data_ref(data_id);
@@ -1881,8 +1905,12 @@ fn compile_expr(ctx: &mut FuncCtx, expr: &HirExpr) -> Option<Value> {
             } else if ctx.compiler.declared_funcs.contains_key(name.as_str()) {
                 // Declared function used as a value — create a trampoline wrapper
                 // with the closure calling convention, then wrap in a TokClosure.
-                let (param_types, ret_type) =
-                    ctx.compiler.func_sigs.get(name.as_str()).unwrap().clone();
+                let (param_types, ret_type) = ctx
+                    .compiler
+                    .func_sigs
+                    .get(name.as_str())
+                    .expect("codegen: unknown function signature")
+                    .clone();
                 let trampoline_name = format!("__tok_tramp_{}", name);
 
                 // Check if trampoline already exists (avoid duplicate definition)
@@ -1929,7 +1957,7 @@ fn compile_expr(ctx: &mut FuncCtx, expr: &HirExpr) -> Option<Value> {
                         .compiler
                         .module
                         .declare_function(&trampoline_name, Linkage::Local, &sig)
-                        .unwrap();
+                        .expect("codegen: failed to declare trampoline");
 
                     ctx.compiler
                         .declared_funcs
@@ -2033,8 +2061,9 @@ fn compile_expr(ctx: &mut FuncCtx, expr: &HirExpr) -> Option<Value> {
         HirExprKind::UnaryOp { op, operand } => compile_unaryop(ctx, *op, operand, &expr.ty),
 
         HirExprKind::Index { target, index } => {
-            let target_val = compile_expr(ctx, target).unwrap();
-            let idx_val = compile_expr(ctx, index).unwrap();
+            let target_val =
+                compile_expr(ctx, target).expect("codegen: target expr produced no value");
+            let idx_val = compile_expr(ctx, index).expect("codegen: index expr produced no value");
             match &target.ty {
                 Type::Array(_) => {
                     let func_ref = ctx.get_runtime_func_ref("tok_array_get");
@@ -2091,7 +2120,8 @@ fn compile_expr(ctx: &mut FuncCtx, expr: &HirExpr) -> Option<Value> {
                     }
                 }
             }
-            let target_val = compile_expr(ctx, target).unwrap();
+            let target_val =
+                compile_expr(ctx, target).expect("codegen: target expr produced no value");
             // Allocate field name as string, call map_get
             let (data_id, len) = ctx.compiler.declare_string_data(field);
             let gv = ctx.get_data_ref(data_id);
@@ -2170,7 +2200,8 @@ fn compile_expr(ctx: &mut FuncCtx, expr: &HirExpr) -> Option<Value> {
                         return compile_inline_filter(ctx, &args[0], &args[1], &expr.ty);
                     }
                     // Fallback: runtime call
-                    let arr_raw = compile_expr(ctx, &args[0]).unwrap();
+                    let arr_raw =
+                        compile_expr(ctx, &args[0]).expect("codegen: args[0] produced no value");
                     let arr =
                         if matches!(&args[0].ty, Type::Any | Type::Optional(_) | Type::Result(_)) {
                             ctx.builder
@@ -2179,7 +2210,8 @@ fn compile_expr(ctx: &mut FuncCtx, expr: &HirExpr) -> Option<Value> {
                         } else {
                             arr_raw
                         };
-                    let closure = compile_expr(ctx, &args[1]).unwrap();
+                    let closure =
+                        compile_expr(ctx, &args[1]).expect("codegen: args[1] produced no value");
                     let func_ref = ctx.get_runtime_func_ref("tok_array_filter");
                     let call = ctx.builder.ins().call(func_ref, &[arr, closure]);
                     let result = ctx.builder.inst_results(call)[0];
@@ -2195,7 +2227,8 @@ fn compile_expr(ctx: &mut FuncCtx, expr: &HirExpr) -> Option<Value> {
                         return compile_inline_reduce(ctx, &args[0], &args[1], &args[2], &expr.ty);
                     }
                     // Fallback: runtime call
-                    let arr_raw = compile_expr(ctx, &args[0]).unwrap();
+                    let arr_raw =
+                        compile_expr(ctx, &args[0]).expect("codegen: args[0] produced no value");
                     let arr =
                         if matches!(&args[0].ty, Type::Any | Type::Optional(_) | Type::Result(_)) {
                             ctx.builder
@@ -2205,7 +2238,8 @@ fn compile_expr(ctx: &mut FuncCtx, expr: &HirExpr) -> Option<Value> {
                             arr_raw
                         };
                     let init_val = compile_expr(ctx, &args[1]);
-                    let closure = compile_expr(ctx, &args[2]).unwrap();
+                    let closure =
+                        compile_expr(ctx, &args[2]).expect("codegen: args[2] produced no value");
                     let (init_tag, init_data) = if let Some(iv) = init_val {
                         to_tokvalue(ctx, iv, &args[1].ty)
                     } else {
@@ -2222,8 +2256,10 @@ fn compile_expr(ctx: &mut FuncCtx, expr: &HirExpr) -> Option<Value> {
                 }
                 "tok_array_push" => {
                     // tok_array_push(arr: PTR, tag: I64, data: I64) -> PTR
-                    let arr = compile_expr(ctx, &args[0]).unwrap();
-                    let val = compile_expr(ctx, &args[1]).unwrap();
+                    let arr =
+                        compile_expr(ctx, &args[0]).expect("codegen: args[0] produced no value");
+                    let val =
+                        compile_expr(ctx, &args[1]).expect("codegen: args[1] produced no value");
                     let (tag, data) = to_tokvalue(ctx, val, &args[1].ty);
                     let func_ref = ctx.get_runtime_func_ref("tok_array_push");
                     let call = ctx.builder.ins().call(func_ref, &[arr, tag, data]);
@@ -2232,7 +2268,8 @@ fn compile_expr(ctx: &mut FuncCtx, expr: &HirExpr) -> Option<Value> {
                 "tok_value_to_string" => {
                     // tok_value_to_string(tag: I64, data: I64) -> PTR
                     // HIR emits 1 arg but runtime expects (tag, data)
-                    let val = compile_expr(ctx, &args[0]).unwrap();
+                    let val =
+                        compile_expr(ctx, &args[0]).expect("codegen: args[0] produced no value");
                     let (tag, data) = to_tokvalue(ctx, val, &args[0].ty);
                     let func_ref = ctx.get_runtime_func_ref("tok_value_to_string");
                     let call = ctx.builder.ins().call(func_ref, &[tag, data]);
@@ -2241,7 +2278,8 @@ fn compile_expr(ctx: &mut FuncCtx, expr: &HirExpr) -> Option<Value> {
                 "tok_array_concat" => {
                     // tok_array_concat(a: PTR, b: PTR) -> PTR
                     // Both args need to be unwrapped from Any if needed
-                    let a_raw = compile_expr(ctx, &args[0]).unwrap();
+                    let a_raw =
+                        compile_expr(ctx, &args[0]).expect("codegen: args[0] produced no value");
                     let a =
                         if matches!(&args[0].ty, Type::Any | Type::Optional(_) | Type::Result(_)) {
                             ctx.builder
@@ -2250,7 +2288,8 @@ fn compile_expr(ctx: &mut FuncCtx, expr: &HirExpr) -> Option<Value> {
                         } else {
                             a_raw
                         };
-                    let b_raw = compile_expr(ctx, &args[1]).unwrap();
+                    let b_raw =
+                        compile_expr(ctx, &args[1]).expect("codegen: args[1] produced no value");
                     let b =
                         if matches!(&args[1].ty, Type::Any | Type::Optional(_) | Type::Result(_)) {
                             ctx.builder
@@ -2324,7 +2363,7 @@ fn compile_expr(ctx: &mut FuncCtx, expr: &HirExpr) -> Option<Value> {
                 .compiler
                 .module
                 .declare_function(&lambda_name, Linkage::Local, &sig)
-                .unwrap();
+                .expect("codegen: failed to declare lambda");
 
             // Queue for later compilation (with captures info)
             let pending_idx = ctx.compiler.pending_lambdas.len();
@@ -2357,7 +2396,11 @@ fn compile_expr(ctx: &mut FuncCtx, expr: &HirExpr) -> Option<Value> {
 
                 // Store each captured variable into the environment
                 for (i, cap) in captures.iter().enumerate() {
-                    let (var, var_ty) = ctx.vars.get(&cap.name).unwrap().clone();
+                    let (var, var_ty) = ctx
+                        .vars
+                        .get(&cap.name)
+                        .expect("codegen: captured var not found")
+                        .clone();
                     let val = ctx.builder.use_var(var);
                     let (tag, data) = to_tokvalue(ctx, val, &var_ty);
                     let offset = (i * 16) as i32;
@@ -2411,7 +2454,8 @@ fn compile_expr(ctx: &mut FuncCtx, expr: &HirExpr) -> Option<Value> {
         }
 
         HirExprKind::Length(target) => {
-            let target_val = compile_expr(ctx, target).unwrap();
+            let target_val =
+                compile_expr(ctx, target).expect("codegen: target expr produced no value");
             match &target.ty {
                 Type::Array(_) => {
                     let func_ref = ctx.get_runtime_func_ref("tok_array_len");
@@ -2488,7 +2532,7 @@ fn compile_expr(ctx: &mut FuncCtx, expr: &HirExpr) -> Option<Value> {
                 .compiler
                 .module
                 .declare_function(&thunk_name, Linkage::Local, &sig)
-                .unwrap();
+                .expect("codegen: failed to declare go thunk");
 
             // Queue thunk for later compilation (reuse PendingLambda with 0 params)
             ctx.compiler.pending_lambdas.push(PendingLambda {
@@ -2518,7 +2562,11 @@ fn compile_expr(ctx: &mut FuncCtx, expr: &HirExpr) -> Option<Value> {
                 let env = ctx.builder.inst_results(alloc_call)[0];
 
                 for (i, cap) in captures.iter().enumerate() {
-                    let (var, var_ty) = ctx.vars.get(&cap.name).unwrap().clone();
+                    let (var, var_ty) = ctx
+                        .vars
+                        .get(&cap.name)
+                        .expect("codegen: captured var not found")
+                        .clone();
                     let val = ctx.builder.use_var(var);
                     let (tag, data) = to_tokvalue(ctx, val, &var_ty);
                     let offset = (i * 16) as i32;
@@ -2539,7 +2587,8 @@ fn compile_expr(ctx: &mut FuncCtx, expr: &HirExpr) -> Option<Value> {
         }
 
         HirExprKind::Receive(chan_expr) => {
-            let chan = compile_expr(ctx, chan_expr).unwrap();
+            let chan =
+                compile_expr(ctx, chan_expr).expect("codegen: channel expr produced no value");
             // Distinguish channel recv from handle join based on expression type
             match &chan_expr.ty {
                 Type::Handle(_) => {
@@ -2560,8 +2609,9 @@ fn compile_expr(ctx: &mut FuncCtx, expr: &HirExpr) -> Option<Value> {
         }
 
         HirExprKind::Send { chan, value } => {
-            let chan_val = compile_expr(ctx, chan).unwrap();
-            let val = compile_expr(ctx, value).unwrap();
+            let chan_val =
+                compile_expr(ctx, chan).expect("codegen: channel expr produced no value");
+            let val = compile_expr(ctx, value).expect("codegen: value expr produced no value");
             let (tag, data) = to_tokvalue(ctx, val, &value.ty);
             let func_ref = ctx.get_runtime_func_ref("tok_channel_send");
             ctx.builder.ins().call(func_ref, &[chan_val, tag, data]);
@@ -2593,7 +2643,8 @@ fn compile_expr(ctx: &mut FuncCtx, expr: &HirExpr) -> Option<Value> {
 
                 match arm {
                     HirSelectArm::Recv { var, chan, body } => {
-                        let chan_val = compile_expr(ctx, chan).unwrap();
+                        let chan_val = compile_expr(ctx, chan)
+                            .expect("codegen: channel expr produced no value");
                         // Allocate stack slot for try_recv output
                         let ss = ctx.builder.create_sized_stack_slot(StackSlotData::new(
                             StackSlotKind::ExplicitSlot,
@@ -2621,8 +2672,10 @@ fn compile_expr(ctx: &mut FuncCtx, expr: &HirExpr) -> Option<Value> {
                         }
                     }
                     HirSelectArm::Send { chan, value, body } => {
-                        let chan_val = compile_expr(ctx, chan).unwrap();
-                        let val = compile_expr(ctx, value).unwrap();
+                        let chan_val = compile_expr(ctx, chan)
+                            .expect("codegen: channel expr produced no value");
+                        let val = compile_expr(ctx, value)
+                            .expect("codegen: value expr produced no value");
                         let (tag, data) = to_tokvalue(ctx, val, &value.ty);
                         let try_send_ref = ctx.get_runtime_func_ref("tok_channel_try_send");
                         let call = ctx.builder.ins().call(try_send_ref, &[chan_val, tag, data]);
@@ -2659,7 +2712,8 @@ fn compile_expr(ctx: &mut FuncCtx, expr: &HirExpr) -> Option<Value> {
             {
                 // No default: block on first recv arm
                 if let HirSelectArm::Recv { var, chan, body } = first_recv {
-                    let chan_val = compile_expr(ctx, chan).unwrap();
+                    let chan_val =
+                        compile_expr(ctx, chan).expect("codegen: channel expr produced no value");
                     let recv_ref = ctx.get_runtime_func_ref("tok_channel_recv");
                     let call = ctx.builder.ins().call(recv_ref, &[chan_val]);
                     let results = ctx.builder.inst_results(call);
@@ -2946,7 +3000,7 @@ fn compile_short_circuit_and(
     right: &HirExpr,
     _result_ty: &Type,
 ) -> Option<Value> {
-    let lv = compile_expr(ctx, left).unwrap();
+    let lv = compile_expr(ctx, left).expect("codegen: left operand produced no value");
     let then_block = ctx.builder.create_block();
     let merge_block = ctx.builder.create_block();
     ctx.builder.append_block_param(merge_block, types::I8);
@@ -2960,7 +3014,7 @@ fn compile_short_circuit_and(
 
     ctx.builder.switch_to_block(then_block);
     ctx.builder.seal_block(then_block);
-    let rv = compile_expr(ctx, right).unwrap();
+    let rv = compile_expr(ctx, right).expect("codegen: right operand produced no value");
     let right_bool = to_bool(ctx, rv, &right.ty);
     ctx.builder.ins().jump(merge_block, &[right_bool]);
 
@@ -2975,7 +3029,7 @@ fn compile_short_circuit_or(
     right: &HirExpr,
     _result_ty: &Type,
 ) -> Option<Value> {
-    let lv = compile_expr(ctx, left).unwrap();
+    let lv = compile_expr(ctx, left).expect("codegen: left operand produced no value");
     let else_block = ctx.builder.create_block();
     let merge_block = ctx.builder.create_block();
     ctx.builder.append_block_param(merge_block, types::I8);
@@ -2988,7 +3042,7 @@ fn compile_short_circuit_or(
 
     ctx.builder.switch_to_block(else_block);
     ctx.builder.seal_block(else_block);
-    let rv = compile_expr(ctx, right).unwrap();
+    let rv = compile_expr(ctx, right).expect("codegen: right operand produced no value");
     let right_bool = to_bool(ctx, rv, &right.ty);
     ctx.builder.ins().jump(merge_block, &[right_bool]);
 
@@ -3005,7 +3059,7 @@ fn compile_unaryop(
     operand: &HirExpr,
     _result_ty: &Type,
 ) -> Option<Value> {
-    let val = compile_expr(ctx, operand).unwrap();
+    let val = compile_expr(ctx, operand).expect("codegen: operand expr produced no value");
     match op {
         HirUnaryOp::Neg => {
             if matches!(operand.ty, Type::Int) {
@@ -3185,7 +3239,7 @@ fn get_stdlib_const(module: &str, field: &str) -> Option<f64> {
 
 /// Compile a 1-arg builtin: compile arg → unwrap_any_ptr → call runtime → return ptr
 fn compile_builtin_1_ptr(ctx: &mut FuncCtx, arg: &HirExpr, runtime_fn: &str) -> Option<Value> {
-    let val = compile_expr(ctx, arg).unwrap();
+    let val = compile_expr(ctx, arg).expect("codegen: arg produced no value");
     let ptr = unwrap_any_ptr(ctx, val, &arg.ty);
     let func_ref = ctx.get_runtime_func_ref(runtime_fn);
     let call = ctx.builder.ins().call(func_ref, &[ptr]);
@@ -3199,7 +3253,7 @@ fn compile_builtin_1_tokvalue(
     runtime_fn: &str,
     result_ty: &Type,
 ) -> Option<Value> {
-    let val = compile_expr(ctx, arg).unwrap();
+    let val = compile_expr(ctx, arg).expect("codegen: arg produced no value");
     let ptr = unwrap_any_ptr(ctx, val, &arg.ty);
     let func_ref = ctx.get_runtime_func_ref(runtime_fn);
     let call = ctx.builder.ins().call(func_ref, &[ptr]);
@@ -3209,9 +3263,9 @@ fn compile_builtin_1_tokvalue(
 
 /// Compile a 2-arg builtin: compile both → unwrap → call → return ptr
 fn compile_builtin_2_ptr(ctx: &mut FuncCtx, args: &[HirExpr], runtime_fn: &str) -> Option<Value> {
-    let a_raw = compile_expr(ctx, &args[0]).unwrap();
+    let a_raw = compile_expr(ctx, &args[0]).expect("codegen: args[0] produced no value");
     let a = unwrap_any_ptr(ctx, a_raw, &args[0].ty);
-    let b_raw = compile_expr(ctx, &args[1]).unwrap();
+    let b_raw = compile_expr(ctx, &args[1]).expect("codegen: args[1] produced no value");
     let b = unwrap_any_ptr(ctx, b_raw, &args[1].ty);
     let func_ref = ctx.get_runtime_func_ref(runtime_fn);
     let call = ctx.builder.ins().call(func_ref, &[a, b]);
@@ -3271,7 +3325,7 @@ fn compile_call(
             }
             "len" => {
                 if let Some(arg) = args.first() {
-                    let val = compile_expr(ctx, arg).unwrap();
+                    let val = compile_expr(ctx, arg).expect("codegen: arg produced no value");
                     match &arg.ty {
                         Type::Any | Type::Optional(_) | Type::Result(_) => {
                             let (tag, data) = to_tokvalue(ctx, val, &arg.ty);
@@ -3296,11 +3350,12 @@ fn compile_call(
             }
             "push" => {
                 if args.len() >= 2 {
-                    let arr_raw = compile_expr(ctx, &args[0]).unwrap();
+                    let arr_raw =
+                        compile_expr(ctx, &args[0]).expect("codegen: args[0] produced no value");
                     let mut arr = unwrap_any_ptr(ctx, arr_raw, &args[0].ty);
                     let func_ref = ctx.get_runtime_func_ref("tok_array_push");
                     for arg in &args[1..] {
-                        let val = compile_expr(ctx, arg).unwrap();
+                        let val = compile_expr(ctx, arg).expect("codegen: arg produced no value");
                         let (tag, data) = to_tokvalue(ctx, val, &arg.ty);
                         let call = ctx.builder.ins().call(func_ref, &[arr, tag, data]);
                         arr = ctx.builder.inst_results(call)[0];
@@ -3365,7 +3420,7 @@ fn compile_call(
             }
             "int" => {
                 if let Some(arg) = args.first() {
-                    let val = compile_expr(ctx, arg).unwrap();
+                    let val = compile_expr(ctx, arg).expect("codegen: arg produced no value");
                     if matches!(arg.ty, Type::Int) {
                         return Some(val);
                     }
@@ -3380,7 +3435,7 @@ fn compile_call(
             }
             "float" => {
                 if let Some(arg) = args.first() {
-                    let val = compile_expr(ctx, arg).unwrap();
+                    let val = compile_expr(ctx, arg).expect("codegen: arg produced no value");
                     if matches!(arg.ty, Type::Float) {
                         return Some(val);
                     }
@@ -3395,7 +3450,7 @@ fn compile_call(
             }
             "str" => {
                 if let Some(arg) = args.first() {
-                    let val = compile_expr(ctx, arg).unwrap();
+                    let val = compile_expr(ctx, arg).expect("codegen: arg produced no value");
                     let func_name = match &arg.ty {
                         Type::Int => "tok_int_to_string",
                         Type::Float => "tok_float_to_string",
@@ -3415,7 +3470,7 @@ fn compile_call(
             }
             "abs" => {
                 if let Some(arg) = args.first() {
-                    let val = compile_expr(ctx, arg).unwrap();
+                    let val = compile_expr(ctx, arg).expect("codegen: arg produced no value");
                     if matches!(arg.ty, Type::Any) {
                         // Fully dynamic: dispatch at runtime
                         let (tag, data) = to_tokvalue(ctx, val, &arg.ty);
@@ -3451,7 +3506,7 @@ fn compile_call(
             }
             "floor" => {
                 if let Some(arg) = args.first() {
-                    let val = compile_expr(ctx, arg).unwrap();
+                    let val = compile_expr(ctx, arg).expect("codegen: arg produced no value");
                     if matches!(arg.ty, Type::Any) {
                         let (tag, data) = to_tokvalue(ctx, val, &arg.ty);
                         let func_ref = ctx.get_runtime_func_ref("tok_value_floor");
@@ -3471,7 +3526,7 @@ fn compile_call(
             }
             "ceil" => {
                 if let Some(arg) = args.first() {
-                    let val = compile_expr(ctx, arg).unwrap();
+                    let val = compile_expr(ctx, arg).expect("codegen: arg produced no value");
                     if matches!(arg.ty, Type::Any) {
                         let (tag, data) = to_tokvalue(ctx, val, &arg.ty);
                         let func_ref = ctx.get_runtime_func_ref("tok_value_ceil");
@@ -3501,7 +3556,7 @@ fn compile_call(
             }
             "exit" => {
                 if let Some(arg) = args.first() {
-                    let val = compile_expr(ctx, arg).unwrap();
+                    let val = compile_expr(ctx, arg).expect("codegen: arg produced no value");
                     let func_ref = ctx.get_runtime_func_ref("tok_exit");
                     ctx.builder.ins().call(func_ref, &[val]);
                 }
@@ -3509,7 +3564,7 @@ fn compile_call(
             }
             "chan" => {
                 let cap = if let Some(arg) = args.first() {
-                    compile_expr(ctx, arg).unwrap()
+                    compile_expr(ctx, arg).expect("codegen: arg produced no value")
                 } else {
                     ctx.builder.ins().iconst(types::I64, 0)
                 };
@@ -3519,7 +3574,7 @@ fn compile_call(
             }
             "type" => {
                 if let Some(arg) = args.first() {
-                    let val = compile_expr(ctx, arg).unwrap();
+                    let val = compile_expr(ctx, arg).expect("codegen: arg produced no value");
                     let (tag, data) = to_tokvalue(ctx, val, &arg.ty);
                     let func_ref = ctx.get_runtime_func_ref("tok_type_of");
                     let call = ctx.builder.ins().call(func_ref, &[tag, data]);
@@ -3543,9 +3598,12 @@ fn compile_call(
             }
             "slice" => {
                 if args.len() >= 3 {
-                    let target_raw = compile_expr(ctx, &args[0]).unwrap();
-                    let start = compile_expr(ctx, &args[1]).unwrap();
-                    let end = compile_expr(ctx, &args[2]).unwrap();
+                    let target_raw =
+                        compile_expr(ctx, &args[0]).expect("codegen: args[0] produced no value");
+                    let start =
+                        compile_expr(ctx, &args[1]).expect("codegen: args[1] produced no value");
+                    let end =
+                        compile_expr(ctx, &args[2]).expect("codegen: args[2] produced no value");
                     if matches!(args[0].ty, Type::Any) {
                         // Fully dynamic: dispatch at runtime by tag
                         let (tag, data) = to_tokvalue(ctx, target_raw, &args[0].ty);
@@ -3573,9 +3631,11 @@ fn compile_call(
             }
             "pmap" => {
                 if args.len() >= 2 {
-                    let arr_raw = compile_expr(ctx, &args[0]).unwrap();
+                    let arr_raw =
+                        compile_expr(ctx, &args[0]).expect("codegen: args[0] produced no value");
                     let arr = unwrap_any_ptr(ctx, arr_raw, &args[0].ty);
-                    let closure = compile_expr(ctx, &args[1]).unwrap();
+                    let closure =
+                        compile_expr(ctx, &args[1]).expect("codegen: args[1] produced no value");
                     let closure_ptr = unwrap_any_ptr(ctx, closure, &args[1].ty);
                     let func_ref = ctx.get_runtime_func_ref("tok_pmap");
                     let call = ctx.builder.ins().call(func_ref, &[arr, closure_ptr]);
@@ -3594,7 +3654,8 @@ fn compile_call(
                         let data = ctx.builder.ins().iconst(types::I64, 0);
                         (tag, data)
                     };
-                    let type_str = compile_expr(ctx, &args[1]).unwrap();
+                    let type_str =
+                        compile_expr(ctx, &args[1]).expect("codegen: args[1] produced no value");
                     let str_ptr = unwrap_any_ptr(ctx, type_str, &args[1].ty);
                     let func_ref = ctx.get_runtime_func_ref("tok_is");
                     let call = ctx.builder.ins().call(func_ref, &[tag, data, str_ptr]);
@@ -4124,7 +4185,7 @@ fn compile_specialized_closure_call(
             .compiler
             .module
             .declare_function(&spec_name, Linkage::Local, &sig)
-            .unwrap();
+            .expect("codegen: failed to declare specialized lambda");
 
         // Create specialized PendingLambda with retyped body
         ctx.compiler.pending_lambdas.push(PendingLambda {
@@ -4475,7 +4536,7 @@ fn compile_inline_filter(
     let param_name = &params[0].name;
 
     // Compile source array
-    let arr_raw = compile_expr(ctx, arr_expr).unwrap();
+    let arr_raw = compile_expr(ctx, arr_expr).expect("codegen: array expr produced no value");
     let arr = if matches!(
         &arr_expr.ty,
         Type::Any | Type::Optional(_) | Type::Result(_)
@@ -4634,7 +4695,7 @@ fn compile_inline_reduce(
     let elem_name = &params[1].name;
 
     // Compile source array
-    let arr_raw = compile_expr(ctx, arr_expr).unwrap();
+    let arr_raw = compile_expr(ctx, arr_expr).expect("codegen: array expr produced no value");
     let arr = if matches!(
         &arr_expr.ty,
         Type::Any | Type::Optional(_) | Type::Result(_)
@@ -4671,7 +4732,7 @@ fn compile_inline_reduce(
         let one = ctx.builder.ins().iconst(types::I64, 1);
         (first, one)
     } else {
-        let iv = compile_expr(ctx, init_expr).unwrap();
+        let iv = compile_expr(ctx, init_expr).expect("codegen: init expr produced no value");
         let zero = ctx.builder.ins().iconst(types::I64, 0);
         (iv, zero)
     };
@@ -4853,7 +4914,7 @@ fn compile_if(
     else_expr: &Option<Box<HirExpr>>,
     result_ty: &Type,
 ) -> Option<Value> {
-    let cond_val = compile_expr(ctx, cond).unwrap();
+    let cond_val = compile_expr(ctx, cond).expect("codegen: condition expr produced no value");
     let cond_bool = to_bool(ctx, cond_val, &cond.ty);
 
     let then_block = ctx.builder.create_block();
@@ -5046,7 +5107,8 @@ fn compile_loop(ctx: &mut FuncCtx, kind: &HirLoopKind, body: &[HirStmt]) {
             ctx.builder.ins().jump(header_block, &[]);
             ctx.builder.switch_to_block(header_block);
 
-            let cond_val = compile_expr(ctx, cond).unwrap();
+            let cond_val =
+                compile_expr(ctx, cond).expect("codegen: condition expr produced no value");
             let cond_bool = to_bool(ctx, cond_val, &cond.ty);
             ctx.builder
                 .ins()
@@ -5072,8 +5134,9 @@ fn compile_loop(ctx: &mut FuncCtx, kind: &HirLoopKind, body: &[HirStmt]) {
             end,
             inclusive,
         } => {
-            let start_val = compile_expr(ctx, start).unwrap();
-            let end_val = compile_expr(ctx, end).unwrap();
+            let start_val =
+                compile_expr(ctx, start).expect("codegen: start expr produced no value");
+            let end_val = compile_expr(ctx, end).expect("codegen: end expr produced no value");
 
             // Create loop variable
             let loop_var = ctx.new_var(types::I64);
@@ -5275,7 +5338,8 @@ fn compile_loop(ctx: &mut FuncCtx, kind: &HirLoopKind, body: &[HirStmt]) {
         }
 
         HirLoopKind::ForEach { var, iter } => {
-            let iter_val = compile_expr(ctx, iter).unwrap();
+            let iter_val =
+                compile_expr(ctx, iter).expect("codegen: iterator expr produced no value");
 
             // For Any-typed iterables, extract the actual pointer and use runtime dispatch
             let is_any_iter = matches!(&iter.ty, Type::Any | Type::Optional(_) | Type::Result(_));
@@ -5400,7 +5464,8 @@ fn compile_loop(ctx: &mut FuncCtx, kind: &HirLoopKind, body: &[HirStmt]) {
             // Indexed foreach: ~(i v:collection){...}
             // For arrays: i = integer index, v = element
             // For maps: i = string key, v = value
-            let iter_val = compile_expr(ctx, iter).unwrap();
+            let iter_val =
+                compile_expr(ctx, iter).expect("codegen: iterator expr produced no value");
             let is_map = matches!(&iter.ty, Type::Map(_));
 
             // Get length and (for maps) extract keys/vals arrays
@@ -5478,18 +5543,24 @@ fn compile_loop(ctx: &mut FuncCtx, kind: &HirLoopKind, body: &[HirStmt]) {
                 // Map iteration: fetch key from keys array, value from vals array
                 let get_ref = ctx.get_runtime_func_ref("tok_array_get");
 
-                let get_key_call = ctx
-                    .builder
-                    .ins()
-                    .call(get_ref, &[keys_arr.unwrap(), current_idx]);
+                let get_key_call = ctx.builder.ins().call(
+                    get_ref,
+                    &[
+                        keys_arr.expect("codegen: map iteration missing keys array"),
+                        current_idx,
+                    ],
+                );
                 let key_results = ctx.builder.inst_results(get_key_call);
                 let key = from_tokvalue(ctx, key_results[0], key_results[1], &Type::Str);
                 ctx.builder.def_var(idx_var, key);
 
-                let get_val_call = ctx
-                    .builder
-                    .ins()
-                    .call(get_ref, &[vals_arr.unwrap(), current_idx]);
+                let get_val_call = ctx.builder.ins().call(
+                    get_ref,
+                    &[
+                        vals_arr.expect("codegen: map iteration missing vals array"),
+                        current_idx,
+                    ],
+                );
                 let val_results = ctx.builder.inst_results(get_val_call);
                 let val = from_tokvalue(ctx, val_results[0], val_results[1], &elem_type);
                 ctx.builder.def_var(elem_var, val);
