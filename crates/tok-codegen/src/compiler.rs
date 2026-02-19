@@ -1829,6 +1829,9 @@ fn compile_stmt(ctx: &mut FuncCtx, stmt: &HirStmt) -> Option<Value> {
             ctx.builder
                 .ins()
                 .call(set_ref, &[map_ptr, key_str, tag, data]);
+            // Free temporary key string
+            let free_ref = ctx.get_runtime_func_ref("tok_string_free");
+            ctx.builder.ins().call(free_ref, &[key_str]);
             None
         }
 
@@ -2167,7 +2170,21 @@ fn compile_expr(ctx: &mut FuncCtx, expr: &HirExpr) -> Option<Value> {
             }
             let target_val =
                 compile_expr(ctx, target).expect("codegen: target expr produced no value");
-            // Allocate field name as string, call map_get
+
+            // Tuple: numeric field access — no string allocation needed
+            if matches!(&target.ty, Type::Tuple(_)) {
+                if let Ok(idx) = field.parse::<i64>() {
+                    let idx_val = ctx.builder.ins().iconst(types::I64, idx);
+                    let func_ref = ctx.get_runtime_func_ref("tok_tuple_get");
+                    let call = ctx.builder.ins().call(func_ref, &[target_val, idx_val]);
+                    let results = ctx.builder.inst_results(call);
+                    return Some(from_tokvalue(ctx, results[0], results[1], &expr.ty));
+                } else {
+                    return Some(target_val);
+                }
+            }
+
+            // Allocate field name as string for map access
             let (data_id, len) = ctx.compiler.declare_string_data(field);
             let gv = ctx.get_data_ref(data_id);
             let key_ptr = ctx.builder.ins().global_value(PTR, gv);
@@ -2176,19 +2193,7 @@ fn compile_expr(ctx: &mut FuncCtx, expr: &HirExpr) -> Option<Value> {
             let str_call = ctx.builder.ins().call(str_ref, &[key_ptr, key_len]);
             let key_str = ctx.builder.inst_results(str_call)[0];
 
-            match &target.ty {
-                Type::Tuple(_) => {
-                    // Numeric field access (.0, .1, etc.)
-                    if let Ok(idx) = field.parse::<i64>() {
-                        let idx_val = ctx.builder.ins().iconst(types::I64, idx);
-                        let func_ref = ctx.get_runtime_func_ref("tok_tuple_get");
-                        let call = ctx.builder.ins().call(func_ref, &[target_val, idx_val]);
-                        let results = ctx.builder.inst_results(call);
-                        Some(from_tokvalue(ctx, results[0], results[1], &expr.ty))
-                    } else {
-                        Some(target_val)
-                    }
-                }
+            let result = match &target.ty {
                 Type::Any | Type::Optional(_) | Type::Result(_) => {
                     // target_val is a PTR to stack TokValue — extract the map pointer
                     let map_ptr =
@@ -2198,15 +2203,21 @@ fn compile_expr(ctx: &mut FuncCtx, expr: &HirExpr) -> Option<Value> {
                     let func_ref = ctx.get_runtime_func_ref("tok_map_get");
                     let call = ctx.builder.ins().call(func_ref, &[map_ptr, key_str]);
                     let results = ctx.builder.inst_results(call);
-                    Some(from_tokvalue(ctx, results[0], results[1], &expr.ty))
+                    from_tokvalue(ctx, results[0], results[1], &expr.ty)
                 }
                 _ => {
                     let func_ref = ctx.get_runtime_func_ref("tok_map_get");
                     let call = ctx.builder.ins().call(func_ref, &[target_val, key_str]);
                     let results = ctx.builder.inst_results(call);
-                    Some(from_tokvalue(ctx, results[0], results[1], &expr.ty))
+                    from_tokvalue(ctx, results[0], results[1], &expr.ty)
                 }
-            }
+            };
+
+            // Free temporary key string
+            let free_ref = ctx.get_runtime_func_ref("tok_string_free");
+            ctx.builder.ins().call(free_ref, &[key_str]);
+
+            Some(result)
         }
 
         HirExprKind::Call { func, args } => compile_call(ctx, func, args, &expr.ty),
@@ -5170,11 +5181,14 @@ fn compile_loop(ctx: &mut FuncCtx, kind: &HirLoopKind, body: &[HirStmt]) {
             compile_body(ctx, body, &Type::Nil);
             ctx.loop_stack.pop();
 
-            ctx.builder.ins().jump(header_block, &[]);
+            if !ctx.block_terminated {
+                ctx.builder.ins().jump(header_block, &[]);
+            }
 
             ctx.builder.seal_block(header_block);
             ctx.builder.switch_to_block(exit_block);
             ctx.builder.seal_block(exit_block);
+            ctx.block_terminated = false;
         }
 
         HirLoopKind::ForRange {
@@ -5656,11 +5670,14 @@ fn compile_loop(ctx: &mut FuncCtx, kind: &HirLoopKind, body: &[HirStmt]) {
             compile_body(ctx, body, &Type::Nil);
             ctx.loop_stack.pop();
 
-            ctx.builder.ins().jump(body_block, &[]);
+            if !ctx.block_terminated {
+                ctx.builder.ins().jump(body_block, &[]);
+            }
 
             ctx.builder.seal_block(body_block);
             ctx.builder.switch_to_block(exit_block);
             ctx.builder.seal_block(exit_block);
+            ctx.block_terminated = false;
         }
     }
 }

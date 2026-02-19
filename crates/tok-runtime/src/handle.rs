@@ -75,7 +75,7 @@ pub extern "C" fn tok_go(
 
 #[no_mangle]
 pub extern "C" fn tok_handle_join(h: *mut TokHandle) -> TokValue {
-    assert!(!h.is_null(), "tok_handle_join: null handle");
+    null_check!(h, "tok_handle_join: null handle");
     unsafe { (*h).join() }
 }
 

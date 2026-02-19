@@ -52,7 +52,7 @@ pub extern "C" fn tok_tuple_alloc(count: i64) -> *mut TokTuple {
 
 #[no_mangle]
 pub extern "C" fn tok_tuple_get(t: *mut TokTuple, idx: i64) -> TokValue {
-    assert!(!t.is_null(), "tok_tuple_get: null tuple");
+    null_check!(t, "tok_tuple_get: null tuple");
     unsafe {
         let i = idx as usize;
         if i < (*t).data.len() {
@@ -67,7 +67,7 @@ pub extern "C" fn tok_tuple_get(t: *mut TokTuple, idx: i64) -> TokValue {
 
 #[no_mangle]
 pub extern "C" fn tok_tuple_set(t: *mut TokTuple, idx: i64, val: TokValue) {
-    assert!(!t.is_null(), "tok_tuple_set: null tuple");
+    null_check!(t, "tok_tuple_set: null tuple");
     unsafe {
         let i = idx as usize;
         if i < (*t).data.len() {
@@ -81,7 +81,7 @@ pub extern "C" fn tok_tuple_set(t: *mut TokTuple, idx: i64, val: TokValue) {
 
 #[no_mangle]
 pub extern "C" fn tok_tuple_len(t: *mut TokTuple) -> i64 {
-    assert!(!t.is_null(), "tok_tuple_len: null tuple");
+    null_check!(t, "tok_tuple_len: null tuple");
     unsafe { (*t).data.len() as i64 }
 }
 

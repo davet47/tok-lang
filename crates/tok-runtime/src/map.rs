@@ -60,8 +60,8 @@ pub extern "C" fn tok_map_alloc() -> *mut TokMap {
 
 #[no_mangle]
 pub extern "C" fn tok_map_get(m: *mut TokMap, key: *mut TokString) -> TokValue {
-    assert!(!m.is_null(), "tok_map_get: null map");
-    assert!(!key.is_null(), "tok_map_get: null key");
+    null_check!(m, "tok_map_get: null map");
+    null_check!(key, "tok_map_get: null key");
     unsafe {
         let key_str = &(*key).data;
         if let Some(v) = (*m).data.get(key_str) {
@@ -75,8 +75,8 @@ pub extern "C" fn tok_map_get(m: *mut TokMap, key: *mut TokString) -> TokValue {
 
 #[no_mangle]
 pub extern "C" fn tok_map_set(m: *mut TokMap, key: *mut TokString, val: TokValue) {
-    assert!(!m.is_null(), "tok_map_set: null map");
-    assert!(!key.is_null(), "tok_map_set: null key");
+    null_check!(m, "tok_map_set: null map");
+    null_check!(key, "tok_map_set: null key");
     unsafe {
         let key_str = (*key).data.clone();
         val.rc_inc();
@@ -88,8 +88,8 @@ pub extern "C" fn tok_map_set(m: *mut TokMap, key: *mut TokString, val: TokValue
 
 #[no_mangle]
 pub extern "C" fn tok_map_has(m: *mut TokMap, key: *mut TokString) -> i8 {
-    assert!(!m.is_null(), "tok_map_has: null map");
-    assert!(!key.is_null(), "tok_map_has: null key");
+    null_check!(m, "tok_map_has: null map");
+    null_check!(key, "tok_map_has: null key");
     unsafe {
         let key_str = &(*key).data;
         if (*m).data.contains_key(key_str) {
@@ -102,8 +102,8 @@ pub extern "C" fn tok_map_has(m: *mut TokMap, key: *mut TokString) -> i8 {
 
 #[no_mangle]
 pub extern "C" fn tok_map_del(m: *mut TokMap, key: *mut TokString) -> *mut TokMap {
-    assert!(!m.is_null(), "tok_map_del: null map");
-    assert!(!key.is_null(), "tok_map_del: null key");
+    null_check!(m, "tok_map_del: null map");
+    null_check!(key, "tok_map_del: null key");
     unsafe {
         let key_str = &(*key).data;
         let result = TokMap::alloc();
@@ -119,7 +119,7 @@ pub extern "C" fn tok_map_del(m: *mut TokMap, key: *mut TokString) -> *mut TokMa
 
 #[no_mangle]
 pub extern "C" fn tok_map_keys(m: *mut TokMap) -> *mut TokArray {
-    assert!(!m.is_null(), "tok_map_keys: null map");
+    null_check!(m, "tok_map_keys: null map");
     unsafe {
         let arr = TokArray::alloc();
         for (k, _) in &(*m).data {
@@ -132,7 +132,7 @@ pub extern "C" fn tok_map_keys(m: *mut TokMap) -> *mut TokArray {
 
 #[no_mangle]
 pub extern "C" fn tok_map_vals(m: *mut TokMap) -> *mut TokArray {
-    assert!(!m.is_null(), "tok_map_vals: null map");
+    null_check!(m, "tok_map_vals: null map");
     unsafe {
         let arr = TokArray::alloc();
         for (_, v) in &(*m).data {
@@ -145,7 +145,7 @@ pub extern "C" fn tok_map_vals(m: *mut TokMap) -> *mut TokArray {
 
 #[no_mangle]
 pub extern "C" fn tok_map_len(m: *mut TokMap) -> i64 {
-    assert!(!m.is_null(), "tok_map_len: null map");
+    null_check!(m, "tok_map_len: null map");
     unsafe { (*m).data.len() as i64 }
 }
 

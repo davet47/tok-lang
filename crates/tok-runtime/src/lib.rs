@@ -1,6 +1,3 @@
-#![allow(clippy::not_unsafe_ptr_arg_deref)]
-#![allow(dangerous_implicit_autorefs)]
-
 //! Tok Language Runtime Library
 //!
 //! This is the runtime support library for AOT-compiled Tok programs.
@@ -19,6 +16,21 @@
 //!
 //! All heap types use `AtomicU32` for the refcount. Allocated via
 //! `Box::into_raw`, freed via `Box::from_raw` when refcount reaches 0.
+
+#![allow(clippy::not_unsafe_ptr_arg_deref)]
+#![allow(dangerous_implicit_autorefs)]
+
+/// Null-pointer check for `extern "C"` functions. Calls `abort()` instead
+/// of `panic!()` to avoid unwinding across the FFI boundary (which is UB).
+#[macro_export]
+macro_rules! null_check {
+    ($ptr:expr, $msg:literal) => {
+        if $ptr.is_null() {
+            eprintln!("fatal: {}", $msg);
+            std::process::abort();
+        }
+    };
+}
 
 pub mod array;
 pub mod builtins;

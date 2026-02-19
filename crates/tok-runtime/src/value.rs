@@ -30,6 +30,29 @@ pub const TAG_CHANNEL: u8 = 9;
 pub const TAG_HANDLE: u8 = 10;
 
 // ═══════════════════════════════════════════════════════════════
+// Safe f64 → i64 conversion
+// ═══════════════════════════════════════════════════════════════
+
+/// Safely convert an `f64` to `i64`, clamping NaN/Inf/out-of-range.
+///
+/// - NaN → 0
+/// - +Inf / values > i64::MAX → i64::MAX
+/// - -Inf / values < i64::MIN → i64::MIN
+/// - Normal values → truncated toward zero (same as `as i64`)
+#[inline]
+pub fn safe_f64_to_i64(v: f64) -> i64 {
+    if v.is_nan() {
+        0
+    } else if v >= i64::MAX as f64 {
+        i64::MAX
+    } else if v <= i64::MIN as f64 {
+        i64::MIN
+    } else {
+        v as i64
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
 // TokValue — tagged union
 // ═══════════════════════════════════════════════════════════════
 
@@ -561,12 +584,12 @@ pub extern "C" fn tok_value_index(val: TokValue, idx: i64) -> TokValue {
         match val.tag {
             TAG_ARRAY => {
                 let p = val.data.array_ptr;
-                assert!(!p.is_null(), "tok_value_index: null array");
+                null_check!(p, "tok_value_index: null array");
                 crate::array::tok_array_get(p, idx)
             }
             TAG_STRING => {
                 let p = val.data.string_ptr;
-                assert!(!p.is_null(), "tok_value_index: null string");
+                null_check!(p, "tok_value_index: null string");
                 let result = crate::string::tok_string_index(p, idx);
                 TokValue {
                     tag: TAG_STRING,
@@ -576,7 +599,7 @@ pub extern "C" fn tok_value_index(val: TokValue, idx: i64) -> TokValue {
             }
             TAG_TUPLE => {
                 let p = val.data.tuple_ptr;
-                assert!(!p.is_null(), "tok_value_index: null tuple");
+                null_check!(p, "tok_value_index: null tuple");
                 crate::tuple::tok_tuple_get(p, idx)
             }
             _ => TokValue::nil(),
@@ -592,7 +615,7 @@ pub extern "C" fn tok_value_index_set(target: TokValue, idx: TokValue, val: TokV
         match target.tag {
             TAG_ARRAY => {
                 let p = target.data.array_ptr;
-                assert!(!p.is_null(), "tok_value_index_set: null array");
+                null_check!(p, "tok_value_index_set: null array");
                 // idx must be int
                 let i = match idx.tag {
                     TAG_INT => idx.data.int_val,
@@ -603,12 +626,12 @@ pub extern "C" fn tok_value_index_set(target: TokValue, idx: TokValue, val: TokV
             }
             TAG_MAP => {
                 let p = target.data.map_ptr;
-                assert!(!p.is_null(), "tok_value_index_set: null map");
+                null_check!(p, "tok_value_index_set: null map");
                 // idx must be a string
                 match idx.tag {
                     TAG_STRING => {
                         let key = idx.data.string_ptr;
-                        assert!(!key.is_null(), "tok_value_index_set: null key string");
+                        null_check!(key, "tok_value_index_set: null key string");
                         crate::map::tok_map_set(p, key, val);
                     }
                     _ => {

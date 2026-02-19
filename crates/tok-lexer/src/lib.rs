@@ -942,7 +942,7 @@ impl<'a> Lexer<'a> {
                     // Treat as separator inside interpolation
                 }
                 _ => {
-                    // Re-use main lexer logic for everything else
+                    // Re-use main lexer logic for operators and other tokens
                     let ch = self.peek().unwrap();
                     match ch {
                         b'(' => {
@@ -965,6 +965,10 @@ impl<'a> Lexer<'a> {
                             self.advance();
                             self.tokens.push(Token::Colon);
                         }
+                        b'@' => {
+                            self.advance();
+                            self.tokens.push(Token::At);
+                        }
                         b'+' => {
                             self.advance();
                             if self.peek() == Some(b'=') {
@@ -979,6 +983,9 @@ impl<'a> Lexer<'a> {
                             if self.peek() == Some(b'>') {
                                 self.advance();
                                 self.tokens.push(Token::ArrowRight);
+                            } else if self.peek() == Some(b'=') {
+                                self.advance();
+                                self.tokens.push(Token::MinusEq);
                             } else {
                                 self.tokens.push(Token::Minus);
                             }
@@ -987,18 +994,47 @@ impl<'a> Lexer<'a> {
                             self.advance();
                             if self.peek() == Some(b'*') {
                                 self.advance();
-                                self.tokens.push(Token::StarStar);
+                                if self.peek() == Some(b'=') {
+                                    self.advance();
+                                    self.tokens.push(Token::StarStarEq);
+                                } else {
+                                    self.tokens.push(Token::StarStar);
+                                }
+                            } else if self.peek() == Some(b'=') {
+                                self.advance();
+                                self.tokens.push(Token::StarEq);
                             } else {
                                 self.tokens.push(Token::Star);
                             }
                         }
                         b'/' => {
                             self.advance();
-                            self.tokens.push(Token::Slash);
+                            if self.peek() == Some(b'/') {
+                                // // comment — skip to end of line
+                                while let Some(c) = self.peek() {
+                                    if c == b'\n' {
+                                        break;
+                                    }
+                                    self.advance();
+                                }
+                            } else if self.peek() == Some(b'>') {
+                                self.advance();
+                                self.tokens.push(Token::SlashGt);
+                            } else if self.peek() == Some(b'=') {
+                                self.advance();
+                                self.tokens.push(Token::SlashEq);
+                            } else {
+                                self.tokens.push(Token::Slash);
+                            }
                         }
                         b'%' => {
                             self.advance();
-                            self.tokens.push(Token::Percent);
+                            if self.peek() == Some(b'=') {
+                                self.advance();
+                                self.tokens.push(Token::PercentEq);
+                            } else {
+                                self.tokens.push(Token::Percent);
+                            }
                         }
                         b'=' => {
                             self.advance();
@@ -1023,6 +1059,12 @@ impl<'a> Lexer<'a> {
                             if self.peek() == Some(b'=') {
                                 self.advance();
                                 self.tokens.push(Token::GtEq);
+                            } else if self.peek() == Some(b'>') {
+                                self.advance();
+                                self.tokens.push(Token::GtGt);
+                            } else if self.peek() == Some(b'!') {
+                                self.advance();
+                                self.tokens.push(Token::GtBang);
                             } else {
                                 self.tokens.push(Token::Gt);
                             }
@@ -1032,28 +1074,82 @@ impl<'a> Lexer<'a> {
                             if self.peek() == Some(b'=') {
                                 self.advance();
                                 self.tokens.push(Token::LtEq);
+                            } else if self.peek() == Some(b'<') {
+                                self.advance();
+                                if self.peek() == Some(b'=') {
+                                    self.advance();
+                                    self.tokens.push(Token::LtLtEq);
+                                } else {
+                                    self.tokens.push(Token::LtLt);
+                                }
+                            } else if self.peek() == Some(b'-') {
+                                self.advance();
+                                self.tokens.push(Token::ArrowLeft);
                             } else {
                                 self.tokens.push(Token::Lt);
                             }
                         }
                         b'&' => {
                             self.advance();
-                            self.tokens.push(Token::Amp);
+                            if self.peek() == Some(b'&') {
+                                self.advance();
+                                self.tokens.push(Token::AmpAmp);
+                            } else {
+                                self.tokens.push(Token::Amp);
+                            }
                         }
                         b'|' => {
                             self.advance();
-                            if self.peek() == Some(b'>') {
+                            if self.peek() == Some(b'|') {
+                                self.advance();
+                                self.tokens.push(Token::PipePipe);
+                            } else if self.peek() == Some(b'>') {
                                 self.advance();
                                 self.tokens.push(Token::PipeGt);
                             } else {
                                 self.tokens.push(Token::Pipe);
                             }
                         }
+                        b'^' => {
+                            self.advance();
+                            if self.peek() == Some(b'^') {
+                                self.advance();
+                                self.tokens.push(Token::CaretCaret);
+                            } else {
+                                self.tokens.push(Token::Caret);
+                            }
+                        }
+                        b'?' => {
+                            self.advance();
+                            if self.peek() == Some(b'=') {
+                                self.advance();
+                                self.tokens.push(Token::QuestionEq);
+                            } else if self.peek() == Some(b'^') {
+                                self.advance();
+                                self.tokens.push(Token::QuestionCaret);
+                            } else if self.peek() == Some(b'?') {
+                                self.advance();
+                                self.tokens.push(Token::QuestionQuestion);
+                            } else if self.peek() == Some(b'>') {
+                                self.advance();
+                                self.tokens.push(Token::QuestionGt);
+                            } else {
+                                self.tokens.push(Token::Question);
+                            }
+                        }
                         b'.' => {
                             self.advance();
                             if self.peek() == Some(b'.') {
                                 self.advance();
-                                self.tokens.push(Token::DotDot);
+                                if self.peek() == Some(b'=') {
+                                    self.advance();
+                                    self.tokens.push(Token::DotDotEq);
+                                } else {
+                                    self.tokens.push(Token::DotDot);
+                                }
+                            } else if self.peek() == Some(b'?') {
+                                self.advance();
+                                self.tokens.push(Token::DotQuestion);
                             } else {
                                 self.tokens.push(Token::Dot);
                             }

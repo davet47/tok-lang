@@ -76,13 +76,13 @@ pub extern "C" fn tok_closure_alloc(
 
 #[no_mangle]
 pub extern "C" fn tok_closure_get_fn(c: *mut TokClosure) -> *const u8 {
-    assert!(!c.is_null(), "tok_closure_get_fn: null closure");
+    null_check!(c, "tok_closure_get_fn: null closure");
     unsafe { (*c).fn_ptr }
 }
 
 #[no_mangle]
 pub extern "C" fn tok_closure_get_env(c: *mut TokClosure) -> *mut u8 {
-    assert!(!c.is_null(), "tok_closure_get_env: null closure");
+    null_check!(c, "tok_closure_get_env: null closure");
     unsafe { (*c).env_ptr }
 }
 

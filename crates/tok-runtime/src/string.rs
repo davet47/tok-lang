@@ -64,8 +64,8 @@ pub extern "C" fn tok_string_alloc(data: *const u8, len: usize) -> *mut TokStrin
 
 #[no_mangle]
 pub extern "C" fn tok_string_concat(a: *mut TokString, b: *mut TokString) -> *mut TokString {
-    assert!(!a.is_null(), "tok_string_concat: null lhs");
-    assert!(!b.is_null(), "tok_string_concat: null rhs");
+    null_check!(a, "tok_string_concat: null lhs");
+    null_check!(b, "tok_string_concat: null rhs");
     unsafe {
         // COW optimization: if `a` has refcount 1, nobody else holds a reference,
         // so we can mutate in-place and return the same pointer. This turns
@@ -86,7 +86,7 @@ pub extern "C" fn tok_string_concat(a: *mut TokString, b: *mut TokString) -> *mu
 
 #[no_mangle]
 pub extern "C" fn tok_string_len(s: *mut TokString) -> i64 {
-    assert!(!s.is_null(), "tok_string_len: null pointer");
+    null_check!(s, "tok_string_len: null pointer");
     unsafe { (*s).data.chars().count() as i64 }
 }
 
@@ -109,8 +109,8 @@ pub extern "C" fn tok_string_eq(a: *mut TokString, b: *mut TokString) -> i8 {
 
 #[no_mangle]
 pub extern "C" fn tok_string_cmp(a: *mut TokString, b: *mut TokString) -> i64 {
-    assert!(!a.is_null(), "tok_string_cmp: null lhs");
-    assert!(!b.is_null(), "tok_string_cmp: null rhs");
+    null_check!(a, "tok_string_cmp: null lhs");
+    null_check!(b, "tok_string_cmp: null rhs");
     unsafe {
         match (*a).data.cmp(&(*b).data) {
             std::cmp::Ordering::Less => -1,
@@ -122,7 +122,7 @@ pub extern "C" fn tok_string_cmp(a: *mut TokString, b: *mut TokString) -> i64 {
 
 #[no_mangle]
 pub extern "C" fn tok_string_index(s: *mut TokString, i: i64) -> *mut TokString {
-    assert!(!s.is_null(), "tok_string_index: null pointer");
+    null_check!(s, "tok_string_index: null pointer");
     unsafe {
         let chars: Vec<char> = (*s).data.chars().collect();
         let idx = if i < 0 {
@@ -140,7 +140,7 @@ pub extern "C" fn tok_string_index(s: *mut TokString, i: i64) -> *mut TokString 
 
 #[no_mangle]
 pub extern "C" fn tok_string_repeat(s: *mut TokString, count: i64) -> *mut TokString {
-    assert!(!s.is_null(), "tok_string_repeat: null pointer");
+    null_check!(s, "tok_string_repeat: null pointer");
     unsafe {
         let n = count.max(0) as usize;
         TokString::alloc((*s).data.repeat(n))
@@ -149,7 +149,7 @@ pub extern "C" fn tok_string_repeat(s: *mut TokString, count: i64) -> *mut TokSt
 
 #[no_mangle]
 pub extern "C" fn tok_string_slice(s: *mut TokString, start: i64, end: i64) -> *mut TokString {
-    assert!(!s.is_null(), "tok_string_slice: null pointer");
+    null_check!(s, "tok_string_slice: null pointer");
     unsafe {
         let chars: Vec<char> = (*s).data.chars().collect();
         let len = chars.len() as i64;
@@ -166,8 +166,8 @@ pub extern "C" fn tok_string_slice(s: *mut TokString, start: i64, end: i64) -> *
 
 #[no_mangle]
 pub extern "C" fn tok_string_split(s: *mut TokString, delim: *mut TokString) -> *mut TokArray {
-    assert!(!s.is_null(), "tok_string_split: null string");
-    assert!(!delim.is_null(), "tok_string_split: null delimiter");
+    null_check!(s, "tok_string_split: null string");
+    null_check!(delim, "tok_string_split: null delimiter");
     unsafe {
         let src = &(*s).data;
         let delim_str = &(*delim).data;
@@ -191,7 +191,7 @@ pub extern "C" fn tok_string_split(s: *mut TokString, delim: *mut TokString) -> 
 
 #[no_mangle]
 pub extern "C" fn tok_string_trim(s: *mut TokString) -> *mut TokString {
-    assert!(!s.is_null(), "tok_string_trim: null pointer");
+    null_check!(s, "tok_string_trim: null pointer");
     unsafe {
         let trimmed = (*s).data.trim().to_string();
         TokString::alloc(trimmed)
@@ -200,13 +200,13 @@ pub extern "C" fn tok_string_trim(s: *mut TokString) -> *mut TokString {
 
 #[no_mangle]
 pub extern "C" fn tok_string_get_ptr(s: *mut TokString) -> *const u8 {
-    assert!(!s.is_null(), "tok_string_get_ptr: null pointer");
+    null_check!(s, "tok_string_get_ptr: null pointer");
     unsafe { (*s).data.as_ptr() }
 }
 
 #[no_mangle]
 pub extern "C" fn tok_string_get_len(s: *mut TokString) -> usize {
-    assert!(!s.is_null(), "tok_string_get_len: null pointer");
+    null_check!(s, "tok_string_get_len: null pointer");
     unsafe { (*s).data.len() }
 }
 

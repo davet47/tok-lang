@@ -111,7 +111,7 @@ pub extern "C" fn tok_array_alloc() -> *mut TokArray {
 
 #[no_mangle]
 pub extern "C" fn tok_array_push(arr: *mut TokArray, val: TokValue) -> *mut TokArray {
-    assert!(!arr.is_null(), "tok_array_push: null array");
+    null_check!(arr, "tok_array_push: null array");
     unsafe {
         val.rc_inc();
         (*arr).data.push(val);
@@ -121,7 +121,7 @@ pub extern "C" fn tok_array_push(arr: *mut TokArray, val: TokValue) -> *mut TokA
 
 #[no_mangle]
 pub extern "C" fn tok_array_get(arr: *mut TokArray, idx: i64) -> TokValue {
-    assert!(!arr.is_null(), "tok_array_get: null array");
+    null_check!(arr, "tok_array_get: null array");
     unsafe {
         let len = (*arr).data.len() as i64;
         let real_idx = if idx < 0 { len + idx } else { idx };
@@ -137,7 +137,7 @@ pub extern "C" fn tok_array_get(arr: *mut TokArray, idx: i64) -> TokValue {
 
 #[no_mangle]
 pub extern "C" fn tok_array_set(arr: *mut TokArray, idx: i64, val: TokValue) {
-    assert!(!arr.is_null(), "tok_array_set: null array");
+    null_check!(arr, "tok_array_set: null array");
     unsafe {
         let len = (*arr).data.len() as i64;
         let real_idx = if idx < 0 { len + idx } else { idx };
@@ -152,13 +152,13 @@ pub extern "C" fn tok_array_set(arr: *mut TokArray, idx: i64, val: TokValue) {
 
 #[no_mangle]
 pub extern "C" fn tok_array_len(arr: *mut TokArray) -> i64 {
-    assert!(!arr.is_null(), "tok_array_len: null array");
+    null_check!(arr, "tok_array_len: null array");
     unsafe { (*arr).data.len() as i64 }
 }
 
 #[no_mangle]
 pub extern "C" fn tok_array_slice(arr: *mut TokArray, start: i64, end: i64) -> *mut TokArray {
-    assert!(!arr.is_null(), "tok_array_slice: null array");
+    null_check!(arr, "tok_array_slice: null array");
     unsafe {
         let len = (*arr).data.len() as i64;
         let s = start.max(0).min(len) as usize;
@@ -176,7 +176,7 @@ pub extern "C" fn tok_array_slice(arr: *mut TokArray, start: i64, end: i64) -> *
 
 #[no_mangle]
 pub extern "C" fn tok_array_sort(arr: *mut TokArray) -> *mut TokArray {
-    assert!(!arr.is_null(), "tok_array_sort: null array");
+    null_check!(arr, "tok_array_sort: null array");
     unsafe {
         let result = TokArray::alloc();
         let mut items: Vec<TokValue> = (*arr).data.clone();
@@ -191,7 +191,7 @@ pub extern "C" fn tok_array_sort(arr: *mut TokArray) -> *mut TokArray {
 
 #[no_mangle]
 pub extern "C" fn tok_array_rev(arr: *mut TokArray) -> *mut TokArray {
-    assert!(!arr.is_null(), "tok_array_rev: null array");
+    null_check!(arr, "tok_array_rev: null array");
     unsafe {
         let result = TokArray::alloc();
         let mut items: Vec<TokValue> = (*arr).data.clone();
@@ -206,7 +206,7 @@ pub extern "C" fn tok_array_rev(arr: *mut TokArray) -> *mut TokArray {
 
 #[no_mangle]
 pub extern "C" fn tok_array_flat(arr: *mut TokArray) -> *mut TokArray {
-    assert!(!arr.is_null(), "tok_array_flat: null array");
+    null_check!(arr, "tok_array_flat: null array");
     unsafe {
         let result = TokArray::alloc();
         flatten_into(&(*arr).data, &mut (*result).data, 0);
@@ -239,7 +239,7 @@ unsafe fn flatten_into(src: &[TokValue], dst: &mut Vec<TokValue>, depth: usize) 
 
 #[no_mangle]
 pub extern "C" fn tok_array_uniq(arr: *mut TokArray) -> *mut TokArray {
-    assert!(!arr.is_null(), "tok_array_uniq: null array");
+    null_check!(arr, "tok_array_uniq: null array");
     unsafe {
         let result = TokArray::alloc();
         let mut seen = HashSet::with_capacity((*arr).data.len());
@@ -255,8 +255,8 @@ pub extern "C" fn tok_array_uniq(arr: *mut TokArray) -> *mut TokArray {
 
 #[no_mangle]
 pub extern "C" fn tok_array_join(arr: *mut TokArray, sep: *mut TokString) -> *mut TokString {
-    assert!(!arr.is_null(), "tok_array_join: null array");
-    assert!(!sep.is_null(), "tok_array_join: null separator");
+    null_check!(arr, "tok_array_join: null array");
+    null_check!(sep, "tok_array_join: null separator");
     unsafe {
         let sep_str = &(*sep).data;
         let data = &(*arr).data;
@@ -292,8 +292,8 @@ pub extern "C" fn tok_array_join(arr: *mut TokArray, sep: *mut TokString) -> *mu
 
 #[no_mangle]
 pub extern "C" fn tok_array_concat(a: *mut TokArray, b: *mut TokArray) -> *mut TokArray {
-    assert!(!a.is_null(), "tok_array_concat: null lhs");
-    assert!(!b.is_null(), "tok_array_concat: null rhs");
+    null_check!(a, "tok_array_concat: null lhs");
+    null_check!(b, "tok_array_concat: null rhs");
     unsafe {
         let result = TokArray::alloc();
         for v in &(*a).data {
@@ -314,7 +314,7 @@ pub extern "C" fn tok_array_concat(a: *mut TokArray, b: *mut TokArray) -> *mut T
 
 #[no_mangle]
 pub extern "C" fn tok_array_min(arr: *mut TokArray) -> TokValue {
-    assert!(!arr.is_null(), "tok_array_min: null array");
+    null_check!(arr, "tok_array_min: null array");
     unsafe {
         if (*arr).data.is_empty() {
             return TokValue::nil();
@@ -332,7 +332,7 @@ pub extern "C" fn tok_array_min(arr: *mut TokArray) -> TokValue {
 
 #[no_mangle]
 pub extern "C" fn tok_array_max(arr: *mut TokArray) -> TokValue {
-    assert!(!arr.is_null(), "tok_array_max: null array");
+    null_check!(arr, "tok_array_max: null array");
     unsafe {
         if (*arr).data.is_empty() {
             return TokValue::nil();
@@ -350,7 +350,7 @@ pub extern "C" fn tok_array_max(arr: *mut TokArray) -> TokValue {
 
 #[no_mangle]
 pub extern "C" fn tok_array_sum(arr: *mut TokArray) -> TokValue {
-    assert!(!arr.is_null(), "tok_array_sum: null array");
+    null_check!(arr, "tok_array_sum: null array");
     unsafe {
         if (*arr).data.is_empty() {
             return TokValue::from_int(0);
@@ -387,8 +387,8 @@ pub extern "C" fn tok_array_sum(arr: *mut TokArray) -> TokValue {
 /// Closure signature: (env: *mut u8, tag: i64, data: i64) -> TagData
 #[no_mangle]
 pub extern "C" fn tok_array_filter(arr: *mut TokArray, closure: *mut TokClosure) -> *mut TokArray {
-    assert!(!arr.is_null(), "tok_array_filter: null array");
-    assert!(!closure.is_null(), "tok_array_filter: null closure");
+    null_check!(arr, "tok_array_filter: null array");
+    null_check!(closure, "tok_array_filter: null closure");
     unsafe {
         let fn_ptr: extern "C" fn(*mut u8, i64, i64) -> TagData =
             std::mem::transmute((*closure).fn_ptr);
@@ -420,8 +420,8 @@ pub extern "C" fn tok_array_reduce(
     init_data: i64,
     closure: *mut TokClosure,
 ) -> TagData {
-    assert!(!arr.is_null(), "tok_array_reduce: null array");
-    assert!(!closure.is_null(), "tok_array_reduce: null closure");
+    null_check!(arr, "tok_array_reduce: null array");
+    null_check!(closure, "tok_array_reduce: null closure");
     unsafe {
         let fn_ptr: extern "C" fn(*mut u8, i64, i64, i64, i64) -> TagData =
             std::mem::transmute((*closure).fn_ptr);
@@ -499,8 +499,8 @@ unsafe fn free_env(env_ptr: *mut u8, count: u32) {
 /// Closure signature: (env: *mut u8, tag: i64, data: i64) -> TagData
 #[no_mangle]
 pub extern "C" fn tok_pmap(arr: *mut TokArray, closure: *mut TokClosure) -> *mut TokArray {
-    assert!(!arr.is_null(), "tok_pmap: null array");
-    assert!(!closure.is_null(), "tok_pmap: null closure");
+    null_check!(arr, "tok_pmap: null array");
+    null_check!(closure, "tok_pmap: null closure");
     unsafe {
         let fn_ptr: extern "C" fn(*mut u8, i64, i64) -> TagData =
             std::mem::transmute((*closure).fn_ptr);

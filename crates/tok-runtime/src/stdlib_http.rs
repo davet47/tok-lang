@@ -481,6 +481,10 @@ pub extern "C" fn tok_http_serve_t(
         );
         let _ = stream.write_all(response.as_bytes());
         let _ = stream.flush();
+
+        // Free request map and its contents (headers_map is nested inside)
+        let req_val = TokValue::from_map(req_map);
+        req_val.rc_dec();
     }
 
     TokValue::nil()

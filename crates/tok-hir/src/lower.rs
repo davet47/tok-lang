@@ -1587,9 +1587,9 @@ impl<'a> Lowerer<'a> {
                 HirExpr::new(HirExprKind::Tuple(hir_elts), Type::Tuple(tys))
             }
             Pattern::Guard(_expr) => {
-                // Guards shouldn't appear here (handled separately), but just in case
-                // We can't call lower_expr because it takes &mut self.
-                // Return a placeholder.
+                // Guards are handled in lower_match_arms before pattern_to_expr
+                // is called. Reaching here indicates a logic error.
+                eprintln!("warning: Pattern::Guard reached pattern_to_expr (should be handled in lower_match_arms)");
                 HirExpr::new(HirExprKind::Bool(true), Type::Bool)
             }
         }

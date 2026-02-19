@@ -5,7 +5,8 @@
 use crate::array::tok_array_slice;
 use crate::string::{tok_string_repeat, tok_string_slice, TokString};
 use crate::value::{
-    format_float, TokValue, TAG_ARRAY, TAG_BOOL, TAG_FLOAT, TAG_INT, TAG_NIL, TAG_STRING,
+    format_float, safe_f64_to_i64, TokValue, TAG_ARRAY, TAG_BOOL, TAG_FLOAT, TAG_INT, TAG_NIL,
+    TAG_STRING,
 };
 
 // ═══════════════════════════════════════════════════════════════
@@ -226,7 +227,7 @@ pub extern "C" fn tok_value_abs(val: TokValue) -> TokValue {
 
 #[no_mangle]
 pub extern "C" fn tok_floor(val: f64) -> i64 {
-    val.floor() as i64
+    safe_f64_to_i64(val.floor())
 }
 
 /// floor() for Any-typed values: dispatches by tag, returns TokValue.
@@ -234,7 +235,7 @@ pub extern "C" fn tok_floor(val: f64) -> i64 {
 pub extern "C" fn tok_value_floor(val: TokValue) -> TokValue {
     unsafe {
         match val.tag {
-            TAG_FLOAT => TokValue::from_int(val.data.float_val.floor() as i64),
+            TAG_FLOAT => TokValue::from_int(safe_f64_to_i64(val.data.float_val.floor())),
             TAG_INT => val,
             _ => val,
         }
@@ -243,7 +244,7 @@ pub extern "C" fn tok_value_floor(val: TokValue) -> TokValue {
 
 #[no_mangle]
 pub extern "C" fn tok_ceil(val: f64) -> i64 {
-    val.ceil() as i64
+    safe_f64_to_i64(val.ceil())
 }
 
 /// ceil() for Any-typed values: dispatches by tag, returns TokValue.
@@ -251,7 +252,7 @@ pub extern "C" fn tok_ceil(val: f64) -> i64 {
 pub extern "C" fn tok_value_ceil(val: TokValue) -> TokValue {
     unsafe {
         match val.tag {
-            TAG_FLOAT => TokValue::from_int(val.data.float_val.ceil() as i64),
+            TAG_FLOAT => TokValue::from_int(safe_f64_to_i64(val.data.float_val.ceil())),
             TAG_INT => val,
             _ => val,
         }
@@ -422,7 +423,7 @@ pub extern "C" fn tok_to_float(val: TokValue) -> f64 {
 pub extern "C" fn tok_value_add(a: TokValue, b: TokValue) -> TokValue {
     unsafe {
         match (a.tag, b.tag) {
-            (TAG_INT, TAG_INT) => TokValue::from_int(a.data.int_val + b.data.int_val),
+            (TAG_INT, TAG_INT) => TokValue::from_int(a.data.int_val.wrapping_add(b.data.int_val)),
             (TAG_FLOAT, TAG_FLOAT) => TokValue::from_float(a.data.float_val + b.data.float_val),
             (TAG_INT, TAG_FLOAT) => TokValue::from_float(a.data.int_val as f64 + b.data.float_val),
             (TAG_FLOAT, TAG_INT) => TokValue::from_float(a.data.float_val + b.data.int_val as f64),
@@ -470,7 +471,7 @@ pub extern "C" fn tok_value_add(a: TokValue, b: TokValue) -> TokValue {
 pub extern "C" fn tok_value_sub(a: TokValue, b: TokValue) -> TokValue {
     unsafe {
         match (a.tag, b.tag) {
-            (TAG_INT, TAG_INT) => TokValue::from_int(a.data.int_val - b.data.int_val),
+            (TAG_INT, TAG_INT) => TokValue::from_int(a.data.int_val.wrapping_sub(b.data.int_val)),
             (TAG_FLOAT, TAG_FLOAT) => TokValue::from_float(a.data.float_val - b.data.float_val),
             (TAG_INT, TAG_FLOAT) => TokValue::from_float(a.data.int_val as f64 - b.data.float_val),
             (TAG_FLOAT, TAG_INT) => TokValue::from_float(a.data.float_val - b.data.int_val as f64),
@@ -483,7 +484,7 @@ pub extern "C" fn tok_value_sub(a: TokValue, b: TokValue) -> TokValue {
 pub extern "C" fn tok_value_mul(a: TokValue, b: TokValue) -> TokValue {
     unsafe {
         match (a.tag, b.tag) {
-            (TAG_INT, TAG_INT) => TokValue::from_int(a.data.int_val * b.data.int_val),
+            (TAG_INT, TAG_INT) => TokValue::from_int(a.data.int_val.wrapping_mul(b.data.int_val)),
             (TAG_FLOAT, TAG_FLOAT) => TokValue::from_float(a.data.float_val * b.data.float_val),
             (TAG_INT, TAG_FLOAT) => TokValue::from_float(a.data.int_val as f64 * b.data.float_val),
             (TAG_FLOAT, TAG_INT) => TokValue::from_float(a.data.float_val * b.data.int_val as f64),
@@ -653,7 +654,7 @@ pub extern "C" fn tok_value_truthiness(a: TokValue) -> i8 {
 pub extern "C" fn tok_value_negate(a: TokValue) -> TokValue {
     unsafe {
         match a.tag {
-            TAG_INT => TokValue::from_int(-a.data.int_val),
+            TAG_INT => TokValue::from_int(a.data.int_val.wrapping_neg()),
             TAG_FLOAT => TokValue::from_float(-a.data.float_val),
             _ => TokValue::nil(),
         }
@@ -696,7 +697,7 @@ pub extern "C" fn tok_is(val: TokValue, type_str: *mut TokString) -> i8 {
 /// Returns a tuple of (array without last element, last element).
 #[no_mangle]
 pub extern "C" fn tok_array_pop(arr: *mut crate::array::TokArray) -> TokValue {
-    assert!(!arr.is_null(), "tok_array_pop: null array");
+    null_check!(arr, "tok_array_pop: null array");
     unsafe {
         let src = &(*arr).data;
         if src.is_empty() {
@@ -721,7 +722,7 @@ pub extern "C" fn tok_array_pop(arr: *mut crate::array::TokArray) -> TokValue {
 /// Counts occurrences of each element. Keys are stringified values.
 #[no_mangle]
 pub extern "C" fn tok_array_freq(arr: *mut crate::array::TokArray) -> *mut crate::map::TokMap {
-    assert!(!arr.is_null(), "tok_array_freq: null array");
+    null_check!(arr, "tok_array_freq: null array");
     unsafe {
         let m = crate::map::TokMap::alloc();
         for val in &(*arr).data {
@@ -746,8 +747,8 @@ pub extern "C" fn tok_array_zip(
     a: *mut crate::array::TokArray,
     b: *mut crate::array::TokArray,
 ) -> *mut crate::array::TokArray {
-    assert!(!a.is_null(), "tok_array_zip: null array a");
-    assert!(!b.is_null(), "tok_array_zip: null array b");
+    null_check!(a, "tok_array_zip: null array a");
+    null_check!(b, "tok_array_zip: null array b");
     unsafe {
         let result = crate::array::TokArray::alloc();
         let len = std::cmp::min((*a).data.len(), (*b).data.len());
@@ -771,7 +772,7 @@ pub extern "C" fn tok_array_zip(
 /// Returns the top N entries by value (descending), as array of (key, value) tuples.
 #[no_mangle]
 pub extern "C" fn tok_map_top(m: *mut crate::map::TokMap, n: i64) -> *mut crate::array::TokArray {
-    assert!(!m.is_null(), "tok_map_top: null map");
+    null_check!(m, "tok_map_top: null map");
     unsafe {
         let mut entries: Vec<(&String, &TokValue)> = (*m).data.iter().collect();
         // Sort by value descending

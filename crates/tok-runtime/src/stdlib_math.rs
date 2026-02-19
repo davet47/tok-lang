@@ -3,7 +3,7 @@
 //! Provides mathematical functions and constants as a TokMap of closures.
 
 use crate::map::TokMap;
-use crate::value::{TokValue, TAG_FLOAT, TAG_INT};
+use crate::value::{safe_f64_to_i64, TokValue, TAG_FLOAT, TAG_INT};
 
 use std::f64::consts;
 
@@ -74,17 +74,17 @@ pub extern "C" fn tok_math_exp_t(_env: *mut u8, tag: i64, data: i64) -> TokValue
 
 #[no_mangle]
 pub extern "C" fn tok_math_floor_t(_env: *mut u8, tag: i64, data: i64) -> TokValue {
-    TokValue::from_int(arg_to_f64(tag, data).floor() as i64)
+    TokValue::from_int(safe_f64_to_i64(arg_to_f64(tag, data).floor()))
 }
 
 #[no_mangle]
 pub extern "C" fn tok_math_ceil_t(_env: *mut u8, tag: i64, data: i64) -> TokValue {
-    TokValue::from_int(arg_to_f64(tag, data).ceil() as i64)
+    TokValue::from_int(safe_f64_to_i64(arg_to_f64(tag, data).ceil()))
 }
 
 #[no_mangle]
 pub extern "C" fn tok_math_round_t(_env: *mut u8, tag: i64, data: i64) -> TokValue {
-    TokValue::from_int(arg_to_f64(tag, data).round() as i64)
+    TokValue::from_int(safe_f64_to_i64(arg_to_f64(tag, data).round()))
 }
 
 // --- 1-arg abs (preserves type) ---

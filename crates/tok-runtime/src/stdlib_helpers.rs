@@ -7,7 +7,7 @@
 use crate::closure::TokClosure;
 use crate::map::TokMap;
 use crate::string::TokString;
-use crate::value::{TokValue, TAG_FLOAT, TAG_INT, TAG_STRING};
+use crate::value::{safe_f64_to_i64, TokValue, TAG_FLOAT, TAG_INT, TAG_STRING};
 
 /// Insert a function entry into a stdlib module map.
 ///
@@ -55,7 +55,7 @@ pub unsafe fn arg_to_str(tag: i64, data: i64) -> &'static str {
 pub fn arg_to_i64(tag: i64, data: i64) -> i64 {
     match tag as u8 {
         TAG_INT => data,
-        TAG_FLOAT => f64::from_bits(data as u64) as i64,
+        TAG_FLOAT => safe_f64_to_i64(f64::from_bits(data as u64)),
         _ => 0,
     }
 }

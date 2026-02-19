@@ -163,7 +163,11 @@ pub extern "C" fn tok_str_index_of_t(
         let s = arg_to_str(tag1, data1);
         let needle = arg_to_str(tag2, data2);
         match s.find(needle) {
-            Some(pos) => TokValue::from_int(pos as i64),
+            Some(byte_pos) => {
+                // Convert byte offset to char offset
+                let char_pos = s[..byte_pos].chars().count();
+                TokValue::from_int(char_pos as i64)
+            }
             None => TokValue::from_int(-1),
         }
     }

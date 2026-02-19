@@ -262,7 +262,7 @@ pub extern "C" fn tok_channel_alloc(capacity: i64) -> *mut TokChannel {
 
 #[no_mangle]
 pub extern "C" fn tok_channel_send(ch: *mut TokChannel, val: TokValue) {
-    assert!(!ch.is_null(), "tok_channel_send: null channel");
+    null_check!(ch, "tok_channel_send: null channel");
     unsafe {
         (*ch).send(val);
     }
@@ -270,13 +270,13 @@ pub extern "C" fn tok_channel_send(ch: *mut TokChannel, val: TokValue) {
 
 #[no_mangle]
 pub extern "C" fn tok_channel_recv(ch: *mut TokChannel) -> TokValue {
-    assert!(!ch.is_null(), "tok_channel_recv: null channel");
+    null_check!(ch, "tok_channel_recv: null channel");
     unsafe { (*ch).recv() }
 }
 
 #[no_mangle]
 pub extern "C" fn tok_channel_try_send(ch: *mut TokChannel, val: TokValue) -> i8 {
-    assert!(!ch.is_null(), "tok_channel_try_send: null channel");
+    null_check!(ch, "tok_channel_try_send: null channel");
     unsafe {
         if (*ch).try_send(val) {
             1
@@ -288,7 +288,7 @@ pub extern "C" fn tok_channel_try_send(ch: *mut TokChannel, val: TokValue) -> i8
 
 #[no_mangle]
 pub extern "C" fn tok_channel_try_recv(ch: *mut TokChannel, out: *mut TokValue) -> i8 {
-    assert!(!ch.is_null(), "tok_channel_try_recv: null channel");
+    null_check!(ch, "tok_channel_try_recv: null channel");
     unsafe {
         match (*ch).try_recv() {
             Some(val) => {
