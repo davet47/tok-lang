@@ -3,12 +3,11 @@
 //! Supports both unbuffered (capacity=0, rendezvous) and
 //! buffered (capacity>0) semantics.
 //!
-//! Buffered channels use a lock-free SPSC ring buffer for the fast path,
-//! falling back to parking (thread::park/unpark) when the buffer is full/empty.
+//! Buffered channels use a Mutex-protected VecDeque, safe for
+//! multiple producers and multiple consumers (MPMC).
 
-use std::cell::UnsafeCell;
-use std::mem::MaybeUninit;
-use std::sync::atomic::{fence, AtomicU32, AtomicUsize, Ordering};
+use std::collections::VecDeque;
+use std::sync::atomic::{fence, AtomicU32, Ordering};
 use std::sync::{Condvar, Mutex};
 
 use crate::value::TokValue;
@@ -17,78 +16,10 @@ use crate::value::TokValue;
 // TokChannel
 // ═══════════════════════════════════════════════════════════════
 
-/// Lock-free SPSC ring buffer for buffered channels.
-struct SpscRing {
-    /// Ring buffer slots (capacity is always a power of 2).
-    buf: Box<[UnsafeCell<MaybeUninit<TokValue>>]>,
-    /// Mask for fast modulo: capacity - 1.
-    mask: usize,
-    /// Write position (only modified by producer).
-    head: AtomicUsize,
-    /// Read position (only modified by consumer).
-    tail: AtomicUsize,
-}
-
-unsafe impl Send for SpscRing {}
-unsafe impl Sync for SpscRing {}
-
-impl SpscRing {
-    fn new(capacity: usize) -> Self {
-        // Round up to next power of 2
-        let cap = capacity.next_power_of_two().max(2);
-        let mut buf = Vec::with_capacity(cap);
-        for _ in 0..cap {
-            buf.push(UnsafeCell::new(MaybeUninit::uninit()));
-        }
-        SpscRing {
-            buf: buf.into_boxed_slice(),
-            mask: cap - 1,
-            head: AtomicUsize::new(0),
-            tail: AtomicUsize::new(0),
-        }
-    }
-
-    /// Try to push a value. Returns true if successful.
-    #[inline]
-    fn try_push(&self, val: TokValue) -> bool {
-        let head = self.head.load(Ordering::Relaxed);
-        let tail = self.tail.load(Ordering::Acquire);
-        if head.wrapping_sub(tail) > self.mask {
-            return false; // Full
-        }
-        unsafe {
-            (*self.buf[head & self.mask].get()).write(val);
-        }
-        self.head.store(head.wrapping_add(1), Ordering::Release);
-        true
-    }
-
-    /// Try to pop a value. Returns Some(val) if successful.
-    #[inline]
-    fn try_pop(&self) -> Option<TokValue> {
-        let tail = self.tail.load(Ordering::Relaxed);
-        let head = self.head.load(Ordering::Acquire);
-        if tail == head {
-            return None; // Empty
-        }
-        let val = unsafe { (*self.buf[tail & self.mask].get()).assume_init_read() };
-        self.tail.store(tail.wrapping_add(1), Ordering::Release);
-        Some(val)
-    }
-
-    #[inline]
-    #[allow(dead_code)]
-    fn is_empty(&self) -> bool {
-        self.head.load(Ordering::Acquire) == self.tail.load(Ordering::Acquire)
-    }
-
-    #[inline]
-    #[allow(dead_code)]
-    fn len(&self) -> usize {
-        let head = self.head.load(Ordering::Acquire);
-        let tail = self.tail.load(Ordering::Acquire);
-        head.wrapping_sub(tail)
-    }
+/// Buffered channel state, protected by Mutex.
+struct BufferedInner {
+    buf: VecDeque<TokValue>,
+    capacity: usize,
 }
 
 /// Unbuffered channel state (rendezvous), protected by Mutex.
@@ -102,19 +33,17 @@ struct UnbufferedInner {
 pub struct TokChannel {
     pub rc: AtomicU32,
     capacity: usize,
-    /// Lock-free ring buffer (used when capacity > 0).
-    ring: Option<SpscRing>,
+    /// Mutex-protected bounded queue (used when capacity > 0).
+    buffered: Option<Mutex<BufferedInner>>,
     /// Mutex-based state for unbuffered channels (capacity == 0).
     unbuffered: Option<Mutex<UnbufferedInner>>,
     /// Notifies receivers that data is available.
     recv_condvar: Condvar,
     /// Notifies senders that space is available (or receiver picked up).
     send_condvar: Condvar,
-    /// Mutex used only for condvar wait (buffered channels wait on this).
-    wait_mutex: Mutex<()>,
 }
 
-// Safety: TokChannel uses atomics and Mutex+Condvar for synchronization.
+// Safety: TokChannel uses Mutex+Condvar for all synchronization.
 unsafe impl Send for TokChannel {}
 unsafe impl Sync for TokChannel {}
 
@@ -124,7 +53,7 @@ impl TokChannel {
             TokChannel {
                 rc: AtomicU32::new(1),
                 capacity,
-                ring: None,
+                buffered: None,
                 unbuffered: Some(Mutex::new(UnbufferedInner {
                     sender_waiting: None,
                     sender_ready: false,
@@ -132,17 +61,18 @@ impl TokChannel {
                 })),
                 recv_condvar: Condvar::new(),
                 send_condvar: Condvar::new(),
-                wait_mutex: Mutex::new(()),
             }
         } else {
             TokChannel {
                 rc: AtomicU32::new(1),
                 capacity,
-                ring: Some(SpscRing::new(capacity)),
+                buffered: Some(Mutex::new(BufferedInner {
+                    buf: VecDeque::with_capacity(capacity),
+                    capacity,
+                })),
                 unbuffered: None,
                 recv_condvar: Condvar::new(),
                 send_condvar: Condvar::new(),
-                wait_mutex: Mutex::new(()),
             }
         }
     }
@@ -183,78 +113,41 @@ impl TokChannel {
     }
 
     fn send_buffered(&self, val: TokValue) {
-        let ring = self
-            .ring
+        let buf_mutex = self
+            .buffered
             .as_ref()
-            .expect("channel: ring buffer missing on buffered channel");
-        // Fast path: try lock-free push
-        if ring.try_push(val) {
-            // Notify receiver if it might be waiting
-            self.recv_condvar.notify_one();
-            return;
-        }
-        // Slow path: buffer was full, spin briefly then park
-        for _ in 0..32 {
-            std::hint::spin_loop();
-            if ring.try_push(val) {
-                self.recv_condvar.notify_one();
-                return;
-            }
-        }
-        // Park on condvar until space available
-        loop {
-            let guard = self.wait_mutex.lock().unwrap_or_else(|e| e.into_inner());
-            if ring.try_push(val) {
-                drop(guard);
-                self.recv_condvar.notify_one();
-                return;
-            }
-            let _guard = self
+            .expect("channel: buffered state missing on buffered channel");
+        let mut inner = buf_mutex.lock().unwrap_or_else(|e| e.into_inner());
+        // Wait until there's space
+        while inner.buf.len() >= inner.capacity {
+            inner = self
                 .send_condvar
-                .wait(guard)
+                .wait(inner)
                 .unwrap_or_else(|e| e.into_inner());
-            if ring.try_push(val) {
-                self.recv_condvar.notify_one();
-                return;
-            }
         }
+        inner.buf.push_back(val);
+        self.recv_condvar.notify_one();
     }
 
     fn recv_buffered(&self) -> TokValue {
-        let ring = self
-            .ring
+        let buf_mutex = self
+            .buffered
             .as_ref()
-            .expect("channel: ring buffer missing on buffered channel");
-        // Fast path: try lock-free pop
-        if let Some(val) = ring.try_pop() {
-            self.send_condvar.notify_one();
-            return val;
-        }
-        // Slow path: buffer was empty, spin briefly then park
-        for _ in 0..32 {
-            std::hint::spin_loop();
-            if let Some(val) = ring.try_pop() {
-                self.send_condvar.notify_one();
-                return val;
-            }
-        }
-        // Park on condvar until data available
-        loop {
-            let guard = self.wait_mutex.lock().unwrap_or_else(|e| e.into_inner());
-            if let Some(val) = ring.try_pop() {
-                drop(guard);
-                self.send_condvar.notify_one();
-                return val;
-            }
-            let _guard = self
+            .expect("channel: buffered state missing on buffered channel");
+        let mut inner = buf_mutex.lock().unwrap_or_else(|e| e.into_inner());
+        // Wait until there's data
+        while inner.buf.is_empty() {
+            inner = self
                 .recv_condvar
-                .wait(guard)
+                .wait(inner)
                 .unwrap_or_else(|e| e.into_inner());
-            if let Some(val) = ring.try_pop() {
-                self.send_condvar.notify_one();
-                return val;
-            }
         }
+        let val = inner
+            .buf
+            .pop_front()
+            .expect("channel: buffer was empty after non-empty check");
+        self.send_condvar.notify_one();
+        val
     }
 
     fn send_unbuffered(&self, val: TokValue) {
@@ -307,11 +200,13 @@ impl TokChannel {
         if self.capacity == 0 {
             false // Unbuffered: can't non-blocking send
         } else {
-            let ring = self
-                .ring
+            let buf_mutex = self
+                .buffered
                 .as_ref()
-                .expect("channel: ring buffer missing on buffered channel");
-            if ring.try_push(val) {
+                .expect("channel: buffered state missing on buffered channel");
+            let mut inner = buf_mutex.lock().unwrap_or_else(|e| e.into_inner());
+            if inner.buf.len() < inner.capacity {
+                inner.buf.push_back(val);
                 self.recv_condvar.notify_one();
                 true
             } else {
@@ -340,11 +235,12 @@ impl TokChannel {
                 None
             }
         } else {
-            let ring = self
-                .ring
+            let buf_mutex = self
+                .buffered
                 .as_ref()
-                .expect("channel: ring buffer missing on buffered channel");
-            if let Some(val) = ring.try_pop() {
+                .expect("channel: buffered state missing on buffered channel");
+            let mut inner = buf_mutex.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(val) = inner.buf.pop_front() {
                 self.send_condvar.notify_one();
                 Some(val)
             } else {
@@ -433,9 +329,8 @@ mod tests {
     fn test_buffered_try_send_recv() {
         let ch = tok_channel_alloc(1);
         assert_eq!(tok_channel_try_send(ch, TokValue::from_int(42)), 1);
-        // Buffer full (capacity is rounded to 2 for power-of-2)
-        // With capacity 1, ring has 2 slots, so a second push may succeed
-        // Let's just test the recv
+        // Buffer is now full (capacity=1)
+        assert_eq!(tok_channel_try_send(ch, TokValue::from_int(99)), 0);
         let mut out = TokValue::nil();
         assert_eq!(tok_channel_try_recv(ch, &mut out), 1);
         unsafe {
@@ -495,6 +390,46 @@ mod tests {
                 assert_eq!(v.data.int_val, i);
             }
         }
+        unsafe {
+            drop(Box::from_raw(ch));
+        }
+    }
+
+    #[test]
+    fn test_mpmc_threaded() {
+        // Test MPMC: multiple producers + multiple consumers
+        let ch = tok_channel_alloc(100);
+        let ch_usize = ch as usize;
+        let n_producers = 4;
+        let msgs_per_producer: i64 = 1000;
+
+        let producers: Vec<_> = (0..n_producers)
+            .map(|_| {
+                let ch_ptr = ch_usize;
+                thread::spawn(move || {
+                    let ch = ch_ptr as *mut TokChannel;
+                    for i in 0..msgs_per_producer {
+                        tok_channel_send(ch, TokValue::from_int(i));
+                    }
+                })
+            })
+            .collect();
+
+        let total = n_producers * msgs_per_producer;
+        let mut sum: i64 = 0;
+        for _ in 0..total {
+            let v = tok_channel_recv(ch);
+            unsafe {
+                sum += v.data.int_val;
+            }
+        }
+
+        for p in producers {
+            p.join().unwrap();
+        }
+        // Each producer sends 0..1000, sum = 999*1000/2 = 499500, times 4 = 1998000
+        let expected = n_producers * (msgs_per_producer - 1) * msgs_per_producer / 2;
+        assert_eq!(sum, expected);
         unsafe {
             drop(Box::from_raw(ch));
         }

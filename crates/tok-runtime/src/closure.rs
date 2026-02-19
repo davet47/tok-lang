@@ -11,6 +11,8 @@ use std::sync::atomic::{fence, AtomicU32, Ordering};
 #[repr(C)]
 pub struct TokClosure {
     pub rc: AtomicU32,
+    /// Number of captured variables in the environment.
+    pub env_count: u32,
     /// Pointer to the compiled function.
     pub fn_ptr: *const u8,
     /// Pointer to the captured environment (heap-allocated by codegen).
@@ -25,9 +27,10 @@ unsafe impl Send for TokClosure {}
 unsafe impl Sync for TokClosure {}
 
 impl TokClosure {
-    pub fn new(fn_ptr: *const u8, env_ptr: *mut u8, arity: u32) -> Self {
+    pub fn new(fn_ptr: *const u8, env_ptr: *mut u8, arity: u32, env_count: u32) -> Self {
         TokClosure {
             rc: AtomicU32::new(1),
+            env_count,
             fn_ptr,
             env_ptr,
             arity,
@@ -47,8 +50,13 @@ impl TokClosure {
         }
     }
 
-    pub fn alloc(fn_ptr: *const u8, env_ptr: *mut u8, arity: u32) -> *mut TokClosure {
-        Box::into_raw(Box::new(TokClosure::new(fn_ptr, env_ptr, arity)))
+    pub fn alloc(
+        fn_ptr: *const u8,
+        env_ptr: *mut u8,
+        arity: u32,
+        env_count: u32,
+    ) -> *mut TokClosure {
+        Box::into_raw(Box::new(TokClosure::new(fn_ptr, env_ptr, arity, env_count)))
     }
 }
 
@@ -61,8 +69,9 @@ pub extern "C" fn tok_closure_alloc(
     fn_ptr: *const u8,
     env_ptr: *mut u8,
     arity: u32,
+    env_count: u32,
 ) -> *mut TokClosure {
-    TokClosure::alloc(fn_ptr, env_ptr, arity)
+    TokClosure::alloc(fn_ptr, env_ptr, arity, env_count)
 }
 
 #[no_mangle]
@@ -124,11 +133,12 @@ mod tests {
 
     #[test]
     fn test_alloc() {
-        let c = tok_closure_alloc(0x1234 as *const u8, std::ptr::null_mut(), 2);
+        let c = tok_closure_alloc(0x1234 as *const u8, std::ptr::null_mut(), 2, 0);
         unsafe {
             assert_eq!((*c).fn_ptr, 0x1234 as *const u8);
             assert_eq!((*c).env_ptr, std::ptr::null_mut());
             assert_eq!((*c).arity, 2);
+            assert_eq!((*c).env_count, 0);
             assert_eq!((*c).rc.load(Ordering::Relaxed), 1);
             drop(Box::from_raw(c));
         }
@@ -136,10 +146,11 @@ mod tests {
 
     #[test]
     fn test_getters() {
-        let c = tok_closure_alloc(0xABCD as *const u8, 0xEF01 as *mut u8, 3);
+        let c = tok_closure_alloc(0xABCD as *const u8, 0xEF01 as *mut u8, 3, 5);
         assert_eq!(tok_closure_get_fn(c), 0xABCD as *const u8);
         assert_eq!(tok_closure_get_env(c), 0xEF01 as *mut u8);
         unsafe {
+            assert_eq!((*c).env_count, 5);
             drop(Box::from_raw(c));
         }
     }

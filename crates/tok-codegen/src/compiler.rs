@@ -324,9 +324,18 @@ impl Compiler {
             &[PTR, types::I64, types::I64],
             &[PTR, types::I64],
         );
+        self.declare_runtime_func(
+            "tok_value_index_set",
+            &[PTR, types::I64, PTR, types::I64, PTR, types::I64],
+            &[],
+        );
 
         // Closure
-        self.declare_runtime_func("tok_closure_alloc", &[PTR, PTR, types::I32], &[PTR]);
+        self.declare_runtime_func(
+            "tok_closure_alloc",
+            &[PTR, PTR, types::I32, types::I32],
+            &[PTR],
+        );
         self.declare_runtime_func("tok_closure_get_fn", &[PTR], &[PTR]);
         self.declare_runtime_func("tok_closure_get_env", &[PTR], &[PTR]);
         // Environment allocation for captures: (count: I64) -> PTR
@@ -1248,7 +1257,7 @@ fn compile_specialized_lambda_body(compiler: &mut Compiler, lambda: &PendingLamb
 
     let rv = Variable::new(0);
     builder.declare_var(rv, cl_ret);
-    let zero_val = builder.ins().iconst(types::I64, 0);
+    let zero_val = zero_value(&mut builder, cl_ret);
     builder.def_var(rv, zero_val);
 
     let mut func_ctx = FuncCtx {
@@ -1759,6 +1768,31 @@ fn compile_stmt(ctx: &mut FuncCtx, stmt: &HirStmt) -> Option<Value> {
                         .ins()
                         .call(func_ref, &[target_val, key, tag, data]);
                 }
+                Type::Any | Type::Optional(_) | Type::Result(_) => {
+                    // target_val is PTR to stack TokValue — extract tag and data
+                    let target_tag =
+                        ctx.builder
+                            .ins()
+                            .load(types::I64, MemFlags::trusted(), target_val, 0);
+                    let target_data =
+                        ctx.builder
+                            .ins()
+                            .load(types::I64, MemFlags::trusted(), target_val, 8);
+                    let (idx_tag, idx_data) = to_tokvalue(ctx, idx_val, &index.ty);
+                    let (val_tag, val_data) = to_tokvalue(ctx, val, &value.ty);
+                    let func_ref = ctx.get_runtime_func_ref("tok_value_index_set");
+                    ctx.builder.ins().call(
+                        func_ref,
+                        &[
+                            target_tag,
+                            target_data,
+                            idx_tag,
+                            idx_data,
+                            val_tag,
+                            val_data,
+                        ],
+                    );
+                }
                 _ => {}
             }
             None
@@ -1772,6 +1806,15 @@ fn compile_stmt(ctx: &mut FuncCtx, stmt: &HirStmt) -> Option<Value> {
             let target_val =
                 compile_expr(ctx, target).expect("codegen: target expr produced no value");
             let val = compile_expr(ctx, value).expect("codegen: value expr produced no value");
+            // Extract map pointer: for Any-typed targets, load from TokValue data field
+            let map_ptr = match &target.ty {
+                Type::Any | Type::Optional(_) | Type::Result(_) => {
+                    ctx.builder
+                        .ins()
+                        .load(types::I64, MemFlags::trusted(), target_val, 8)
+                }
+                _ => target_val,
+            };
             // Allocate key string
             let (data_id, len) = ctx.compiler.declare_string_data(field);
             let gv = ctx.get_data_ref(data_id);
@@ -1785,7 +1828,7 @@ fn compile_stmt(ctx: &mut FuncCtx, stmt: &HirStmt) -> Option<Value> {
             let set_ref = ctx.get_runtime_func_ref("tok_map_set");
             ctx.builder
                 .ins()
-                .call(set_ref, &[target_val, key_str, tag, data]);
+                .call(set_ref, &[map_ptr, key_str, tag, data]);
             None
         }
 
@@ -1987,11 +2030,12 @@ fn compile_expr(ctx: &mut FuncCtx, expr: &HirExpr) -> Option<Value> {
                     .builder
                     .ins()
                     .iconst(types::I32, param_types.len() as i64);
+                let env_count_val = ctx.builder.ins().iconst(types::I32, 0);
                 let alloc_ref = ctx.get_runtime_func_ref("tok_closure_alloc");
                 let call = ctx
                     .builder
                     .ins()
-                    .call(alloc_ref, &[fn_ptr, env_ptr, arity_val]);
+                    .call(alloc_ref, &[fn_ptr, env_ptr, arity_val, env_count_val]);
                 Some(ctx.builder.inst_results(call)[0])
             } else {
                 // Unknown variable — return 0 as fallback
@@ -2418,10 +2462,14 @@ fn compile_expr(ctx: &mut FuncCtx, expr: &HirExpr) -> Option<Value> {
             // Record lambda info for direct-call optimization
             ctx.last_lambda_info = Some((func_id, env_ptr, pending_idx));
 
-            // Create closure: tok_closure_alloc(fn_ptr, env_ptr, arity)
+            // Create closure: tok_closure_alloc(fn_ptr, env_ptr, arity, env_count)
             let arity = ctx.builder.ins().iconst(types::I32, params.len() as i64);
+            let env_count_val = ctx.builder.ins().iconst(types::I32, captures.len() as i64);
             let alloc_ref = ctx.get_runtime_func_ref("tok_closure_alloc");
-            let call = ctx.builder.ins().call(alloc_ref, &[fn_ptr, env_ptr, arity]);
+            let call = ctx
+                .builder
+                .ins()
+                .call(alloc_ref, &[fn_ptr, env_ptr, arity, env_count_val]);
             Some(ctx.builder.inst_results(call)[0])
         }
 
@@ -3426,7 +3474,7 @@ fn compile_call(
                         return Some(val);
                     }
                     if matches!(arg.ty, Type::Float) {
-                        return Some(ctx.builder.ins().fcvt_to_sint(types::I64, val));
+                        return Some(ctx.builder.ins().fcvt_to_sint_sat(types::I64, val));
                     }
                     let (tag, data) = to_tokvalue(ctx, val, &arg.ty);
                     let func_ref = ctx.get_runtime_func_ref("tok_to_int");

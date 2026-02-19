@@ -584,6 +584,46 @@ pub extern "C" fn tok_value_index(val: TokValue, idx: i64) -> TokValue {
     }
 }
 
+/// Index-assign into a TokValue (array or map).
+/// Dispatches based on target tag: array[idx]=val or map[key]=val.
+#[no_mangle]
+pub extern "C" fn tok_value_index_set(target: TokValue, idx: TokValue, val: TokValue) {
+    unsafe {
+        match target.tag {
+            TAG_ARRAY => {
+                let p = target.data.array_ptr;
+                assert!(!p.is_null(), "tok_value_index_set: null array");
+                // idx must be int
+                let i = match idx.tag {
+                    TAG_INT => idx.data.int_val,
+                    TAG_FLOAT => idx.data.float_val as i64,
+                    _ => return, // non-numeric index — no-op
+                };
+                crate::array::tok_array_set(p, i, val);
+            }
+            TAG_MAP => {
+                let p = target.data.map_ptr;
+                assert!(!p.is_null(), "tok_value_index_set: null map");
+                // idx must be a string
+                match idx.tag {
+                    TAG_STRING => {
+                        let key = idx.data.string_ptr;
+                        assert!(!key.is_null(), "tok_value_index_set: null key string");
+                        crate::map::tok_map_set(p, key, val);
+                    }
+                    _ => {
+                        // Convert index to string, then set
+                        let key_str = format!("{}", idx);
+                        let key_ptr = crate::string::TokString::alloc(key_str);
+                        crate::map::tok_map_set(p, key_ptr, val);
+                    }
+                }
+            }
+            _ => {} // no-op for other types
+        }
+    }
+}
+
 /// Return the length of a TokValue. Works for arrays, strings, maps, tuples.
 /// Returns 0 for non-collection types.
 #[no_mangle]

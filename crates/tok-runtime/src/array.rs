@@ -455,8 +455,47 @@ pub extern "C" fn tok_array_reduce(
     }
 }
 
+/// Deep-copy a closure environment buffer.
+/// `env_ptr` is a contiguous block of `count` TokValues (16 bytes each).
+/// Returns a new heap-allocated copy with all pointer-typed values rc-incremented.
+unsafe fn clone_env(env_ptr: *mut u8, count: u32) -> *mut u8 {
+    if env_ptr.is_null() || count == 0 {
+        return env_ptr; // No env to copy — share the (null) pointer
+    }
+    let size = (count as usize) * 16;
+    let layout = std::alloc::Layout::from_size_align(size, 8).unwrap();
+    let new_ptr = std::alloc::alloc(layout);
+    if new_ptr.is_null() {
+        std::alloc::handle_alloc_error(layout);
+    }
+    // Copy bytes
+    std::ptr::copy_nonoverlapping(env_ptr, new_ptr, size);
+    // rc_inc each captured TokValue in the new copy
+    for i in 0..count as usize {
+        let tv_ptr = new_ptr.add(i * 16) as *const TokValue;
+        (*tv_ptr).rc_inc();
+    }
+    new_ptr
+}
+
+/// Free a cloned environment buffer.
+unsafe fn free_env(env_ptr: *mut u8, count: u32) {
+    if env_ptr.is_null() || count == 0 {
+        return;
+    }
+    let size = (count as usize) * 16;
+    // rc_dec each captured TokValue
+    for i in 0..count as usize {
+        let tv_ptr = env_ptr.add(i * 16) as *const TokValue;
+        (*tv_ptr).rc_dec();
+    }
+    let layout = std::alloc::Layout::from_size_align(size, 8).unwrap();
+    std::alloc::dealloc(env_ptr, layout);
+}
+
 /// Parallel map: apply a closure to each array element in a separate thread.
 /// Returns a new array with results in the same order.
+/// Each thread gets its own deep-copy of the closure's captured environment.
 /// Closure signature: (env: *mut u8, tag: i64, data: i64) -> TagData
 #[no_mangle]
 pub extern "C" fn tok_pmap(arr: *mut TokArray, closure: *mut TokClosure) -> *mut TokArray {
@@ -466,25 +505,31 @@ pub extern "C" fn tok_pmap(arr: *mut TokArray, closure: *mut TokClosure) -> *mut
         let fn_ptr: extern "C" fn(*mut u8, i64, i64) -> TagData =
             std::mem::transmute((*closure).fn_ptr);
         let env = (*closure).env_ptr;
+        let env_count = (*closure).env_count;
         let data = &(*arr).data;
 
         if data.is_empty() {
             return TokArray::alloc();
         }
 
-        // Spawn one thread per element
+        // Spawn one thread per element, each with its own env copy
         let fn_ptr_usize = fn_ptr as usize;
-        let env_usize = env as usize;
         let handles: Vec<_> = data
             .iter()
             .map(|elem| {
                 let tag = elem.tag as i64;
                 let data = elem.data._raw as i64;
+                let thread_env = clone_env(env, env_count);
+                let thread_env_usize = thread_env as usize;
+                let ec = env_count;
                 std::thread::spawn(move || {
                     let fp: extern "C" fn(*mut u8, i64, i64) -> TagData =
                         std::mem::transmute(fn_ptr_usize);
-                    let ep = env_usize as *mut u8;
-                    fp(ep, tag, data)
+                    let ep = thread_env_usize as *mut u8;
+                    let result = fp(ep, tag, data);
+                    // Free the per-thread env copy
+                    free_env(ep, ec);
+                    result
                 })
             })
             .collect();
