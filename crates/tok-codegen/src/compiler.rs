@@ -2999,8 +2999,72 @@ fn compile_int_binop(ctx: &mut FuncCtx, op: HirBinOp, lv: Value, rv: Value) -> O
         HirBinOp::Add => ctx.builder.ins().iadd(lv, rv),
         HirBinOp::Sub => ctx.builder.ins().isub(lv, rv),
         HirBinOp::Mul => ctx.builder.ins().imul(lv, rv),
-        HirBinOp::Div => ctx.builder.ins().sdiv(lv, rv),
-        HirBinOp::Mod => ctx.builder.ins().srem(lv, rv),
+        HirBinOp::Div => {
+            // Safe sdiv: div-by-zero → 0, i64::MIN / -1 → i64::MIN (wrapping)
+            let zero = ctx.builder.ins().iconst(types::I64, 0);
+            let is_zero = ctx.builder.ins().icmp(IntCC::Equal, rv, zero);
+            let safe_block = ctx.builder.create_block();
+            let overflow_check = ctx.builder.create_block();
+            let div_block = ctx.builder.create_block();
+            let merge = ctx.builder.create_block();
+            ctx.builder.append_block_param(merge, types::I64);
+            // divisor == 0 → return 0
+            ctx.builder
+                .ins()
+                .brif(is_zero, merge, &[zero], safe_block, &[]);
+            // Check i64::MIN / -1
+            ctx.builder.switch_to_block(safe_block);
+            let min_val = ctx.builder.ins().iconst(types::I64, i64::MIN);
+            let is_min = ctx.builder.ins().icmp(IntCC::Equal, lv, min_val);
+            ctx.builder
+                .ins()
+                .brif(is_min, overflow_check, &[], div_block, &[]);
+            ctx.builder.switch_to_block(overflow_check);
+            let neg1 = ctx.builder.ins().iconst(types::I64, -1i64);
+            let is_neg1 = ctx.builder.ins().icmp(IntCC::Equal, rv, neg1);
+            ctx.builder
+                .ins()
+                .brif(is_neg1, merge, &[min_val], div_block, &[]);
+            // Normal sdiv
+            ctx.builder.switch_to_block(div_block);
+            let result = ctx.builder.ins().sdiv(lv, rv);
+            ctx.builder.ins().jump(merge, &[result]);
+            ctx.builder.switch_to_block(merge);
+            ctx.builder.block_params(merge)[0]
+        }
+        HirBinOp::Mod => {
+            // Safe srem: div-by-zero → 0, i64::MIN % -1 → 0
+            let zero = ctx.builder.ins().iconst(types::I64, 0);
+            let is_zero = ctx.builder.ins().icmp(IntCC::Equal, rv, zero);
+            let safe_block = ctx.builder.create_block();
+            let overflow_check = ctx.builder.create_block();
+            let rem_block = ctx.builder.create_block();
+            let merge = ctx.builder.create_block();
+            ctx.builder.append_block_param(merge, types::I64);
+            // divisor == 0 → return 0
+            ctx.builder
+                .ins()
+                .brif(is_zero, merge, &[zero], safe_block, &[]);
+            // Check i64::MIN % -1
+            ctx.builder.switch_to_block(safe_block);
+            let min_val = ctx.builder.ins().iconst(types::I64, i64::MIN);
+            let is_min = ctx.builder.ins().icmp(IntCC::Equal, lv, min_val);
+            ctx.builder
+                .ins()
+                .brif(is_min, overflow_check, &[], rem_block, &[]);
+            ctx.builder.switch_to_block(overflow_check);
+            let neg1 = ctx.builder.ins().iconst(types::I64, -1i64);
+            let is_neg1 = ctx.builder.ins().icmp(IntCC::Equal, rv, neg1);
+            ctx.builder
+                .ins()
+                .brif(is_neg1, merge, &[zero], rem_block, &[]);
+            // Normal srem
+            ctx.builder.switch_to_block(rem_block);
+            let result = ctx.builder.ins().srem(lv, rv);
+            ctx.builder.ins().jump(merge, &[result]);
+            ctx.builder.switch_to_block(merge);
+            ctx.builder.block_params(merge)[0]
+        }
         HirBinOp::Pow => {
             let func_ref = ctx.get_runtime_func_ref("tok_pow_int");
             let call = ctx.builder.ins().call(func_ref, &[lv, rv]);
