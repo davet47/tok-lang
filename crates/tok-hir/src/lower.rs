@@ -924,10 +924,11 @@ impl<'a> Lowerer<'a> {
                     })
                     .collect();
                 let ret_ty = Type::Any; // simplified
+                let is_variadic = params.last().is_some_and(|p| p.variadic);
                 let func_ty = Type::Func(tok_types::FuncType {
                     params: param_types,
                     ret: Box::new(ret_ty.clone()),
-                    variadic: false,
+                    variadic: is_variadic,
                 });
                 HirExpr::new(
                     HirExprKind::Lambda {
@@ -1824,6 +1825,7 @@ impl<'a> Lowerer<'a> {
                     .as_ref()
                     .map(|te| self.resolve_type_expr(te))
                     .unwrap_or(Type::Any),
+                variadic: p.variadic,
             })
             .collect()
     }

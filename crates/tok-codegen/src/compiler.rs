@@ -1926,6 +1926,7 @@ fn compile_expr(ctx: &mut FuncCtx, expr: &HirExpr) -> Option<Value> {
                         .map(|(i, ty)| HirParam {
                             name: format!("__p{}", i),
                             ty: ty.clone(),
+                            variadic: false,
                         })
                         .collect();
                     let call_args: Vec<HirExpr> = tramp_params

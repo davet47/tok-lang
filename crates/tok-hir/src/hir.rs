@@ -56,6 +56,8 @@ pub enum HirStmt {
 pub struct HirParam {
     pub name: String,
     pub ty: Type,
+    /// Whether this is a variadic (`..param`) parameter.
+    pub variadic: bool,
 }
 
 /// HIR Expression -- every node carries its Type.
