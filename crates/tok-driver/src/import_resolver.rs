@@ -368,82 +368,47 @@ fn walk_expr(expr: &mut HirExpr, visitor: &mut dyn HirVisitor, depth: usize) {
 
 // ─── Rename visitor ──────────────────────────────────────────────────
 
-/// Renames occurrences of `old` → `new` in the HIR.
-struct Renamer {
-    old: String,
-    new: String,
+/// Batch-renames identifiers using a HashMap lookup (single-pass, O(1) per ident).
+struct BatchRenamer<'a> {
+    renames: &'a HashMap<String, String>,
 }
 
-impl HirVisitor for Renamer {
+impl<'a> HirVisitor for BatchRenamer<'a> {
     fn visit_ident(&mut self, name: &str) -> Option<String> {
-        if name == self.old {
-            Some(self.new.clone())
-        } else {
-            None
-        }
+        self.renames.get(name).cloned()
     }
 }
 
 /// Rename all top-level declarations in an HIR program with a prefix.
 /// Also renames references within function bodies to match.
+///
+/// Uses a single-pass batch renamer: builds the full old→new map once,
+/// then walks each statement body exactly once (O(exports + HIR_size)
+/// instead of the old O(exports × HIR_size)).
 fn prefix_hir_names(hir: &mut HirProgram, prefix: &str, exported: &[(String, Type)]) {
     // Build rename map: old_name → new_name
     let renames: HashMap<String, String> = exported
         .iter()
         .map(|(name, _)| (name.clone(), format!("{}{}", prefix, name)))
         .collect();
+    let mut renamer = BatchRenamer { renames: &renames };
 
     for stmt in hir.iter_mut() {
         match stmt {
             HirStmt::FuncDecl { name, body, .. } => {
                 if let Some(new_name) = renames.get(name.as_str()) {
-                    let old_name = name.clone();
                     *name = new_name.clone();
-                    // Rename self-references in body (recursion)
-                    let mut renamer = Renamer {
-                        old: old_name,
-                        new: name.clone(),
-                    };
-                    walk_stmts(body, &mut renamer, 0);
                 }
-                // Rename references to other exported names within this function
-                for (export_name, _) in exported {
-                    if let Some(new) = renames.get(export_name) {
-                        if *export_name != *name {
-                            let mut renamer = Renamer {
-                                old: export_name.clone(),
-                                new: new.clone(),
-                            };
-                            walk_stmts(body, &mut renamer, 0);
-                        }
-                    }
-                }
+                walk_stmts(body, &mut renamer, 0);
             }
             HirStmt::Assign { name, value, .. } => {
                 if let Some(new_name) = renames.get(name.as_str()) {
                     *name = new_name.clone();
                 }
-                // Rename references in the value expression
-                for (export_name, _) in exported {
-                    if let Some(new) = renames.get(export_name) {
-                        let mut renamer = Renamer {
-                            old: export_name.clone(),
-                            new: new.clone(),
-                        };
-                        walk_expr(value, &mut renamer, 0);
-                    }
-                }
+                walk_expr(value, &mut renamer, 0);
             }
             HirStmt::Expr(expr) => {
-                for (export_name, _) in exported {
-                    if let Some(new) = renames.get(export_name) {
-                        let mut renamer = Renamer {
-                            old: export_name.clone(),
-                            new: new.clone(),
-                        };
-                        walk_expr(expr, &mut renamer, 0);
-                    }
-                }
+                walk_expr(expr, &mut renamer, 0);
             }
             _ => {}
         }
