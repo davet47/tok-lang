@@ -624,6 +624,58 @@ impl<'a> Lexer<'a> {
         Ok(self.tokens.clone())
     }
 
+    /// Collect source text from `start` to current position, filtering out underscores.
+    fn collect_text(&self, start: usize) -> String {
+        self.source[start..self.pos]
+            .iter()
+            .filter(|&&c| c != b'_')
+            .map(|&c| c as char)
+            .collect()
+    }
+
+    /// Consume an optional exponent suffix (e/E followed by optional +/- and digits).
+    fn consume_exponent(&mut self) {
+        if matches!(self.peek(), Some(b'e') | Some(b'E')) {
+            self.advance();
+            if matches!(self.peek(), Some(b'+') | Some(b'-')) {
+                self.advance();
+            }
+            while let Some(ch) = self.peek() {
+                if ch.is_ascii_digit() {
+                    self.advance();
+                } else {
+                    break;
+                }
+            }
+        }
+    }
+
+    /// Parse a radix integer literal (hex, binary, or octal).
+    /// `valid` tests if a byte is a valid digit for this radix.
+    fn lex_radix_int(
+        &mut self,
+        valid: fn(u8) -> bool,
+        radix: u32,
+        prefix: &str,
+    ) -> Result<(), LexError> {
+        let start = self.pos;
+        while let Some(ch) = self.peek() {
+            if valid(ch) || ch == b'_' {
+                self.advance();
+            } else {
+                break;
+            }
+        }
+        let text = self.collect_text(start);
+        if text.is_empty() {
+            return Err(self.err(format!("expected digits after {}", prefix)));
+        }
+        let val = i64::from_str_radix(&text, radix)
+            .map_err(|_| self.err(format!("invalid {} literal: {}{}", prefix, prefix, text)))?;
+        self.tokens.push(Token::Int(val));
+        Ok(())
+    }
+
     fn lex_number(&mut self) -> Result<(), LexError> {
         let start = self.pos;
         let first = self.advance().unwrap();
@@ -633,15 +685,15 @@ impl<'a> Lexer<'a> {
             match self.peek() {
                 Some(b'x') | Some(b'X') => {
                     self.advance();
-                    return self.lex_hex();
+                    return self.lex_radix_int(|c| c.is_ascii_hexdigit(), 16, "0x");
                 }
                 Some(b'b') | Some(b'B') => {
                     self.advance();
-                    return self.lex_binary();
+                    return self.lex_radix_int(|c| c == b'0' || c == b'1', 2, "0b");
                 }
                 Some(b'o') | Some(b'O') => {
                     self.advance();
-                    return self.lex_octal();
+                    return self.lex_radix_int(|c| (b'0'..=b'7').contains(&c), 8, "0o");
                 }
                 _ => {}
             }
@@ -664,7 +716,7 @@ impl<'a> Lexer<'a> {
             && self.peek() == Some(b'.')
             && self.peek_at(1).is_some_and(|c| c.is_ascii_digit())
         {
-            // It's a float
+            // It's a float with decimal point
             self.advance(); // consume .
             while let Some(ch) = self.peek() {
                 if ch.is_ascii_digit() || ch == b'_' {
@@ -673,133 +725,29 @@ impl<'a> Lexer<'a> {
                     break;
                 }
             }
-            // Check for exponent
-            if matches!(self.peek(), Some(b'e') | Some(b'E')) {
-                self.advance();
-                if matches!(self.peek(), Some(b'+') | Some(b'-')) {
-                    self.advance();
-                }
-                while let Some(ch) = self.peek() {
-                    if ch.is_ascii_digit() {
-                        self.advance();
-                    } else {
-                        break;
-                    }
-                }
-            }
-            let text: String = self.source[start..self.pos]
-                .iter()
-                .filter(|&&c| c != b'_')
-                .map(|&c| c as char)
-                .collect();
+            self.consume_exponent();
+            let text = self.collect_text(start);
             let val: f64 = text
                 .parse()
                 .map_err(|_| self.err(format!("invalid float: {}", text)))?;
             self.tokens.push(Token::Float(val));
         } else if !prev_was_dot && matches!(self.peek(), Some(b'e') | Some(b'E')) {
             // Scientific notation without decimal: 1e10
-            self.advance();
-            if matches!(self.peek(), Some(b'+') | Some(b'-')) {
-                self.advance();
-            }
-            while let Some(ch) = self.peek() {
-                if ch.is_ascii_digit() {
-                    self.advance();
-                } else {
-                    break;
-                }
-            }
-            let text: String = self.source[start..self.pos]
-                .iter()
-                .filter(|&&c| c != b'_')
-                .map(|&c| c as char)
-                .collect();
+            self.consume_exponent();
+            let text = self.collect_text(start);
             let val: f64 = text
                 .parse()
                 .map_err(|_| self.err(format!("invalid float: {}", text)))?;
             self.tokens.push(Token::Float(val));
         } else {
             // Integer
-            let text: String = self.source[start..self.pos]
-                .iter()
-                .filter(|&&c| c != b'_')
-                .map(|&c| c as char)
-                .collect();
+            let text = self.collect_text(start);
             let val: i64 = text
                 .parse()
                 .map_err(|_| self.err(format!("invalid integer: {}", text)))?;
             self.tokens.push(Token::Int(val));
         }
 
-        Ok(())
-    }
-
-    fn lex_hex(&mut self) -> Result<(), LexError> {
-        let start = self.pos;
-        while let Some(ch) = self.peek() {
-            if ch.is_ascii_hexdigit() || ch == b'_' {
-                self.advance();
-            } else {
-                break;
-            }
-        }
-        let text: String = self.source[start..self.pos]
-            .iter()
-            .filter(|&&c| c != b'_')
-            .map(|&c| c as char)
-            .collect();
-        if text.is_empty() {
-            return Err(self.err("expected hex digits after 0x"));
-        }
-        let val = i64::from_str_radix(&text, 16)
-            .map_err(|_| self.err(format!("invalid hex literal: 0x{}", text)))?;
-        self.tokens.push(Token::Int(val));
-        Ok(())
-    }
-
-    fn lex_binary(&mut self) -> Result<(), LexError> {
-        let start = self.pos;
-        while let Some(ch) = self.peek() {
-            if ch == b'0' || ch == b'1' || ch == b'_' {
-                self.advance();
-            } else {
-                break;
-            }
-        }
-        let text: String = self.source[start..self.pos]
-            .iter()
-            .filter(|&&c| c != b'_')
-            .map(|&c| c as char)
-            .collect();
-        if text.is_empty() {
-            return Err(self.err("expected binary digits after 0b"));
-        }
-        let val = i64::from_str_radix(&text, 2)
-            .map_err(|_| self.err(format!("invalid binary literal: 0b{}", text)))?;
-        self.tokens.push(Token::Int(val));
-        Ok(())
-    }
-
-    fn lex_octal(&mut self) -> Result<(), LexError> {
-        let start = self.pos;
-        while let Some(ch) = self.peek() {
-            if (b'0'..=b'7').contains(&ch) || ch == b'_' {
-                self.advance();
-            } else {
-                break;
-            }
-        }
-        let text: String = self.source[start..self.pos]
-            .iter()
-            .filter(|&&c| c != b'_')
-            .map(|&c| c as char)
-            .collect();
-        if text.is_empty() {
-            return Err(self.err("expected octal digits after 0o"));
-        }
-        let val = i64::from_str_radix(&text, 8)
-            .map_err(|_| self.err(format!("invalid octal literal: 0o{}", text)))?;
-        self.tokens.push(Token::Int(val));
         Ok(())
     }
 
@@ -813,25 +761,8 @@ impl<'a> Lexer<'a> {
                 break;
             }
         }
-        // Optional exponent
-        if matches!(self.peek(), Some(b'e') | Some(b'E')) {
-            self.advance();
-            if matches!(self.peek(), Some(b'+') | Some(b'-')) {
-                self.advance();
-            }
-            while let Some(ch) = self.peek() {
-                if ch.is_ascii_digit() {
-                    self.advance();
-                } else {
-                    break;
-                }
-            }
-        }
-        let text: String = self.source[start..self.pos]
-            .iter()
-            .filter(|&&c| c != b'_')
-            .map(|&c| c as char)
-            .collect();
+        self.consume_exponent();
+        let text = self.collect_text(start);
         let full = format!("0.{}", text);
         full.parse()
             .map_err(|_| self.err(format!("invalid float: .{}", text)))
