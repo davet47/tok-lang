@@ -177,46 +177,57 @@ trait HirVisitor {
     }
 }
 
-fn walk_stmts(stmts: &mut [HirStmt], visitor: &mut dyn HirVisitor) {
+/// Maximum HIR nesting depth before aborting traversal.
+/// Prevents stack overflow on adversarially nested input.
+const MAX_WALK_DEPTH: usize = 1000;
+
+fn walk_stmts(stmts: &mut [HirStmt], visitor: &mut dyn HirVisitor, depth: usize) {
     for stmt in stmts.iter_mut() {
-        walk_stmt(stmt, visitor);
+        walk_stmt(stmt, visitor, depth);
     }
 }
 
-fn walk_stmt(stmt: &mut HirStmt, visitor: &mut dyn HirVisitor) {
+fn walk_stmt(stmt: &mut HirStmt, visitor: &mut dyn HirVisitor, depth: usize) {
+    if depth >= MAX_WALK_DEPTH {
+        eprintln!("warning: HIR nesting depth exceeded {MAX_WALK_DEPTH}, skipping subtree");
+        return;
+    }
     match stmt {
         HirStmt::Assign { name, value, .. } => {
             if let Some(new) = visitor.visit_ident(name) {
                 *name = new;
             }
-            walk_expr(value, visitor);
+            walk_expr(value, visitor, depth + 1);
         }
         HirStmt::FuncDecl { name, body, .. } => {
             if let Some(new) = visitor.visit_ident(name) {
                 *name = new;
             }
-            walk_stmts(body, visitor);
+            walk_stmts(body, visitor, depth + 1);
         }
-        HirStmt::Expr(expr) => walk_expr(expr, visitor),
-        HirStmt::Return(Some(expr)) => walk_expr(expr, visitor),
+        HirStmt::Expr(expr) => walk_expr(expr, visitor, depth + 1),
+        HirStmt::Return(Some(expr)) => walk_expr(expr, visitor, depth + 1),
         HirStmt::IndexAssign {
             target,
             index,
             value,
         } => {
-            walk_expr(target, visitor);
-            walk_expr(index, visitor);
-            walk_expr(value, visitor);
+            walk_expr(target, visitor, depth + 1);
+            walk_expr(index, visitor, depth + 1);
+            walk_expr(value, visitor, depth + 1);
         }
         HirStmt::MemberAssign { target, value, .. } => {
-            walk_expr(target, visitor);
-            walk_expr(value, visitor);
+            walk_expr(target, visitor, depth + 1);
+            walk_expr(value, visitor, depth + 1);
         }
         _ => {}
     }
 }
 
-fn walk_expr(expr: &mut HirExpr, visitor: &mut dyn HirVisitor) {
+fn walk_expr(expr: &mut HirExpr, visitor: &mut dyn HirVisitor, depth: usize) {
+    if depth >= MAX_WALK_DEPTH {
+        return;
+    }
     // First try runtime call interception (before recursing into children).
     // We extract (name, args) to avoid borrow conflict with the mutable `expr`.
     let is_import_call = matches!(
@@ -235,6 +246,7 @@ fn walk_expr(expr: &mut HirExpr, visitor: &mut dyn HirVisitor) {
         }
     }
 
+    let d = depth + 1;
     match &mut expr.kind {
         HirExprKind::Ident(name) => {
             if let Some(new) = visitor.visit_ident(name) {
@@ -242,42 +254,42 @@ fn walk_expr(expr: &mut HirExpr, visitor: &mut dyn HirVisitor) {
             }
         }
         HirExprKind::BinOp { left, right, .. } => {
-            walk_expr(left, visitor);
-            walk_expr(right, visitor);
+            walk_expr(left, visitor, d);
+            walk_expr(right, visitor, d);
         }
         HirExprKind::UnaryOp { operand, .. } => {
-            walk_expr(operand, visitor);
+            walk_expr(operand, visitor, d);
         }
         HirExprKind::Index { target, index } => {
-            walk_expr(target, visitor);
-            walk_expr(index, visitor);
+            walk_expr(target, visitor, d);
+            walk_expr(index, visitor, d);
         }
         HirExprKind::Member { target, .. } => {
-            walk_expr(target, visitor);
+            walk_expr(target, visitor, d);
         }
         HirExprKind::Call { func, args } => {
-            walk_expr(func, visitor);
+            walk_expr(func, visitor, d);
             for arg in args.iter_mut() {
-                walk_expr(arg, visitor);
+                walk_expr(arg, visitor, d);
             }
         }
         HirExprKind::RuntimeCall { args, .. } => {
             for arg in args.iter_mut() {
-                walk_expr(arg, visitor);
+                walk_expr(arg, visitor, d);
             }
         }
         HirExprKind::Array(elems) | HirExprKind::Tuple(elems) => {
             for e in elems.iter_mut() {
-                walk_expr(e, visitor);
+                walk_expr(e, visitor, d);
             }
         }
         HirExprKind::Map(entries) => {
             for (_, v) in entries.iter_mut() {
-                walk_expr(v, visitor);
+                walk_expr(v, visitor, d);
             }
         }
         HirExprKind::Lambda { body, .. } => {
-            walk_stmts(body, visitor);
+            walk_stmts(body, visitor, d);
         }
         HirExprKind::If {
             cond,
@@ -286,61 +298,61 @@ fn walk_expr(expr: &mut HirExpr, visitor: &mut dyn HirVisitor) {
             else_body,
             else_expr,
         } => {
-            walk_expr(cond, visitor);
-            walk_stmts(then_body, visitor);
+            walk_expr(cond, visitor, d);
+            walk_stmts(then_body, visitor, d);
             if let Some(e) = then_expr {
-                walk_expr(e, visitor);
+                walk_expr(e, visitor, d);
             }
-            walk_stmts(else_body, visitor);
+            walk_stmts(else_body, visitor, d);
             if let Some(e) = else_expr {
-                walk_expr(e, visitor);
+                walk_expr(e, visitor, d);
             }
         }
         HirExprKind::Loop { kind, body } => {
             match kind.as_mut() {
-                HirLoopKind::While(cond) => walk_expr(cond, visitor),
+                HirLoopKind::While(cond) => walk_expr(cond, visitor, d),
                 HirLoopKind::ForRange { start, end, .. } => {
-                    walk_expr(start, visitor);
-                    walk_expr(end, visitor);
+                    walk_expr(start, visitor, d);
+                    walk_expr(end, visitor, d);
                 }
                 HirLoopKind::ForEach { iter, .. } | HirLoopKind::ForEachIndexed { iter, .. } => {
-                    walk_expr(iter, visitor);
+                    walk_expr(iter, visitor, d);
                 }
                 HirLoopKind::Infinite => {}
             }
-            walk_stmts(body, visitor);
+            walk_stmts(body, visitor, d);
         }
         HirExprKind::Block { stmts, expr } => {
-            walk_stmts(stmts, visitor);
+            walk_stmts(stmts, visitor, d);
             if let Some(e) = expr {
-                walk_expr(e, visitor);
+                walk_expr(e, visitor, d);
             }
         }
         HirExprKind::Length(inner) | HirExprKind::Go(inner) | HirExprKind::Receive(inner) => {
-            walk_expr(inner, visitor);
+            walk_expr(inner, visitor, d);
         }
         HirExprKind::Range { start, end, .. } => {
-            walk_expr(start, visitor);
-            walk_expr(end, visitor);
+            walk_expr(start, visitor, d);
+            walk_expr(end, visitor, d);
         }
         HirExprKind::Send { chan, value } => {
-            walk_expr(chan, visitor);
-            walk_expr(value, visitor);
+            walk_expr(chan, visitor, d);
+            walk_expr(value, visitor, d);
         }
         HirExprKind::Select(arms) => {
             for arm in arms.iter_mut() {
                 match arm {
                     HirSelectArm::Recv { chan, body, .. } => {
-                        walk_expr(chan, visitor);
-                        walk_stmts(body, visitor);
+                        walk_expr(chan, visitor, d);
+                        walk_stmts(body, visitor, d);
                     }
                     HirSelectArm::Send { chan, value, body } => {
-                        walk_expr(chan, visitor);
-                        walk_expr(value, visitor);
-                        walk_stmts(body, visitor);
+                        walk_expr(chan, visitor, d);
+                        walk_expr(value, visitor, d);
+                        walk_stmts(body, visitor, d);
                     }
                     HirSelectArm::Default(body) => {
-                        walk_stmts(body, visitor);
+                        walk_stmts(body, visitor, d);
                     }
                 }
             }
@@ -392,7 +404,7 @@ fn prefix_hir_names(hir: &mut HirProgram, prefix: &str, exported: &[(String, Typ
                         old: old_name,
                         new: name.clone(),
                     };
-                    walk_stmts(body, &mut renamer);
+                    walk_stmts(body, &mut renamer, 0);
                 }
                 // Rename references to other exported names within this function
                 for (export_name, _) in exported {
@@ -402,7 +414,7 @@ fn prefix_hir_names(hir: &mut HirProgram, prefix: &str, exported: &[(String, Typ
                                 old: export_name.clone(),
                                 new: new.clone(),
                             };
-                            walk_stmts(body, &mut renamer);
+                            walk_stmts(body, &mut renamer, 0);
                         }
                     }
                 }
@@ -418,7 +430,7 @@ fn prefix_hir_names(hir: &mut HirProgram, prefix: &str, exported: &[(String, Typ
                             old: export_name.clone(),
                             new: new.clone(),
                         };
-                        walk_expr(value, &mut renamer);
+                        walk_expr(value, &mut renamer, 0);
                     }
                 }
             }
@@ -429,7 +441,7 @@ fn prefix_hir_names(hir: &mut HirProgram, prefix: &str, exported: &[(String, Typ
                             old: export_name.clone(),
                             new: new.clone(),
                         };
-                        walk_expr(expr, &mut renamer);
+                        walk_expr(expr, &mut renamer, 0);
                     }
                 }
             }
@@ -521,7 +533,7 @@ fn resolve_file_imports_inner(
                     source_dir: source_dir.to_path_buf(),
                     ictx,
                 };
-                walk_stmt(&mut stmt, &mut transformer);
+                walk_stmt(&mut stmt, &mut transformer, 0);
                 new_program.push(stmt);
             }
         }
