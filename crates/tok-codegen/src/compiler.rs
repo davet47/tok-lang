@@ -730,6 +730,13 @@ struct FuncCtx<'a> {
 }
 
 /// Compile an HIR program to a native object file (bytes).
+///
+/// # Panics
+///
+/// Panics on invalid HIR that should have been caught by earlier pipeline
+/// stages (lexer, parser, type checker). These are intentional `expect()`
+/// and `panic!()` calls for genuinely unreachable states, not recoverable
+/// errors. The codegen only receives validated input from the driver.
 pub fn compile(program: &HirProgram) -> Vec<u8> {
     let mut compiler = Compiler::new();
     compiler.declare_all_runtime_funcs();

@@ -115,12 +115,17 @@ fn resolve_import_path(base_dir: &Path, import_path: &str) -> PathBuf {
 }
 
 /// Parse and lower a .tok file into HIR.
+/// Exits on error since import resolution is deeply recursive and
+/// cannot practically propagate errors through the HIR walker.
 fn compile_file_to_hir(file_path: &Path) -> HirProgram {
     let source = std::fs::read_to_string(file_path).unwrap_or_else(|e| {
         eprintln!("Error reading imported file {}: {}", file_path.display(), e);
         process::exit(1);
     });
-    crate::parse_source_to_hir(&source, Some(file_path))
+    crate::parse_source_to_hir(&source, Some(file_path)).unwrap_or_else(|e| {
+        eprintln!("{}", e);
+        process::exit(1);
+    })
 }
 
 /// Extract exported names and their types from an HIR program.

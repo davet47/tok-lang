@@ -1,11 +1,47 @@
 mod import_resolver;
 
 use std::env;
+use std::fmt;
 use std::fs;
 use std::path::Path;
 use std::process::{self, Command};
 
 use tok_hir::hir::HirProgram;
+
+// ─── Error type ──────────────────────────────────────────────────────
+//
+// Error handling convention across the Tok crates:
+//
+//   tok-lexer   — returns Result<_, LexError> (line/col context)
+//   tok-parser  — returns Result<_, ParseError> (token position context)
+//   tok-types   — never fails; returns TypeInfo with embedded warnings
+//   tok-hir     — never fails (operates on validated AST)
+//   tok-codegen — panics on invalid HIR (unreachable states); receives
+//                 only validated input from the pipeline
+//   tok-runtime — extern "C" functions cannot return errors; uses
+//                 abort() for null pointers, eprintln for non-fatal
+//                 I/O warnings, Nil returns for runtime failures
+//   tok-driver  — DriverError below; main() is the single exit point
+
+/// Unified error type for the driver pipeline.
+#[derive(Debug)]
+enum DriverError {
+    Lex(tok_lexer::LexError),
+    Parse(tok_parser::parser::ParseError),
+    Io(String),
+    Link(String),
+}
+
+impl fmt::Display for DriverError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            DriverError::Lex(e) => write!(f, "Lexer error: {}", e),
+            DriverError::Parse(e) => write!(f, "Parse error: {}", e),
+            DriverError::Io(msg) => write!(f, "{}", msg),
+            DriverError::Link(msg) => write!(f, "{}", msg),
+        }
+    }
+}
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -26,23 +62,27 @@ fn main() {
         }
     };
 
-    match command.as_str() {
+    let result = match command.as_str() {
         "lex" => cmd_lex(&source),
         "parse" => cmd_parse(&source),
         "check" => cmd_check(&source),
         "build" => {
             let output = get_output_path(&args, file);
-            cmd_build(&source, file, &output);
+            cmd_build(&source, file, &output)
         }
         "run" => {
             let output = get_output_path(&args, file);
-            cmd_build(&source, file, &output);
-            cmd_run(&output);
+            cmd_build(&source, file, &output).and_then(|()| cmd_run(&output))
         }
         _ => {
             eprintln!("Unknown command: {}", command);
             process::exit(1);
         }
+    };
+
+    if let Err(e) = result {
+        eprintln!("{}", e);
+        process::exit(1);
     }
 }
 
@@ -62,70 +102,60 @@ fn get_output_path(args: &[String], input: &str) -> String {
 
 // ─── Shared pipeline helpers ─────────────────────────────────────────
 
-/// Lex + parse + type-check a source string, exiting on error.
-/// Returns (program, type_info).
-fn parse_source(source: &str) -> (Vec<tok_parser::ast::Stmt>, tok_types::TypeInfo) {
-    let tokens = tok_lexer::lex(source).unwrap_or_else(|e| {
-        eprintln!("Lexer error: {}", e);
-        process::exit(1);
-    });
-    let program = tok_parser::parser::parse(tokens).unwrap_or_else(|e| {
-        eprintln!("Parse error: {}", e);
-        process::exit(1);
-    });
+/// Lex + parse + type-check a source string.
+fn parse_source(
+    source: &str,
+) -> Result<(Vec<tok_parser::ast::Stmt>, tok_types::TypeInfo), DriverError> {
+    let tokens = tok_lexer::lex(source).map_err(DriverError::Lex)?;
+    let program = tok_parser::parser::parse(tokens).map_err(DriverError::Parse)?;
     let type_info = tok_types::check(&program);
-    (program, type_info)
+    Ok((program, type_info))
 }
 
 /// Lex + parse + type-check + lower to HIR.
 /// Used by both cmd_build and import_resolver.
-pub(crate) fn parse_source_to_hir(source: &str, file_path: Option<&Path>) -> HirProgram {
-    let tokens = tok_lexer::lex(source).unwrap_or_else(|e| {
+pub(crate) fn parse_source_to_hir(
+    source: &str,
+    file_path: Option<&Path>,
+) -> Result<HirProgram, DriverError> {
+    let tokens = tok_lexer::lex(source).map_err(|e| {
         let ctx = file_path
             .map(|p| format!(" in {}", p.display()))
             .unwrap_or_default();
-        eprintln!("Lexer error{}: {}", ctx, e);
-        process::exit(1);
-    });
-    let program = tok_parser::parser::parse(tokens).unwrap_or_else(|e| {
+        DriverError::Io(format!("Lexer error{}: {}", ctx, e))
+    })?;
+    let program = tok_parser::parser::parse(tokens).map_err(|e| {
         let ctx = file_path
             .map(|p| format!(" in {}", p.display()))
             .unwrap_or_default();
-        eprintln!("Parse error{}: {}", ctx, e);
-        process::exit(1);
-    });
+        DriverError::Io(format!("Parse error{}: {}", ctx, e))
+    })?;
     let type_info = tok_types::check(&program);
-    tok_hir::lower::lower(&program, &type_info)
+    Ok(tok_hir::lower::lower(&program, &type_info))
 }
 
 // ─── Commands ────────────────────────────────────────────────────────
 
-fn cmd_lex(source: &str) {
-    let tokens = tok_lexer::lex(source);
-    match tokens {
-        Ok(toks) => {
-            for tok in &toks {
-                println!("{:?}", tok);
-            }
-            println!("({} tokens)", toks.len());
-        }
-        Err(e) => {
-            eprintln!("Lexer error: {}", e);
-            process::exit(1);
-        }
+fn cmd_lex(source: &str) -> Result<(), DriverError> {
+    let tokens = tok_lexer::lex(source).map_err(DriverError::Lex)?;
+    for tok in &tokens {
+        println!("{:?}", tok);
     }
+    println!("({} tokens)", tokens.len());
+    Ok(())
 }
 
-fn cmd_parse(source: &str) {
-    let (program, _) = parse_source(source);
+fn cmd_parse(source: &str) -> Result<(), DriverError> {
+    let (program, _) = parse_source(source)?;
     for stmt in &program {
         println!("{:#?}", stmt);
     }
     println!("({} statements)", program.len());
+    Ok(())
 }
 
-fn cmd_check(source: &str) {
-    let (_, type_info) = parse_source(source);
+fn cmd_check(source: &str) -> Result<(), DriverError> {
+    let (_, type_info) = parse_source(source)?;
     if type_info.warnings.is_empty() {
         println!("Type check passed (no warnings)");
     } else {
@@ -139,10 +169,11 @@ fn cmd_check(source: &str) {
     }
     println!("Functions: {}", type_info.functions.len());
     println!("Variables: {}", type_info.variables.len());
+    Ok(())
 }
 
-fn cmd_build(source: &str, input_file: &str, output_path: &str) {
-    let (program, type_info) = parse_source(source);
+fn cmd_build(source: &str, input_file: &str, output_path: &str) -> Result<(), DriverError> {
+    let (program, type_info) = parse_source(source)?;
 
     for w in &type_info.warnings {
         eprintln!("warning: {:?}", w);
@@ -163,10 +194,8 @@ fn cmd_build(source: &str, input_file: &str, output_path: &str) {
 
     // Write .o file
     let obj_path = format!("{}.o", output_path);
-    fs::write(&obj_path, &obj_bytes).unwrap_or_else(|e| {
-        eprintln!("Error writing {}: {}", obj_path, e);
-        process::exit(1);
-    });
+    fs::write(&obj_path, &obj_bytes)
+        .map_err(|e| DriverError::Io(format!("Error writing {}: {}", obj_path, e)))?;
 
     // Find the runtime library
     let runtime_lib = find_runtime_lib();
@@ -184,19 +213,17 @@ fn cmd_build(source: &str, input_file: &str, output_path: &str) {
     match status {
         Ok(s) if s.success() => {
             eprintln!("Built: {}", output_path);
+            Ok(())
         }
-        Ok(s) => {
-            eprintln!("Linker failed with exit code: {}", s);
-            process::exit(1);
-        }
-        Err(e) => {
-            eprintln!("Failed to run linker: {}", e);
-            process::exit(1);
-        }
+        Ok(s) => Err(DriverError::Link(format!(
+            "Linker failed with exit code: {}",
+            s
+        ))),
+        Err(e) => Err(DriverError::Link(format!("Failed to run linker: {}", e))),
     }
 }
 
-fn cmd_run(output_path: &str) {
+fn cmd_run(output_path: &str) -> Result<(), DriverError> {
     let status = Command::new(output_path).status();
     // Clean up the temporary executable for `run` command
     let _ = fs::remove_file(output_path);
@@ -204,10 +231,10 @@ fn cmd_run(output_path: &str) {
         Ok(s) => {
             process::exit(s.code().unwrap_or(1));
         }
-        Err(e) => {
-            eprintln!("Failed to run {}: {}", output_path, e);
-            process::exit(1);
-        }
+        Err(e) => Err(DriverError::Io(format!(
+            "Failed to run {}: {}",
+            output_path, e
+        ))),
     }
 }
 
