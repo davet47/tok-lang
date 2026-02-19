@@ -506,10 +506,14 @@ pub extern "C" fn tok_value_div(a: TokValue, b: TokValue) -> TokValue {
     unsafe {
         match (a.tag, b.tag) {
             (TAG_INT, TAG_INT) => {
-                if b.data.int_val == 0 {
+                let av = a.data.int_val;
+                let bv = b.data.int_val;
+                if bv == 0 {
                     TokValue::nil()
+                } else if av == i64::MIN && bv == -1 {
+                    TokValue::from_int(i64::MIN) // wrapping: matches codegen
                 } else {
-                    TokValue::from_int(a.data.int_val / b.data.int_val)
+                    TokValue::from_int(av / bv)
                 }
             }
             (TAG_FLOAT, TAG_FLOAT) => TokValue::from_float(a.data.float_val / b.data.float_val),
@@ -525,10 +529,14 @@ pub extern "C" fn tok_value_mod(a: TokValue, b: TokValue) -> TokValue {
     unsafe {
         match (a.tag, b.tag) {
             (TAG_INT, TAG_INT) => {
-                if b.data.int_val == 0 {
+                let av = a.data.int_val;
+                let bv = b.data.int_val;
+                if bv == 0 {
                     TokValue::nil()
+                } else if av == i64::MIN && bv == -1 {
+                    TokValue::from_int(0) // i64::MIN % -1 = 0
                 } else {
-                    TokValue::from_int(a.data.int_val % b.data.int_val)
+                    TokValue::from_int(av % bv)
                 }
             }
             (TAG_FLOAT, TAG_FLOAT) => TokValue::from_float(a.data.float_val % b.data.float_val),
