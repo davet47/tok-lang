@@ -58,16 +58,8 @@ pub extern "C" fn tok_rc_dec(ptr: *mut u8) -> i8 {
 /// tag is the type discriminant (0-10) stored as i64, data is the payload.
 #[no_mangle]
 pub extern "C" fn tok_value_rc_dec(tag: i64, data: i64) {
-    // Reconstruct TokValue from its raw (tag, data) representation.
-    // TokValue layout is [tag:u8, _pad:7, data:8] = 16 bytes total.
-    // In codegen, tag is passed as i64 (only low byte matters), data is i64.
-    let v: TokValue = unsafe {
-        let mut bytes = [0u8; 16];
-        bytes[0] = tag as u8;
-        // data goes at offset 8
-        bytes[8..16].copy_from_slice(&data.to_ne_bytes());
-        std::mem::transmute(bytes)
-    };
+    // Reconstruct TokValue from its raw (tag, data) codegen representation.
+    let v = TokValue::from_tag_data(tag, data);
     v.rc_dec();
 }
 
