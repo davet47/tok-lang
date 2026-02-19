@@ -3,7 +3,6 @@
 //! Provides HTTP client functions: hget, hpost, hput, hdel, serve.
 //! Supports both HTTP and HTTPS (via rustls).
 
-use crate::closure::TokClosure;
 use crate::map::TokMap;
 use crate::string::TokString;
 use crate::tuple::TokTuple;
@@ -28,7 +27,7 @@ fn get_tls_config() -> Arc<rustls::ClientConfig> {
         .clone()
 }
 
-use crate::stdlib_helpers::{arg_to_i64, arg_to_str};
+use crate::stdlib_helpers::{arg_to_i64, arg_to_str, insert_func};
 
 /// Parse a URL into (host, port, path, is_https).
 fn parse_url(url: &str) -> Option<(String, u16, String, bool)> {
@@ -490,14 +489,6 @@ pub extern "C" fn tok_http_serve_t(
 // ═══════════════════════════════════════════════════════════════
 // Module constructor
 // ═══════════════════════════════════════════════════════════════
-
-fn insert_func(m: *mut TokMap, name: &str, fn_ptr: *const u8, arity: u32) {
-    let closure = TokClosure::alloc(fn_ptr, std::ptr::null_mut(), arity);
-    let val = TokValue::from_func(closure);
-    unsafe {
-        (*m).data.insert(name.to_string(), val);
-    }
-}
 
 #[no_mangle]
 pub extern "C" fn tok_stdlib_http() -> *mut TokMap {

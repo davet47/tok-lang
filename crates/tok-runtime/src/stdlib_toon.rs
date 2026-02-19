@@ -4,7 +4,6 @@
 //! TOON is a compact, JSON-compatible format optimized for LLM token efficiency.
 
 use crate::array::TokArray;
-use crate::closure::TokClosure;
 use crate::map::TokMap;
 use crate::string::TokString;
 use crate::value::{
@@ -12,7 +11,7 @@ use crate::value::{
     TAG_TUPLE,
 };
 
-use crate::stdlib_helpers::arg_to_str;
+use crate::stdlib_helpers::{arg_to_str, insert_func};
 
 // ═══════════════════════════════════════════════════════════════
 // TOON Parser
@@ -1123,14 +1122,6 @@ pub extern "C" fn tok_toon_stringify_t(_env: *mut u8, tag: i64, data: i64) -> To
 // ═══════════════════════════════════════════════════════════════
 // Module constructor
 // ═══════════════════════════════════════════════════════════════
-
-fn insert_func(m: *mut TokMap, name: &str, fn_ptr: *const u8, arity: u32) {
-    let closure = TokClosure::alloc(fn_ptr, std::ptr::null_mut(), arity);
-    let val = TokValue::from_func(closure);
-    unsafe {
-        (*m).data.insert(name.to_string(), val);
-    }
-}
 
 #[no_mangle]
 pub extern "C" fn tok_stdlib_toon() -> *mut TokMap {

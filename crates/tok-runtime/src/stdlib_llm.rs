@@ -7,14 +7,13 @@
 //! Supports OpenAI (`/v1/chat/completions`) and Anthropic (`/v1/messages`) natively.
 //! Provider auto-detected from env vars: `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`.
 
-use crate::closure::TokClosure;
 use crate::map::TokMap;
 use crate::stdlib_http::http_request_with_headers;
 use crate::string::TokString;
 use crate::tuple::TokTuple;
 use crate::value::{TokValue, TAG_ARRAY, TAG_FLOAT, TAG_INT, TAG_MAP, TAG_NIL, TAG_STRING};
 
-use crate::stdlib_helpers::arg_to_str;
+use crate::stdlib_helpers::{arg_to_str, insert_func};
 
 /// Get a string field from a TokMap, or default.
 unsafe fn map_get_str(map: *const TokMap, key: &str) -> Option<String> {
@@ -453,14 +452,6 @@ pub extern "C" fn tok_llm_chat_2_t(
 // ═══════════════════════════════════════════════════════════════
 // Module constructor
 // ═══════════════════════════════════════════════════════════════
-
-fn insert_func(m: *mut TokMap, name: &str, fn_ptr: *const u8, arity: u32) {
-    let closure = TokClosure::alloc(fn_ptr, std::ptr::null_mut(), arity);
-    let val = TokValue::from_func(closure);
-    unsafe {
-        (*m).data.insert(name.to_string(), val);
-    }
-}
 
 #[no_mangle]
 pub extern "C" fn tok_stdlib_llm() -> *mut TokMap {

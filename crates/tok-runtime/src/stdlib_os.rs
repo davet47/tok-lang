@@ -3,12 +3,11 @@
 //! Provides OS-level functions: args, env, set_env, cwd, pid, exit, exec.
 
 use crate::array::TokArray;
-use crate::closure::TokClosure;
 use crate::map::TokMap;
 use crate::string::TokString;
 use crate::value::TokValue;
 
-use crate::stdlib_helpers::{arg_to_i64, arg_to_str};
+use crate::stdlib_helpers::{arg_to_i64, arg_to_str, insert_func};
 
 // ═══════════════════════════════════════════════════════════════
 // Trampolines
@@ -111,14 +110,6 @@ pub extern "C" fn tok_os_exec_t(_env: *mut u8, tag: i64, data: i64) -> TokValue 
 // ═══════════════════════════════════════════════════════════════
 // Module constructor
 // ═══════════════════════════════════════════════════════════════
-
-fn insert_func(m: *mut TokMap, name: &str, fn_ptr: *const u8, arity: u32) {
-    let closure = TokClosure::alloc(fn_ptr, std::ptr::null_mut(), arity);
-    let val = TokValue::from_func(closure);
-    unsafe {
-        (*m).data.insert(name.to_string(), val);
-    }
-}
 
 #[no_mangle]
 pub extern "C" fn tok_stdlib_os() -> *mut TokMap {

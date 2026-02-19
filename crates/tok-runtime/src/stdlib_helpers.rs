@@ -4,8 +4,22 @@
 //! Each trampoline receives arguments as `(tag: i64, data: i64)` — these
 //! helpers decode the tag and reinterpret the data field.
 
+use crate::closure::TokClosure;
+use crate::map::TokMap;
 use crate::string::TokString;
-use crate::value::{TAG_FLOAT, TAG_INT, TAG_STRING};
+use crate::value::{TokValue, TAG_FLOAT, TAG_INT, TAG_STRING};
+
+/// Insert a function entry into a stdlib module map.
+///
+/// Allocates a closure wrapping `fn_ptr` with the given `arity` and inserts
+/// it into the map under `name`. Used by all stdlib module constructors.
+pub fn insert_func(m: *mut TokMap, name: &str, fn_ptr: *const u8, arity: u32) {
+    let closure = TokClosure::alloc(fn_ptr, std::ptr::null_mut(), arity);
+    let val = TokValue::from_func(closure);
+    unsafe {
+        (*m).data.insert(name.to_string(), val);
+    }
+}
 
 /// Extract a `&str` from a (tag, data) pair.
 ///

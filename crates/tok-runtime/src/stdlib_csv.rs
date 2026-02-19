@@ -5,14 +5,13 @@
 //! - `cstr(value)` — encode array of maps → CSV string
 
 use crate::array::TokArray;
-use crate::closure::TokClosure;
 use crate::map::TokMap;
 use crate::string::TokString;
 use crate::value::{
     TokValue, TAG_ARRAY, TAG_BOOL, TAG_FLOAT, TAG_INT, TAG_MAP, TAG_NIL, TAG_STRING,
 };
 
-use crate::stdlib_helpers::arg_to_str;
+use crate::stdlib_helpers::{arg_to_str, insert_func};
 
 // ═══════════════════════════════════════════════════════════════
 // CSV Parser
@@ -302,14 +301,6 @@ pub extern "C" fn tok_csv_stringify_t(_env: *mut u8, tag: i64, data: i64) -> Tok
 // ═══════════════════════════════════════════════════════════════
 // Module constructor
 // ═══════════════════════════════════════════════════════════════
-
-fn insert_func(m: *mut TokMap, name: &str, fn_ptr: *const u8, arity: u32) {
-    let closure = TokClosure::alloc(fn_ptr, std::ptr::null_mut(), arity);
-    let val = TokValue::from_func(closure);
-    unsafe {
-        (*m).data.insert(name.to_string(), val);
-    }
-}
 
 #[no_mangle]
 pub extern "C" fn tok_stdlib_csv() -> *mut TokMap {

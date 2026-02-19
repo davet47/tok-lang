@@ -6,14 +6,13 @@
 //! - `apply(compiled, data)` — render a compiled template with data
 
 use crate::array::TokArray;
-use crate::closure::TokClosure;
 use crate::map::TokMap;
 use crate::string::TokString;
 use crate::value::{
     TokValue, TAG_ARRAY, TAG_BOOL, TAG_FLOAT, TAG_INT, TAG_MAP, TAG_NIL, TAG_STRING,
 };
 
-use crate::stdlib_helpers::arg_to_str;
+use crate::stdlib_helpers::{arg_to_str, insert_func};
 
 /// Convert a TokValue to its string representation for template output.
 unsafe fn value_to_string(tv: &TokValue) -> String {
@@ -605,14 +604,6 @@ pub extern "C" fn tok_tmpl_apply_t(
 // ═══════════════════════════════════════════════════════════════
 // Module constructor
 // ═══════════════════════════════════════════════════════════════
-
-fn insert_func(m: *mut TokMap, name: &str, fn_ptr: *const u8, arity: u32) {
-    let closure = TokClosure::alloc(fn_ptr, std::ptr::null_mut(), arity);
-    let val = TokValue::from_func(closure);
-    unsafe {
-        (*m).data.insert(name.to_string(), val);
-    }
-}
 
 #[no_mangle]
 pub extern "C" fn tok_stdlib_tmpl() -> *mut TokMap {

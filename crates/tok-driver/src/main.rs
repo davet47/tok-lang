@@ -57,7 +57,7 @@ fn get_output_path(args: &[String], input: &str) -> String {
     let p = Path::new(input);
     let stem = p.file_stem().unwrap_or_default().to_str().unwrap_or("a");
     let parent = p.parent().unwrap_or(Path::new("."));
-    parent.join(stem).to_str().unwrap().to_string()
+    parent.join(stem).to_string_lossy().into_owned()
 }
 
 // ─── Shared pipeline helpers ─────────────────────────────────────────
@@ -229,7 +229,7 @@ fn find_runtime_lib() -> String {
     if let Some(dir) = exe_dir {
         let lib = dir.join("libtok_runtime.a");
         if lib.exists() {
-            return lib.to_str().unwrap().to_string();
+            return lib.to_string_lossy().into_owned();
         }
     }
     // Fallback

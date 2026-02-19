@@ -204,7 +204,7 @@ pub extern "C" fn tok_value_to_string(val: TokValue) -> *mut TokString {
 
 #[no_mangle]
 pub extern "C" fn tok_abs_int(val: i64) -> i64 {
-    val.abs()
+    val.saturating_abs()
 }
 
 #[no_mangle]
@@ -217,7 +217,7 @@ pub extern "C" fn tok_abs_float(val: f64) -> f64 {
 pub extern "C" fn tok_value_abs(val: TokValue) -> TokValue {
     unsafe {
         match val.tag {
-            TAG_INT => TokValue::from_int(val.data.int_val.abs()),
+            TAG_INT => TokValue::from_int(val.data.int_val.saturating_abs()),
             TAG_FLOAT => TokValue::from_float(val.data.float_val.abs()),
             _ => val,
         }

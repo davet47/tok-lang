@@ -2,14 +2,13 @@
 //!
 //! Provides time functions: now, sleep, fmt.
 
-use crate::closure::TokClosure;
 use crate::map::TokMap;
 use crate::string::TokString;
 use crate::value::TokValue;
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::stdlib_helpers::{arg_to_f64, arg_to_i64, arg_to_str};
+use crate::stdlib_helpers::{arg_to_f64, arg_to_i64, arg_to_str, insert_func};
 
 // ═══════════════════════════════════════════════════════════════
 // Trampolines
@@ -98,14 +97,6 @@ fn unix_to_datetime(secs: i64) -> (i64, i64, i64, i64, i64, i64) {
 // ═══════════════════════════════════════════════════════════════
 // Module constructor
 // ═══════════════════════════════════════════════════════════════
-
-fn insert_func(m: *mut TokMap, name: &str, fn_ptr: *const u8, arity: u32) {
-    let closure = TokClosure::alloc(fn_ptr, std::ptr::null_mut(), arity);
-    let val = TokValue::from_func(closure);
-    unsafe {
-        (*m).data.insert(name.to_string(), val);
-    }
-}
 
 #[no_mangle]
 pub extern "C" fn tok_stdlib_time() -> *mut TokMap {

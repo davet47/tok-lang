@@ -2,14 +2,13 @@
 //!
 //! Provides stdin I/O functions: input, readall.
 
-use crate::closure::TokClosure;
 use crate::map::TokMap;
 use crate::string::TokString;
 use crate::value::TokValue;
 
 use std::io::{self, BufRead, Read, Write};
 
-use crate::stdlib_helpers::arg_to_str;
+use crate::stdlib_helpers::{arg_to_str, insert_func};
 
 // ═══════════════════════════════════════════════════════════════
 // Trampolines
@@ -82,14 +81,6 @@ pub extern "C" fn tok_io_readall_t(_env: *mut u8) -> TokValue {
 // ═══════════════════════════════════════════════════════════════
 // Module constructor
 // ═══════════════════════════════════════════════════════════════
-
-fn insert_func(m: *mut TokMap, name: &str, fn_ptr: *const u8, arity: u32) {
-    let closure = TokClosure::alloc(fn_ptr, std::ptr::null_mut(), arity);
-    let val = TokValue::from_func(closure);
-    unsafe {
-        (*m).data.insert(name.to_string(), val);
-    }
-}
 
 #[no_mangle]
 pub extern "C" fn tok_stdlib_io() -> *mut TokMap {

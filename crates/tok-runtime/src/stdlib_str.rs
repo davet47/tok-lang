@@ -3,7 +3,6 @@
 //! Provides string manipulation functions as a TokMap of closures.
 
 use crate::array::TokArray;
-use crate::closure::TokClosure;
 use crate::map::TokMap;
 use crate::string::TokString;
 use crate::value::TokValue;
@@ -12,7 +11,7 @@ use crate::value::TokValue;
 // Helpers
 // ═══════════════════════════════════════════════════════════════
 
-use crate::stdlib_helpers::{arg_to_i64, arg_to_str};
+use crate::stdlib_helpers::{arg_to_i64, arg_to_str, insert_func};
 
 // ═══════════════════════════════════════════════════════════════
 // Trampolines
@@ -309,14 +308,6 @@ pub extern "C" fn tok_str_substr_t(
 // ═══════════════════════════════════════════════════════════════
 // Module constructor
 // ═══════════════════════════════════════════════════════════════
-
-fn insert_func(m: *mut TokMap, name: &str, fn_ptr: *const u8, arity: u32) {
-    let closure = TokClosure::alloc(fn_ptr, std::ptr::null_mut(), arity);
-    let val = TokValue::from_func(closure);
-    unsafe {
-        (*m).data.insert(name.to_string(), val);
-    }
-}
 
 #[no_mangle]
 pub extern "C" fn tok_stdlib_str() -> *mut TokMap {

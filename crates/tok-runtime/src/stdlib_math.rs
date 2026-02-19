@@ -2,14 +2,12 @@
 //!
 //! Provides mathematical functions and constants as a TokMap of closures.
 
-use crate::closure::TokClosure;
 use crate::map::TokMap;
-use crate::string::TokString;
 use crate::value::{TokValue, TAG_FLOAT, TAG_INT};
 
 use std::f64::consts;
 
-use crate::stdlib_helpers::arg_to_f64;
+use crate::stdlib_helpers::{arg_to_f64, insert_func};
 
 // ═══════════════════════════════════════════════════════════════
 // Trampolines — closure ABI: (env, tag, data, ...) -> TokValue
@@ -94,7 +92,7 @@ pub extern "C" fn tok_math_round_t(_env: *mut u8, tag: i64, data: i64) -> TokVal
 #[no_mangle]
 pub extern "C" fn tok_math_abs_t(_env: *mut u8, tag: i64, data: i64) -> TokValue {
     match tag as u8 {
-        TAG_INT => TokValue::from_int(data.abs()),
+        TAG_INT => TokValue::from_int(data.saturating_abs()),
         TAG_FLOAT => TokValue::from_float(f64::from_bits(data as u64).abs()),
         _ => TokValue::from_int(0),
     }
@@ -196,20 +194,6 @@ pub extern "C" fn tok_math_random_t(_env: *mut u8) -> TokValue {
 // ═══════════════════════════════════════════════════════════════
 // Module constructor
 // ═══════════════════════════════════════════════════════════════
-
-fn insert_func(m: *mut TokMap, name: &str, fn_ptr: *const u8, arity: u32) {
-    let key = TokString::alloc(name.to_string());
-    let closure = TokClosure::alloc(fn_ptr, std::ptr::null_mut(), arity);
-    let val = TokValue::from_func(closure);
-    unsafe {
-        // Direct insert — skip tok_map_set's rc_inc because val starts at rc=1
-        (*m).data.insert(name.to_string(), val);
-    }
-    // Free the key we used just for the name
-    unsafe {
-        drop(Box::from_raw(key));
-    }
-}
 
 fn insert_float(m: *mut TokMap, name: &str, val: f64) {
     unsafe {

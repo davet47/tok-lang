@@ -46,7 +46,7 @@ impl TokHandle {
 
     /// Join the thread, returning its result. Can only be called once.
     pub fn join(&self) -> TokValue {
-        let mut guard = self.handle.lock().unwrap();
+        let mut guard = self.handle.lock().unwrap_or_else(|e| e.into_inner());
         match guard.take() {
             Some(h) => h.join().unwrap_or_default(),
             None => TokValue::nil(), // Already joined

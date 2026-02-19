@@ -595,7 +595,7 @@ pub extern "C" fn tok_value_len(val: TokValue) -> i64 {
                 if p.is_null() {
                     0
                 } else {
-                    (*p).data.len() as i64
+                    (*p).data.chars().count() as i64
                 }
             }
             TAG_ARRAY => {

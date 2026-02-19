@@ -3,7 +3,6 @@
 //! Provides JSON parsing and serialization.
 
 use crate::array::TokArray;
-use crate::closure::TokClosure;
 use crate::map::TokMap;
 use crate::string::TokString;
 use crate::value::{
@@ -13,7 +12,7 @@ use crate::value::{
 
 use serde_json::Value as JsonValue;
 
-use crate::stdlib_helpers::arg_to_str;
+use crate::stdlib_helpers::{arg_to_str, insert_func};
 
 /// Convert a serde_json::Value into a TokValue.
 fn json_to_tok(jv: &JsonValue) -> TokValue {
@@ -152,14 +151,6 @@ pub extern "C" fn tok_json_pretty_t(_env: *mut u8, tag: i64, data: i64) -> TokVa
 // ═══════════════════════════════════════════════════════════════
 // Module constructor
 // ═══════════════════════════════════════════════════════════════
-
-fn insert_func(m: *mut TokMap, name: &str, fn_ptr: *const u8, arity: u32) {
-    let closure = TokClosure::alloc(fn_ptr, std::ptr::null_mut(), arity);
-    let val = TokValue::from_func(closure);
-    unsafe {
-        (*m).data.insert(name.to_string(), val);
-    }
-}
 
 #[no_mangle]
 pub extern "C" fn tok_stdlib_json() -> *mut TokMap {
