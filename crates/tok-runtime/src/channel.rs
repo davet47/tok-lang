@@ -183,7 +183,10 @@ impl TokChannel {
     }
 
     fn send_buffered(&self, val: TokValue) {
-        let ring = self.ring.as_ref().unwrap();
+        let ring = self
+            .ring
+            .as_ref()
+            .expect("channel: ring buffer missing on buffered channel");
         // Fast path: try lock-free push
         if ring.try_push(val) {
             // Notify receiver if it might be waiting
@@ -200,13 +203,16 @@ impl TokChannel {
         }
         // Park on condvar until space available
         loop {
-            let guard = self.wait_mutex.lock().unwrap();
+            let guard = self.wait_mutex.lock().unwrap_or_else(|e| e.into_inner());
             if ring.try_push(val) {
                 drop(guard);
                 self.recv_condvar.notify_one();
                 return;
             }
-            let _guard = self.send_condvar.wait(guard).unwrap();
+            let _guard = self
+                .send_condvar
+                .wait(guard)
+                .unwrap_or_else(|e| e.into_inner());
             if ring.try_push(val) {
                 self.recv_condvar.notify_one();
                 return;
@@ -215,7 +221,10 @@ impl TokChannel {
     }
 
     fn recv_buffered(&self) -> TokValue {
-        let ring = self.ring.as_ref().unwrap();
+        let ring = self
+            .ring
+            .as_ref()
+            .expect("channel: ring buffer missing on buffered channel");
         // Fast path: try lock-free pop
         if let Some(val) = ring.try_pop() {
             self.send_condvar.notify_one();
@@ -231,13 +240,16 @@ impl TokChannel {
         }
         // Park on condvar until data available
         loop {
-            let guard = self.wait_mutex.lock().unwrap();
+            let guard = self.wait_mutex.lock().unwrap_or_else(|e| e.into_inner());
             if let Some(val) = ring.try_pop() {
                 drop(guard);
                 self.send_condvar.notify_one();
                 return val;
             }
-            let _guard = self.recv_condvar.wait(guard).unwrap();
+            let _guard = self
+                .recv_condvar
+                .wait(guard)
+                .unwrap_or_else(|e| e.into_inner());
             if let Some(val) = ring.try_pop() {
                 self.send_condvar.notify_one();
                 return val;
@@ -246,27 +258,45 @@ impl TokChannel {
     }
 
     fn send_unbuffered(&self, val: TokValue) {
-        let unbuf = self.unbuffered.as_ref().unwrap();
-        let mut inner = unbuf.lock().unwrap();
+        let unbuf = self
+            .unbuffered
+            .as_ref()
+            .expect("channel: unbuffered state missing");
+        let mut inner = unbuf.lock().unwrap_or_else(|e| e.into_inner());
         while inner.sender_waiting.is_some() {
-            inner = self.send_condvar.wait(inner).unwrap();
+            inner = self
+                .send_condvar
+                .wait(inner)
+                .unwrap_or_else(|e| e.into_inner());
         }
         inner.sender_waiting = Some(val);
         inner.sender_ready = false;
         self.recv_condvar.notify_one();
         while !inner.sender_ready {
-            inner = self.send_condvar.wait(inner).unwrap();
+            inner = self
+                .send_condvar
+                .wait(inner)
+                .unwrap_or_else(|e| e.into_inner());
         }
         inner.sender_ready = false;
     }
 
     fn recv_unbuffered(&self) -> TokValue {
-        let unbuf = self.unbuffered.as_ref().unwrap();
-        let mut inner = unbuf.lock().unwrap();
+        let unbuf = self
+            .unbuffered
+            .as_ref()
+            .expect("channel: unbuffered state missing");
+        let mut inner = unbuf.lock().unwrap_or_else(|e| e.into_inner());
         while inner.sender_waiting.is_none() {
-            inner = self.recv_condvar.wait(inner).unwrap();
+            inner = self
+                .recv_condvar
+                .wait(inner)
+                .unwrap_or_else(|e| e.into_inner());
         }
-        let val = inner.sender_waiting.take().unwrap();
+        let val = inner
+            .sender_waiting
+            .take()
+            .expect("channel: sender_waiting was None after is_some check");
         inner.sender_ready = true;
         self.send_condvar.notify_one();
         val
@@ -277,7 +307,10 @@ impl TokChannel {
         if self.capacity == 0 {
             false // Unbuffered: can't non-blocking send
         } else {
-            let ring = self.ring.as_ref().unwrap();
+            let ring = self
+                .ring
+                .as_ref()
+                .expect("channel: ring buffer missing on buffered channel");
             if ring.try_push(val) {
                 self.recv_condvar.notify_one();
                 true
@@ -290,10 +323,16 @@ impl TokChannel {
     /// Non-blocking try_recv.
     pub fn try_recv(&self) -> Option<TokValue> {
         if self.capacity == 0 {
-            let unbuf = self.unbuffered.as_ref().unwrap();
-            let mut inner = unbuf.lock().unwrap();
+            let unbuf = self
+                .unbuffered
+                .as_ref()
+                .expect("channel: unbuffered state missing");
+            let mut inner = unbuf.lock().unwrap_or_else(|e| e.into_inner());
             if inner.sender_waiting.is_some() {
-                let val = inner.sender_waiting.take().unwrap();
+                let val = inner
+                    .sender_waiting
+                    .take()
+                    .expect("channel: sender_waiting was None after is_some check");
                 inner.sender_ready = true;
                 self.send_condvar.notify_one();
                 Some(val)
@@ -301,7 +340,10 @@ impl TokChannel {
                 None
             }
         } else {
-            let ring = self.ring.as_ref().unwrap();
+            let ring = self
+                .ring
+                .as_ref()
+                .expect("channel: ring buffer missing on buffered channel");
             if let Some(val) = ring.try_pop() {
                 self.send_condvar.notify_one();
                 Some(val)
