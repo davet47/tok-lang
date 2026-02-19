@@ -64,6 +64,15 @@ pub extern "C" fn tok_value_rc_dec(tag: i64, data: i64) {
     v.rc_dec();
 }
 
+/// Increment the refcount of a TokValue's heap object (if any).
+/// Called by codegen when capturing a variable into a closure or goroutine
+/// environment — the env takes shared ownership, so we must bump the refcount.
+#[no_mangle]
+pub extern "C" fn tok_value_rc_inc(tag: i64, data: i64) {
+    let v = TokValue::from_tag_data(tag, data);
+    v.rc_inc();
+}
+
 /// Fast rc_dec for strings: skips TokValue reconstruction overhead.
 /// Called by codegen when the variable type is known to be Str.
 #[no_mangle]

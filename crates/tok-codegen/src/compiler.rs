@@ -359,6 +359,7 @@ impl Compiler {
         // Refcount
         self.declare_runtime_func("tok_rc_inc", &[PTR], &[]);
         self.declare_runtime_func("tok_rc_dec", &[PTR], &[types::I8]);
+        self.declare_runtime_func("tok_value_rc_inc", &[types::I64, types::I64], &[]);
         self.declare_runtime_func("tok_value_rc_dec", &[types::I64, types::I64], &[]);
         self.declare_runtime_func("tok_string_free", &[PTR], &[]);
 
@@ -2319,8 +2320,9 @@ fn compile_expr(ctx: &mut FuncCtx, expr: &HirExpr) -> Option<Value> {
                 }
                 "tok_array_push" => {
                     // tok_array_push(arr: PTR, tag: I64, data: I64) -> PTR
-                    let arr =
+                    let arr_raw =
                         compile_expr(ctx, &args[0]).expect("codegen: args[0] produced no value");
+                    let arr = unwrap_any_ptr(ctx, arr_raw, &args[0].ty);
                     let val =
                         compile_expr(ctx, &args[1]).expect("codegen: args[1] produced no value");
                     let (tag, data) = to_tokvalue(ctx, val, &args[1].ty);
@@ -2473,6 +2475,9 @@ fn compile_expr(ctx: &mut FuncCtx, expr: &HirExpr) -> Option<Value> {
                     ctx.builder
                         .ins()
                         .store(MemFlags::trusted(), data, env, offset + 8);
+                    // Bump refcount: the env now shares ownership of heap values
+                    let rc_inc_ref = ctx.get_runtime_func_ref("tok_value_rc_inc");
+                    ctx.builder.ins().call(rc_inc_ref, &[tag, data]);
                 }
                 env
             };
@@ -2643,6 +2648,9 @@ fn compile_expr(ctx: &mut FuncCtx, expr: &HirExpr) -> Option<Value> {
                     ctx.builder
                         .ins()
                         .store(MemFlags::trusted(), data, env, offset + 8);
+                    // Bump refcount: the env now shares ownership of heap values
+                    let rc_inc_ref = ctx.get_runtime_func_ref("tok_value_rc_inc");
+                    ctx.builder.ins().call(rc_inc_ref, &[tag, data]);
                 }
                 env
             };
