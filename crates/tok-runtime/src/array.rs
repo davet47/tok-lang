@@ -1,10 +1,50 @@
 //! Reference-counted dynamic array for the Tok runtime.
 
+use std::collections::HashSet;
+use std::hash::{Hash, Hasher};
 use std::sync::atomic::{fence, AtomicU32, Ordering};
 
 use crate::closure::TokClosure;
 use crate::string::TokString;
 use crate::value::{TokValue, TAG_ARRAY, TAG_BOOL, TAG_FLOAT, TAG_INT, TAG_NIL, TAG_STRING};
+
+// ═══════════════════════════════════════════════════════════════
+// HashableTokValue — wrapper for dedup via HashSet
+// ═══════════════════════════════════════════════════════════════
+
+/// Wrapper around TokValue that provides Hash + Eq for use in HashSet.
+/// Floats use bit-level comparison (matching tok_values_equal semantics).
+/// Non-primitive types fall back to raw pointer identity.
+struct HashableTokValue(TokValue);
+
+impl Hash for HashableTokValue {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        let v = &self.0;
+        v.tag.hash(state);
+        unsafe {
+            match v.tag {
+                TAG_NIL => {}
+                TAG_INT => v.data.int_val.hash(state),
+                TAG_FLOAT => v.data.float_val.to_bits().hash(state),
+                3 => v.data.bool_val.hash(state), // BOOL
+                TAG_STRING => {
+                    if !v.data.string_ptr.is_null() {
+                        (*v.data.string_ptr).data.hash(state);
+                    }
+                }
+                _ => v.data._raw.hash(state),
+            }
+        }
+    }
+}
+
+impl PartialEq for HashableTokValue {
+    fn eq(&self, other: &Self) -> bool {
+        tok_values_equal(&self.0, &other.0)
+    }
+}
+
+impl Eq for HashableTokValue {}
 
 // ═══════════════════════════════════════════════════════════════
 // TagData — return type for filter/reduce closure calls
@@ -190,15 +230,9 @@ pub extern "C" fn tok_array_uniq(arr: *mut TokArray) -> *mut TokArray {
     assert!(!arr.is_null(), "tok_array_uniq: null array");
     unsafe {
         let result = TokArray::alloc();
+        let mut seen = HashSet::with_capacity((*arr).data.len());
         for v in &(*arr).data {
-            let mut found = false;
-            for existing in &(*result).data {
-                if tok_values_equal(v, existing) {
-                    found = true;
-                    break;
-                }
-            }
-            if !found {
+            if seen.insert(HashableTokValue(*v)) {
                 v.rc_inc();
                 (*result).data.push(*v);
             }
@@ -695,6 +729,58 @@ mod tests {
             assert_eq!((*unique).data[0].data.int_val, 1);
             assert_eq!((*unique).data[1].data.int_val, 2);
             assert_eq!((*unique).data[2].data.int_val, 3);
+            drop(Box::from_raw(arr));
+            drop(Box::from_raw(unique));
+        }
+    }
+
+    #[test]
+    fn test_uniq_mixed_types() {
+        use crate::string::TokString;
+        let arr = tok_array_alloc();
+        let s1 = TokValue::from_string(TokString::alloc("hello".to_string()));
+        let s2 = TokValue::from_string(TokString::alloc("hello".to_string()));
+        let s3 = TokValue::from_string(TokString::alloc("world".to_string()));
+        tok_array_push(arr, TokValue::from_int(1));
+        tok_array_push(arr, s1);
+        tok_array_push(arr, TokValue::from_float(3.14));
+        tok_array_push(arr, TokValue::from_int(1)); // dup int
+        tok_array_push(arr, s2); // dup string by content
+        tok_array_push(arr, TokValue::from_float(3.14)); // dup float
+        tok_array_push(arr, s3); // different string
+        tok_array_push(arr, TokValue::nil()); // nil
+        tok_array_push(arr, TokValue::nil()); // dup nil
+        tok_array_push(arr, TokValue::from_bool(true));
+        tok_array_push(arr, TokValue::from_bool(true)); // dup bool
+        let unique = tok_array_uniq(arr);
+        // Expect: 1, "hello", 3.14, "world", nil, true = 6 unique
+        assert_eq!(tok_array_len(unique), 6);
+        unsafe {
+            assert_eq!((*unique).data[0].tag, crate::value::TAG_INT);
+            assert_eq!((*unique).data[1].tag, crate::value::TAG_STRING);
+            assert_eq!((*unique).data[2].tag, crate::value::TAG_FLOAT);
+            assert_eq!((*unique).data[3].tag, crate::value::TAG_STRING);
+            assert_eq!((*unique).data[4].tag, crate::value::TAG_NIL);
+            assert_eq!((*unique).data[5].tag, 3); // BOOL
+            drop(Box::from_raw(arr));
+            drop(Box::from_raw(unique));
+        }
+    }
+
+    #[test]
+    fn test_uniq_large_input() {
+        let arr = tok_array_alloc();
+        // 10000 elements but only 100 unique values — O(n^2) would be slow
+        for i in 0..10000 {
+            tok_array_push(arr, TokValue::from_int(i % 100));
+        }
+        let unique = tok_array_uniq(arr);
+        assert_eq!(tok_array_len(unique), 100);
+        unsafe {
+            // Verify order preserved: first occurrence of each value
+            for i in 0..100 {
+                assert_eq!((*unique).data[i as usize].data.int_val, i);
+            }
             drop(Box::from_raw(arr));
             drop(Box::from_raw(unique));
         }
