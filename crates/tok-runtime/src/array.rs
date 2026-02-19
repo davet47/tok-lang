@@ -209,15 +209,27 @@ pub extern "C" fn tok_array_flat(arr: *mut TokArray) -> *mut TokArray {
     assert!(!arr.is_null(), "tok_array_flat: null array");
     unsafe {
         let result = TokArray::alloc();
-        flatten_into(&(*arr).data, &mut (*result).data);
+        flatten_into(&(*arr).data, &mut (*result).data, 0);
         result
     }
 }
 
-unsafe fn flatten_into(src: &[TokValue], dst: &mut Vec<TokValue>) {
+/// Maximum nesting depth for flatten. Prevents stack overflow on
+/// self-referential or adversarially deep arrays.
+const MAX_FLATTEN_DEPTH: usize = 1000;
+
+unsafe fn flatten_into(src: &[TokValue], dst: &mut Vec<TokValue>, depth: usize) {
+    if depth >= MAX_FLATTEN_DEPTH {
+        // At the limit, treat nested arrays as opaque values instead of recursing
+        for v in src {
+            v.rc_inc();
+            dst.push(*v);
+        }
+        return;
+    }
     for v in src {
         if v.tag == TAG_ARRAY && !v.data.array_ptr.is_null() {
-            flatten_into(&(*v.data.array_ptr).data, dst);
+            flatten_into(&(*v.data.array_ptr).data, dst, depth + 1);
         } else {
             v.rc_inc();
             dst.push(*v);
