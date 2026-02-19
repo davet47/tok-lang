@@ -403,15 +403,17 @@ pub extern "C" fn tok_http_serve_t(
                 if !closure_ptr.is_null() {
                     let fn_ptr = unsafe { (*closure_ptr).fn_ptr };
                     let env_ptr = unsafe { (*closure_ptr).env_ptr };
-                    // Call handler with request map as TokValue arg
+                    // Call handler with request map as TokValue arg.
+                    // Cranelift closures return (tag, data) as two i64s, not a TokValue struct.
                     let req_val = TokValue::from_map(req_map);
-                    let call: extern "C" fn(*mut u8, i64, i64) -> TokValue =
+                    let call: extern "C" fn(*mut u8, i64, i64) -> (i64, i64) =
                         unsafe { std::mem::transmute(fn_ptr) };
-                    let result = call(env_ptr, req_val.tag as i64, unsafe {
+                    let (rtag, rdata) = call(env_ptr, req_val.tag as i64, unsafe {
                         req_val.data._raw as i64
                     });
+                    let result = TokValue::from_tag_data(rtag, rdata);
                     // Parse result: string → body, map → {status, body}
-                    match result.tag {
+                    let pair = match result.tag {
                         TAG_STRING => {
                             let body_str = if unsafe { result.data.string_ptr.is_null() } {
                                 String::new()
@@ -455,7 +457,10 @@ pub extern "C" fn tok_http_serve_t(
                             }
                         }
                         _ => (200, format!("{}", result)),
-                    }
+                    };
+                    // Free handler result now that we've extracted the response data
+                    result.rc_dec();
+                    pair
                 } else {
                     (500, "Handler function pointer is null".to_string())
                 }

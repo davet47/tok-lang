@@ -277,6 +277,8 @@ impl TokValue {
                 TAG_FUNC => {
                     let p = self.data.func_ptr;
                     if !p.is_null() && (*p).rc_dec() {
+                        // Free captured environment before dropping the closure
+                        crate::closure::tok_env_free((*p).env_ptr, (*p).env_count as i64);
                         drop(Box::from_raw(p));
                     }
                 }
@@ -639,6 +641,8 @@ pub extern "C" fn tok_value_index_set(target: TokValue, idx: TokValue, val: TokV
                         let key_str = format!("{}", idx);
                         let key_ptr = crate::string::TokString::alloc(key_str);
                         crate::map::tok_map_set(p, key_ptr, val);
+                        // tok_map_set clones the key string, so free our copy
+                        crate::builtins::tok_string_free(key_ptr);
                     }
                 }
             }

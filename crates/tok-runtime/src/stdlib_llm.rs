@@ -410,6 +410,12 @@ pub extern "C" fn tok_llm_ask_t(_env: *mut u8, tag: i64, data: i64) -> TokValue 
         // Empty opts
         let empty_opts = TokMap::alloc();
         let result = llm_chat(arr, empty_opts);
+
+        // Free temporaries: msg_map is nested inside arr, so rc_dec arr first
+        // (which will rc_dec the map element), then free empty_opts.
+        TokValue::from_array(arr).rc_dec();
+        TokValue::from_map(empty_opts).rc_dec();
+
         to_result_tuple(result)
     }
 }
