@@ -512,11 +512,14 @@ pub extern "C" fn tok_pmap(arr: *mut TokArray, closure: *mut TokClosure) -> *mut
             return TokArray::alloc();
         }
 
-        // Spawn one thread per element, each with its own env copy
+        // Spawn one thread per element, each with its own env copy.
+        // rc_inc each element so the thread holds a strong reference;
+        // rc_dec after the closure call to release it.
         let fn_ptr_usize = fn_ptr as usize;
         let handles: Vec<_> = data
             .iter()
             .map(|elem| {
+                elem.rc_inc();
                 let tag = elem.tag as i64;
                 let data = elem.data._raw as i64;
                 let thread_env = clone_env(env, env_count);
@@ -527,6 +530,9 @@ pub extern "C" fn tok_pmap(arr: *mut TokArray, closure: *mut TokClosure) -> *mut
                         std::mem::transmute(fn_ptr_usize);
                     let ep = thread_env_usize as *mut u8;
                     let result = fp(ep, tag, data);
+                    // Release the element ref we took before spawning
+                    let elem_val = TokValue::from_tag_data(tag, data);
+                    elem_val.rc_dec();
                     // Free the per-thread env copy
                     free_env(ep, ec);
                     result
