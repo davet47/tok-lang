@@ -357,11 +357,15 @@ pub extern "C" fn tok_array_sum(arr: *mut TokArray) -> TokValue {
         }
         let mut has_float = false;
         let mut int_sum: i64 = 0;
+        let mut overflowed = false;
         let mut float_sum: f64 = 0.0;
         for v in &(*arr).data {
             match v.tag {
                 TAG_INT => {
-                    int_sum += v.data.int_val;
+                    match int_sum.checked_add(v.data.int_val) {
+                        Some(s) => int_sum = s,
+                        None => overflowed = true,
+                    }
                     float_sum += v.data.int_val as f64;
                 }
                 TAG_FLOAT => {
@@ -371,7 +375,7 @@ pub extern "C" fn tok_array_sum(arr: *mut TokArray) -> TokValue {
                 _ => {}
             }
         }
-        if has_float {
+        if has_float || overflowed {
             TokValue::from_float(float_sum)
         } else {
             TokValue::from_int(int_sum)
