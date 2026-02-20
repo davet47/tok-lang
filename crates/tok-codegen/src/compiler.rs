@@ -4018,12 +4018,12 @@ fn compile_user_func_call(
             let func_sig = ctx.compiler.func_sigs.get(name).cloned();
             let mut jump_vals = Vec::new();
             for (i, arg) in args.iter().enumerate() {
+                let param_ty = func_sig
+                    .as_ref()
+                    .and_then(|s| s.0.get(i))
+                    .cloned()
+                    .unwrap_or(arg.ty.clone());
                 if let Some(v) = compile_expr(ctx, arg) {
-                    let param_ty = func_sig
-                        .as_ref()
-                        .and_then(|s| s.0.get(i))
-                        .cloned()
-                        .unwrap_or(arg.ty.clone());
                     if matches!(param_ty, Type::Any) {
                         let (tag, data) = to_tokvalue(ctx, v, &arg.ty);
                         jump_vals.push(tag);
@@ -4033,6 +4033,17 @@ fn compile_user_func_call(
                         jump_vals.push(coerced);
                     } else {
                         jump_vals.push(v);
+                    }
+                } else {
+                    // Nil-typed arg: push zero value(s) to match block params
+                    if matches!(param_ty, Type::Any) {
+                        let zero = ctx.builder.ins().iconst(types::I64, 0);
+                        jump_vals.push(zero);
+                        jump_vals.push(zero);
+                    } else {
+                        let ct = cl_type_or_i64(&param_ty);
+                        let zero = zero_value(&mut ctx.builder, ct);
+                        jump_vals.push(zero);
                     }
                 }
             }
