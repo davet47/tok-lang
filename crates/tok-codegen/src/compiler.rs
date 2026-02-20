@@ -5635,7 +5635,33 @@ fn compile_loop(ctx: &mut FuncCtx, kind: &HirLoopKind, body: &[HirStmt]) {
     }
 }
 
+// ─── Type coercion system ──────────────────────────────────────────────
+//
+// The codegen type coercion system converts values between Tok types and the
+// runtime's TokValue representation. There are 5 entry points, used in order:
+//
+// 1. `to_tokvalue(ctx, val, ty)` — Pack a typed value into (tag, data) pair.
+//    Use when calling runtime functions that expect TokValue args.
+//
+// 2. `from_tokvalue(ctx, tag, data, ty)` — Unpack (tag, data) to a typed value.
+//    Use when receiving results from runtime functions.
+//
+// 3. `coerce_value(ctx, val, from, to)` — Convert between arbitrary types.
+//    Handles Any↔Concrete, Int↔Float. Use for assignment/return coercion.
+//
+// 4. `unwrap_any_ptr(ctx, val, ty)` — Extract raw pointer from Any TokValue.
+//    Use when a builtin expects a concrete pointer (e.g., array/map) but the
+//    HIR type is Any. No-op if ty is already concrete.
+//
+// 5. `alloc_tokvalue_on_stack(ctx, tag, data)` — Store (tag, data) as a
+//    stack-allocated TokValue and return the pointer. Use when wrapping
+//    concrete values into Any representation.
+//
+// Convention: Any-typed values are always PTR to a 16-byte stack slot
+// (tag @ offset 0, data @ offset 8).
+
 /// Allocate a TokValue on the stack and store tag+data, returning a pointer.
+/// This is used to wrap concrete values into the Any representation.
 fn alloc_tokvalue_on_stack(ctx: &mut FuncCtx, tag: Value, data: Value) -> Value {
     let ss = ctx.builder.create_sized_stack_slot(StackSlotData::new(
         StackSlotKind::ExplicitSlot,
