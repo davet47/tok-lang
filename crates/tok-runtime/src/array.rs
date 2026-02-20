@@ -178,13 +178,13 @@ pub extern "C" fn tok_array_slice(arr: *mut TokArray, start: i64, end: i64) -> *
 pub extern "C" fn tok_array_sort(arr: *mut TokArray) -> *mut TokArray {
     null_check!(arr, "tok_array_sort: null array");
     unsafe {
-        let result = TokArray::alloc();
-        let mut items: Vec<TokValue> = (*arr).data.clone();
-        items.sort_by(tok_value_compare);
-        for v in &items {
+        // rc_inc before cloning so the clone shares ownership
+        for v in &(*arr).data {
             v.rc_inc();
         }
-        (*result).data = items;
+        let result = TokArray::alloc();
+        (*result).data = (*arr).data.clone();
+        (*result).data.sort_by(tok_value_compare);
         result
     }
 }
@@ -193,13 +193,13 @@ pub extern "C" fn tok_array_sort(arr: *mut TokArray) -> *mut TokArray {
 pub extern "C" fn tok_array_rev(arr: *mut TokArray) -> *mut TokArray {
     null_check!(arr, "tok_array_rev: null array");
     unsafe {
-        let result = TokArray::alloc();
-        let mut items: Vec<TokValue> = (*arr).data.clone();
-        items.reverse();
-        for v in &items {
+        // rc_inc before cloning so the clone shares ownership
+        for v in &(*arr).data {
             v.rc_inc();
         }
-        (*result).data = items;
+        let result = TokArray::alloc();
+        (*result).data = (*arr).data.clone();
+        (*result).data.reverse();
         result
     }
 }
