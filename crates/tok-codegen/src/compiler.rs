@@ -2424,9 +2424,7 @@ fn compile_runtime_call(
             if can_inline_hof(&args[1], &args[0].ty, 1) {
                 return compile_inline_filter(ctx, &args[0], &args[1], result_ty);
             }
-            let arr_raw =
-                compile_expr(ctx, &args[0]).expect("codegen: args[0] produced no value");
-            let arr = unwrap_any_ptr(ctx, arr_raw, &args[0].ty);
+            let arr = compile_expr_as_ptr(ctx, &args[0]);
             let closure =
                 compile_expr(ctx, &args[1]).expect("codegen: args[1] produced no value");
             let func_ref = ctx.get_runtime_func_ref("tok_array_filter");
@@ -2442,9 +2440,7 @@ fn compile_runtime_call(
             if can_inline_hof(&args[2], &args[0].ty, 2) {
                 return compile_inline_reduce(ctx, &args[0], &args[1], &args[2], result_ty);
             }
-            let arr_raw =
-                compile_expr(ctx, &args[0]).expect("codegen: args[0] produced no value");
-            let arr = unwrap_any_ptr(ctx, arr_raw, &args[0].ty);
+            let arr = compile_expr_as_ptr(ctx, &args[0]);
             let init_val = compile_expr(ctx, &args[1]);
             let closure =
                 compile_expr(ctx, &args[2]).expect("codegen: args[2] produced no value");
@@ -2463,9 +2459,7 @@ fn compile_runtime_call(
             return Some(from_tokvalue(ctx, results[0], results[1], result_ty));
         }
         "tok_array_push" => {
-            let arr_raw =
-                compile_expr(ctx, &args[0]).expect("codegen: args[0] produced no value");
-            let arr = unwrap_any_ptr(ctx, arr_raw, &args[0].ty);
+            let arr = compile_expr_as_ptr(ctx, &args[0]);
             let val =
                 compile_expr(ctx, &args[1]).expect("codegen: args[1] produced no value");
             let (tag, data) = to_tokvalue(ctx, val, &args[1].ty);
@@ -2482,12 +2476,8 @@ fn compile_runtime_call(
             return Some(ctx.builder.inst_results(call)[0]);
         }
         "tok_array_concat" => {
-            let a_raw =
-                compile_expr(ctx, &args[0]).expect("codegen: args[0] produced no value");
-            let a = unwrap_any_ptr(ctx, a_raw, &args[0].ty);
-            let b_raw =
-                compile_expr(ctx, &args[1]).expect("codegen: args[1] produced no value");
-            let b = unwrap_any_ptr(ctx, b_raw, &args[1].ty);
+            let a = compile_expr_as_ptr(ctx, &args[0]);
+            let b = compile_expr_as_ptr(ctx, &args[1]);
             let func_ref = ctx.get_runtime_func_ref("tok_array_concat");
             let call = ctx.builder.ins().call(func_ref, &[a, b]);
             return Some(ctx.builder.inst_results(call)[0]);
@@ -3369,8 +3359,7 @@ fn get_stdlib_const(module: &str, field: &str) -> Option<f64> {
 
 /// Compile a 1-arg builtin: compile arg → unwrap_any_ptr → call runtime → return ptr
 fn compile_builtin_1_ptr(ctx: &mut FuncCtx, arg: &HirExpr, runtime_fn: &str) -> Option<Value> {
-    let val = compile_expr(ctx, arg).expect("codegen: arg produced no value");
-    let ptr = unwrap_any_ptr(ctx, val, &arg.ty);
+    let ptr = compile_expr_as_ptr(ctx, arg);
     let func_ref = ctx.get_runtime_func_ref(runtime_fn);
     let call = ctx.builder.ins().call(func_ref, &[ptr]);
     Some(ctx.builder.inst_results(call)[0])
@@ -3383,8 +3372,7 @@ fn compile_builtin_1_tokvalue(
     runtime_fn: &str,
     result_ty: &Type,
 ) -> Option<Value> {
-    let val = compile_expr(ctx, arg).expect("codegen: arg produced no value");
-    let ptr = unwrap_any_ptr(ctx, val, &arg.ty);
+    let ptr = compile_expr_as_ptr(ctx, arg);
     let func_ref = ctx.get_runtime_func_ref(runtime_fn);
     let call = ctx.builder.ins().call(func_ref, &[ptr]);
     let results = ctx.builder.inst_results(call);
@@ -3393,10 +3381,8 @@ fn compile_builtin_1_tokvalue(
 
 /// Compile a 2-arg builtin: compile both → unwrap → call → return ptr
 fn compile_builtin_2_ptr(ctx: &mut FuncCtx, args: &[HirExpr], runtime_fn: &str) -> Option<Value> {
-    let a_raw = compile_expr(ctx, &args[0]).expect("codegen: args[0] produced no value");
-    let a = unwrap_any_ptr(ctx, a_raw, &args[0].ty);
-    let b_raw = compile_expr(ctx, &args[1]).expect("codegen: args[1] produced no value");
-    let b = unwrap_any_ptr(ctx, b_raw, &args[1].ty);
+    let a = compile_expr_as_ptr(ctx, &args[0]);
+    let b = compile_expr_as_ptr(ctx, &args[1]);
     let func_ref = ctx.get_runtime_func_ref(runtime_fn);
     let call = ctx.builder.ins().call(func_ref, &[a, b]);
     Some(ctx.builder.inst_results(call)[0])
@@ -3598,8 +3584,7 @@ fn compile_builtin_len(ctx: &mut FuncCtx, args: &[HirExpr]) -> Option<Value> {
 
 /// Compile variadic `push(arr, v1, v2, ...)`.
 fn compile_builtin_push(ctx: &mut FuncCtx, args: &[HirExpr]) -> Option<Value> {
-    let arr_raw = compile_expr(ctx, &args[0]).expect("codegen: args[0] produced no value");
-    let mut arr = unwrap_any_ptr(ctx, arr_raw, &args[0].ty);
+    let mut arr = compile_expr_as_ptr(ctx, &args[0]);
     let func_ref = ctx.get_runtime_func_ref("tok_array_push");
     for arg in &args[1..] {
         let val = compile_expr(ctx, arg).expect("codegen: arg produced no value");
@@ -3759,10 +3744,8 @@ fn compile_builtin_slice(
 
 /// Compile `pmap(arr, closure)`.
 fn compile_builtin_pmap(ctx: &mut FuncCtx, args: &[HirExpr]) -> Option<Value> {
-    let arr_raw = compile_expr(ctx, &args[0]).expect("codegen: args[0] produced no value");
-    let arr = unwrap_any_ptr(ctx, arr_raw, &args[0].ty);
-    let closure = compile_expr(ctx, &args[1]).expect("codegen: args[1] produced no value");
-    let closure_ptr = unwrap_any_ptr(ctx, closure, &args[1].ty);
+    let arr = compile_expr_as_ptr(ctx, &args[0]);
+    let closure_ptr = compile_expr_as_ptr(ctx, &args[1]);
     let func_ref = ctx.get_runtime_func_ref("tok_pmap");
     let call = ctx.builder.ins().call(func_ref, &[arr, closure_ptr]);
     Some(ctx.builder.inst_results(call)[0])
@@ -3778,8 +3761,7 @@ fn compile_builtin_is(ctx: &mut FuncCtx, args: &[HirExpr]) -> Option<Value> {
         let data = ctx.builder.ins().iconst(types::I64, 0);
         (tag, data)
     };
-    let type_str = compile_expr(ctx, &args[1]).expect("codegen: args[1] produced no value");
-    let str_ptr = unwrap_any_ptr(ctx, type_str, &args[1].ty);
+    let str_ptr = compile_expr_as_ptr(ctx, &args[1]);
     let func_ref = ctx.get_runtime_func_ref("tok_is");
     let call = ctx.builder.ins().call(func_ref, &[tag, data, str_ptr]);
     Some(ctx.builder.inst_results(call)[0])
@@ -5725,6 +5707,16 @@ fn unwrap_any_ptr(ctx: &mut FuncCtx, val: Value, ty: &Type) -> Value {
     } else {
         val
     }
+}
+
+/// Compile an expression and extract its raw pointer, unwrapping from Any if needed.
+///
+/// Shorthand for `compile_expr(ctx, expr).unwrap() + unwrap_any_ptr(ctx, val, &expr.ty)`.
+/// Use when the caller needs a concrete pointer (e.g., array, map, string) from an
+/// expression that may be typed as `Any`.
+fn compile_expr_as_ptr(ctx: &mut FuncCtx, expr: &HirExpr) -> Value {
+    let val = compile_expr(ctx, expr).expect("codegen: expression produced no value");
+    unwrap_any_ptr(ctx, val, &expr.ty)
 }
 
 // ─── TokValue packing/unpacking ───────────────────────────────────────
