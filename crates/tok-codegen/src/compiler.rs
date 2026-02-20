@@ -2231,270 +2231,14 @@ fn compile_expr(ctx: &mut FuncCtx, expr: &HirExpr) -> Option<Value> {
         HirExprKind::Call { func, args } => compile_call(ctx, func, args, &expr.ty),
 
         HirExprKind::RuntimeCall { name, args } => {
-            // Special-case filter/reduce: closure arg needs special handling
-            match name.as_str() {
-                "tok_import" => {
-                    // Stdlib module import: intercept known module names
-                    if let HirExprKind::Str(path) = &args[0].kind {
-                        let constructor = match path.as_str() {
-                            "math" => "tok_stdlib_math",
-                            "str"  => "tok_stdlib_str",
-                            "os"   => "tok_stdlib_os",
-                            "io"   => "tok_stdlib_io",
-                            "json" => "tok_stdlib_json",
-                            "llm"  => "tok_stdlib_llm",
-                            "csv"  => "tok_stdlib_csv",
-                            "fs"   => "tok_stdlib_fs",
-                            "http" => "tok_stdlib_http",
-                            "re"   => "tok_stdlib_re",
-                            "time" => "tok_stdlib_time",
-                            "tmpl" => "tok_stdlib_tmpl",
-                            "toon" => "tok_stdlib_toon",
-                            other  => panic!("Unknown module: @\"{}\" — only stdlib modules (math, str, os, io, json, csv, fs, http, re, time, tmpl, toon, llm) are supported in compiled mode", other),
-                        };
-                        let func_ref = ctx.get_runtime_func_ref(constructor);
-                        let call = ctx.builder.ins().call(func_ref, &[]);
-                        return Some(ctx.builder.inst_results(call)[0]);
-                    }
-                    panic!("Dynamic imports not supported in compiled mode");
-                }
-                "tok_array_filter" => {
-                    // Inline filter when lambda is literal and element type is concrete
-                    if can_inline_hof(&args[1], &args[0].ty, 1) {
-                        return compile_inline_filter(ctx, &args[0], &args[1], &expr.ty);
-                    }
-                    // Fallback: runtime call
-                    let arr_raw =
-                        compile_expr(ctx, &args[0]).expect("codegen: args[0] produced no value");
-                    let arr =
-                        if matches!(&args[0].ty, Type::Any | Type::Optional(_) | Type::Result(_)) {
-                            ctx.builder
-                                .ins()
-                                .load(types::I64, MemFlags::trusted(), arr_raw, 8)
-                        } else {
-                            arr_raw
-                        };
-                    let closure =
-                        compile_expr(ctx, &args[1]).expect("codegen: args[1] produced no value");
-                    let func_ref = ctx.get_runtime_func_ref("tok_array_filter");
-                    let call = ctx.builder.ins().call(func_ref, &[arr, closure]);
-                    let result = ctx.builder.inst_results(call)[0];
-                    if matches!(&expr.ty, Type::Any | Type::Optional(_) | Type::Result(_)) {
-                        let tag = ctx.builder.ins().iconst(types::I64, TAG_ARRAY);
-                        return Some(alloc_tokvalue_on_stack(ctx, tag, result));
-                    }
-                    return Some(result);
-                }
-                "tok_array_reduce" => {
-                    // Inline reduce when lambda is literal and element type is concrete
-                    if can_inline_hof(&args[2], &args[0].ty, 2) {
-                        return compile_inline_reduce(ctx, &args[0], &args[1], &args[2], &expr.ty);
-                    }
-                    // Fallback: runtime call
-                    let arr_raw =
-                        compile_expr(ctx, &args[0]).expect("codegen: args[0] produced no value");
-                    let arr =
-                        if matches!(&args[0].ty, Type::Any | Type::Optional(_) | Type::Result(_)) {
-                            ctx.builder
-                                .ins()
-                                .load(types::I64, MemFlags::trusted(), arr_raw, 8)
-                        } else {
-                            arr_raw
-                        };
-                    let init_val = compile_expr(ctx, &args[1]);
-                    let closure =
-                        compile_expr(ctx, &args[2]).expect("codegen: args[2] produced no value");
-                    let (init_tag, init_data) = if let Some(iv) = init_val {
-                        to_tokvalue(ctx, iv, &args[1].ty)
-                    } else {
-                        let zero = ctx.builder.ins().iconst(types::I64, 0);
-                        (zero, zero)
-                    };
-                    let func_ref = ctx.get_runtime_func_ref("tok_array_reduce");
-                    let call = ctx
-                        .builder
-                        .ins()
-                        .call(func_ref, &[arr, init_tag, init_data, closure]);
-                    let results = ctx.builder.inst_results(call);
-                    return Some(from_tokvalue(ctx, results[0], results[1], &expr.ty));
-                }
-                "tok_array_push" => {
-                    // tok_array_push(arr: PTR, tag: I64, data: I64) -> PTR
-                    let arr_raw =
-                        compile_expr(ctx, &args[0]).expect("codegen: args[0] produced no value");
-                    let arr = unwrap_any_ptr(ctx, arr_raw, &args[0].ty);
-                    let val =
-                        compile_expr(ctx, &args[1]).expect("codegen: args[1] produced no value");
-                    let (tag, data) = to_tokvalue(ctx, val, &args[1].ty);
-                    let func_ref = ctx.get_runtime_func_ref("tok_array_push");
-                    let call = ctx.builder.ins().call(func_ref, &[arr, tag, data]);
-                    return Some(ctx.builder.inst_results(call)[0]);
-                }
-                "tok_value_to_string" => {
-                    // tok_value_to_string(tag: I64, data: I64) -> PTR
-                    // HIR emits 1 arg but runtime expects (tag, data)
-                    let val =
-                        compile_expr(ctx, &args[0]).expect("codegen: args[0] produced no value");
-                    let (tag, data) = to_tokvalue(ctx, val, &args[0].ty);
-                    let func_ref = ctx.get_runtime_func_ref("tok_value_to_string");
-                    let call = ctx.builder.ins().call(func_ref, &[tag, data]);
-                    return Some(ctx.builder.inst_results(call)[0]);
-                }
-                "tok_array_concat" => {
-                    // tok_array_concat(a: PTR, b: PTR) -> PTR
-                    // Both args need to be unwrapped from Any if needed
-                    let a_raw =
-                        compile_expr(ctx, &args[0]).expect("codegen: args[0] produced no value");
-                    let a =
-                        if matches!(&args[0].ty, Type::Any | Type::Optional(_) | Type::Result(_)) {
-                            ctx.builder
-                                .ins()
-                                .load(types::I64, MemFlags::trusted(), a_raw, 8)
-                        } else {
-                            a_raw
-                        };
-                    let b_raw =
-                        compile_expr(ctx, &args[1]).expect("codegen: args[1] produced no value");
-                    let b =
-                        if matches!(&args[1].ty, Type::Any | Type::Optional(_) | Type::Result(_)) {
-                            ctx.builder
-                                .ins()
-                                .load(types::I64, MemFlags::trusted(), b_raw, 8)
-                        } else {
-                            b_raw
-                        };
-                    let func_ref = ctx.get_runtime_func_ref("tok_array_concat");
-                    let call = ctx.builder.ins().call(func_ref, &[a, b]);
-                    return Some(ctx.builder.inst_results(call)[0]);
-                }
-                _ => {}
-            }
-            // Generic runtime call
-            let mut arg_vals = Vec::new();
-            for arg in args {
-                if let Some(v) = compile_expr(ctx, arg) {
-                    arg_vals.push(v);
-                }
-            }
-            let func_ref = ctx.get_runtime_func_ref(name);
-            let call = ctx.builder.ins().call(func_ref, &arg_vals);
-            let results = ctx.builder.inst_results(call);
-            if results.is_empty() {
-                None
-            } else {
-                Some(results[0])
-            }
+            compile_runtime_call(ctx, name, args, &expr.ty)
         }
 
         HirExprKind::Lambda {
             params,
             ret_type,
             body,
-        } => {
-            let lambda_name = format!("__tok_lambda_{}", ctx.compiler.lambda_counter);
-            ctx.compiler.lambda_counter += 1;
-
-            // ── Capture analysis ──────────────────────────────────
-            // Collect free variables: names used in lambda body that aren't params
-            let param_names: HashSet<String> = params.iter().map(|p| p.name.clone()).collect();
-            let free_var_names = collect_free_vars(body, &param_names);
-
-            // Filter to only variables that actually exist in the current scope,
-            // and exclude user-defined functions (they're global, not captured)
-            let mut captures: Vec<CapturedVar> = Vec::new();
-            for name in &free_var_names {
-                if let Some((_var, var_ty)) = ctx.vars.get(name) {
-                    captures.push(CapturedVar {
-                        name: name.clone(),
-                        ty: var_ty.clone(),
-                    });
-                }
-                // If not in vars, it's a global function or builtin — no capture needed
-            }
-            // Sort captures by name for deterministic ordering
-            captures.sort_by(|a, b| a.name.cmp(&b.name));
-
-            // Build uniform sig: (env: PTR, arg0_tag: I64, arg0_data: I64, ...) -> (I64, I64)
-            let mut sig = ctx.compiler.module.make_signature();
-            sig.params.push(AbiParam::new(PTR)); // env_ptr
-            for _ in params {
-                sig.params.push(AbiParam::new(types::I64)); // tag
-                sig.params.push(AbiParam::new(types::I64)); // data
-            }
-            sig.returns.push(AbiParam::new(types::I64)); // result tag
-            sig.returns.push(AbiParam::new(types::I64)); // result data
-
-            let func_id = ctx
-                .compiler
-                .module
-                .declare_function(&lambda_name, Linkage::Local, &sig)
-                .expect("codegen: failed to declare lambda");
-
-            // Queue for later compilation (with captures info)
-            let pending_idx = ctx.compiler.pending_lambdas.len();
-            ctx.compiler.pending_lambdas.push(PendingLambda {
-                name: lambda_name.clone(),
-                func_id,
-                params: params.clone(),
-                ret_type: ret_type.clone(),
-                body: body.clone(),
-                captures: captures.clone(),
-                specialized_param_types: None,
-            });
-
-            // Get fn pointer
-            let func_ref = ctx
-                .compiler
-                .module
-                .declare_func_in_func(func_id, ctx.builder.func);
-            let fn_ptr = ctx.builder.ins().func_addr(PTR, func_ref);
-
-            // ── Allocate environment and store captured values ────
-            let env_ptr = if captures.is_empty() {
-                ctx.builder.ins().iconst(PTR, 0) // null env
-            } else {
-                // Allocate env: count * 16 bytes (each capture is a TokValue)
-                let count = ctx.builder.ins().iconst(types::I64, captures.len() as i64);
-                let alloc_ref = ctx.get_runtime_func_ref("tok_env_alloc");
-                let alloc_call = ctx.builder.ins().call(alloc_ref, &[count]);
-                let env = ctx.builder.inst_results(alloc_call)[0];
-
-                // Store each captured variable into the environment
-                for (i, cap) in captures.iter().enumerate() {
-                    let (var, var_ty) = ctx
-                        .vars
-                        .get(&cap.name)
-                        .expect("codegen: captured var not found")
-                        .clone();
-                    let val = ctx.builder.use_var(var);
-                    let (tag, data) = to_tokvalue(ctx, val, &var_ty);
-                    let offset = (i * 16) as i32;
-                    ctx.builder
-                        .ins()
-                        .store(MemFlags::trusted(), tag, env, offset);
-                    ctx.builder
-                        .ins()
-                        .store(MemFlags::trusted(), data, env, offset + 8);
-                    // Bump refcount: the env now shares ownership of heap values
-                    let rc_inc_ref = ctx.get_runtime_func_ref("tok_value_rc_inc");
-                    ctx.builder.ins().call(rc_inc_ref, &[tag, data]);
-                }
-                env
-            };
-
-            // Record lambda info for direct-call optimization
-            ctx.last_lambda_info = Some((func_id, env_ptr, pending_idx));
-
-            // Create closure: tok_closure_alloc(fn_ptr, env_ptr, arity, env_count)
-            let arity = ctx.builder.ins().iconst(types::I32, params.len() as i64);
-            let env_count_val = ctx.builder.ins().iconst(types::I32, captures.len() as i64);
-            let alloc_ref = ctx.get_runtime_func_ref("tok_closure_alloc");
-            let call = ctx
-                .builder
-                .ins()
-                .call(alloc_ref, &[fn_ptr, env_ptr, arity, env_count_val]);
-            Some(ctx.builder.inst_results(call)[0])
-        }
+        } => compile_lambda_expr(ctx, params, ret_type, body),
 
         HirExprKind::If {
             cond,
@@ -2571,117 +2315,9 @@ fn compile_expr(ctx: &mut FuncCtx, expr: &HirExpr) -> Option<Value> {
             compile_expr(ctx, start)
         }
 
-        HirExprKind::Go(body_expr) => {
-            // Goroutine — compile body as a thunk function and spawn via tok_go.
-            // The thunk signature is: extern "C" fn(env: *mut u8) -> TokValue
-            // which maps to Cranelift (PTR) -> (I64, I64)
-            let thunk_name = format!("__tok_goroutine_{}", ctx.compiler.lambda_counter);
-            ctx.compiler.lambda_counter += 1;
+        HirExprKind::Go(body_expr) => compile_go_expr(ctx, body_expr),
 
-            // Capture analysis: find free variables in body that need to be passed to the thunk
-            let empty_locals = HashSet::new();
-            let mut free_set = HashSet::new();
-            collect_free_vars_expr(body_expr, &empty_locals, &mut free_set, 0);
-            let free_var_names = free_set;
-            let mut captures: Vec<CapturedVar> = Vec::new();
-            for name in &free_var_names {
-                if let Some((_var, var_ty)) = ctx.vars.get(name) {
-                    captures.push(CapturedVar {
-                        name: name.clone(),
-                        ty: var_ty.clone(),
-                    });
-                }
-            }
-            captures.sort_by(|a, b| a.name.cmp(&b.name));
-
-            // Declare thunk function: (env: PTR) -> (tag: I64, data: I64)
-            let mut sig = ctx.compiler.module.make_signature();
-            sig.params.push(AbiParam::new(PTR)); // env_ptr
-            sig.returns.push(AbiParam::new(types::I64)); // result tag
-            sig.returns.push(AbiParam::new(types::I64)); // result data
-
-            let func_id = ctx
-                .compiler
-                .module
-                .declare_function(&thunk_name, Linkage::Local, &sig)
-                .expect("codegen: failed to declare go thunk");
-
-            // Queue thunk for later compilation (reuse PendingLambda with 0 params)
-            ctx.compiler.pending_lambdas.push(PendingLambda {
-                name: thunk_name.clone(),
-                func_id,
-                params: vec![], // no params — it's a thunk
-                ret_type: body_expr.ty.clone(),
-                body: vec![HirStmt::Expr((**body_expr).clone())],
-                captures: captures.clone(),
-                specialized_param_types: None,
-            });
-
-            // Get thunk function pointer
-            let func_ref = ctx
-                .compiler
-                .module
-                .declare_func_in_func(func_id, ctx.builder.func);
-            let fn_ptr = ctx.builder.ins().func_addr(PTR, func_ref);
-
-            // Allocate environment for captures
-            let env_ptr = if captures.is_empty() {
-                ctx.builder.ins().iconst(PTR, 0)
-            } else {
-                let count = ctx.builder.ins().iconst(types::I64, captures.len() as i64);
-                let alloc_ref = ctx.get_runtime_func_ref("tok_env_alloc");
-                let alloc_call = ctx.builder.ins().call(alloc_ref, &[count]);
-                let env = ctx.builder.inst_results(alloc_call)[0];
-
-                for (i, cap) in captures.iter().enumerate() {
-                    let (var, var_ty) = ctx
-                        .vars
-                        .get(&cap.name)
-                        .expect("codegen: captured var not found")
-                        .clone();
-                    let val = ctx.builder.use_var(var);
-                    let (tag, data) = to_tokvalue(ctx, val, &var_ty);
-                    let offset = (i * 16) as i32;
-                    ctx.builder
-                        .ins()
-                        .store(MemFlags::trusted(), tag, env, offset);
-                    ctx.builder
-                        .ins()
-                        .store(MemFlags::trusted(), data, env, offset + 8);
-                    // Bump refcount: the env now shares ownership of heap values
-                    let rc_inc_ref = ctx.get_runtime_func_ref("tok_value_rc_inc");
-                    ctx.builder.ins().call(rc_inc_ref, &[tag, data]);
-                }
-                env
-            };
-
-            // Call tok_go(fn_ptr, env_ptr) -> *mut TokHandle
-            let go_ref = ctx.get_runtime_func_ref("tok_go");
-            let call = ctx.builder.ins().call(go_ref, &[fn_ptr, env_ptr]);
-            Some(ctx.builder.inst_results(call)[0])
-        }
-
-        HirExprKind::Receive(chan_expr) => {
-            let chan =
-                compile_expr(ctx, chan_expr).expect("codegen: channel expr produced no value");
-            // Distinguish channel recv from handle join based on expression type
-            match &chan_expr.ty {
-                Type::Handle(_) => {
-                    // Join the goroutine handle
-                    let func_ref = ctx.get_runtime_func_ref("tok_handle_join");
-                    let call = ctx.builder.ins().call(func_ref, &[chan]);
-                    let results = ctx.builder.inst_results(call);
-                    Some(from_tokvalue(ctx, results[0], results[1], &expr.ty))
-                }
-                _ => {
-                    // Channel receive
-                    let func_ref = ctx.get_runtime_func_ref("tok_channel_recv");
-                    let call = ctx.builder.ins().call(func_ref, &[chan]);
-                    let results = ctx.builder.inst_results(call);
-                    Some(from_tokvalue(ctx, results[0], results[1], &expr.ty))
-                }
-            }
-        }
+        HirExprKind::Receive(chan_expr) => compile_receive_expr(ctx, chan_expr, &expr.ty),
 
         HirExprKind::Send { chan, value } => {
             let chan_val =
@@ -2693,129 +2329,423 @@ fn compile_expr(ctx: &mut FuncCtx, expr: &HirExpr) -> Option<Value> {
             None
         }
 
-        HirExprKind::Select(arms) => {
-            // Select: try each arm non-blocking in order.
-            // If an arm succeeds, execute its body and jump to merge.
-            // If no arm succeeds:
-            //   - If there's a default arm, execute it
-            //   - Otherwise, block on the first recv arm
-            let merge_block = ctx.builder.create_block();
+        HirExprKind::Select(arms) => compile_select_expr(ctx, arms),
+    }
+}
 
-            // Separate default arm from channel arms
-            let mut default_body: Option<&Vec<HirStmt>> = None;
-            let mut channel_arms: Vec<&HirSelectArm> = Vec::new();
-            for arm in arms.iter() {
-                match arm {
-                    HirSelectArm::Default(body) => default_body = Some(body),
-                    _ => channel_arms.push(arm),
-                }
+// ─── Extracted expression helpers ─────────────────────────────────────
+
+/// Compile a RuntimeCall expression (imports, filter, reduce, push, concat, etc.).
+fn compile_runtime_call(
+    ctx: &mut FuncCtx,
+    name: &str,
+    args: &[HirExpr],
+    result_ty: &Type,
+) -> Option<Value> {
+    match name {
+        "tok_import" => {
+            if let HirExprKind::Str(path) = &args[0].kind {
+                let constructor = match path.as_str() {
+                    "math" => "tok_stdlib_math",
+                    "str"  => "tok_stdlib_str",
+                    "os"   => "tok_stdlib_os",
+                    "io"   => "tok_stdlib_io",
+                    "json" => "tok_stdlib_json",
+                    "llm"  => "tok_stdlib_llm",
+                    "csv"  => "tok_stdlib_csv",
+                    "fs"   => "tok_stdlib_fs",
+                    "http" => "tok_stdlib_http",
+                    "re"   => "tok_stdlib_re",
+                    "time" => "tok_stdlib_time",
+                    "tmpl" => "tok_stdlib_tmpl",
+                    "toon" => "tok_stdlib_toon",
+                    other  => panic!("Unknown module: @\"{}\" — only stdlib modules (math, str, os, io, json, csv, fs, http, re, time, tmpl, toon, llm) are supported in compiled mode", other),
+                };
+                let func_ref = ctx.get_runtime_func_ref(constructor);
+                let call = ctx.builder.ins().call(func_ref, &[]);
+                return Some(ctx.builder.inst_results(call)[0]);
             }
-
-            // Try each channel arm non-blocking
-            for arm in channel_arms.iter() {
-                let next_block = ctx.builder.create_block();
-                let body_block = ctx.builder.create_block();
-
-                match arm {
-                    HirSelectArm::Recv { var, chan, body } => {
-                        let chan_val = compile_expr(ctx, chan)
-                            .expect("codegen: channel expr produced no value");
-                        // Allocate stack slot for try_recv output
-                        let ss = ctx.builder.create_sized_stack_slot(StackSlotData::new(
-                            StackSlotKind::ExplicitSlot,
-                            16, // sizeof(TokValue)
-                            3,  // 8-byte alignment
-                        ));
-                        let out_ptr = ctx.builder.ins().stack_addr(PTR, ss, 0);
-                        let try_recv_ref = ctx.get_runtime_func_ref("tok_channel_try_recv");
-                        let call = ctx.builder.ins().call(try_recv_ref, &[chan_val, out_ptr]);
-                        let ok = ctx.builder.inst_results(call)[0];
-                        ctx.builder.ins().brif(ok, body_block, &[], next_block, &[]);
-
-                        // Body block: received successfully
-                        // out_ptr is a pointer to TokValue on the stack — use it as Any
-                        ctx.builder.switch_to_block(body_block);
-                        ctx.builder.seal_block(body_block);
-                        let ct = cl_type_or_i64(&Type::Any);
-                        let v = ctx.new_var(ct);
-                        ctx.builder.def_var(v, out_ptr);
-                        ctx.vars.insert(var.clone(), (v, Type::Any));
-                        ctx.block_terminated = false;
-                        compile_body(ctx, body, &Type::Nil);
-                        if !ctx.block_terminated {
-                            ctx.builder.ins().jump(merge_block, &[]);
-                        }
-                    }
-                    HirSelectArm::Send { chan, value, body } => {
-                        let chan_val = compile_expr(ctx, chan)
-                            .expect("codegen: channel expr produced no value");
-                        let val = compile_expr(ctx, value)
-                            .expect("codegen: value expr produced no value");
-                        let (tag, data) = to_tokvalue(ctx, val, &value.ty);
-                        let try_send_ref = ctx.get_runtime_func_ref("tok_channel_try_send");
-                        let call = ctx.builder.ins().call(try_send_ref, &[chan_val, tag, data]);
-                        let ok = ctx.builder.inst_results(call)[0];
-                        ctx.builder.ins().brif(ok, body_block, &[], next_block, &[]);
-
-                        // Body block: sent successfully
-                        ctx.builder.switch_to_block(body_block);
-                        ctx.builder.seal_block(body_block);
-                        ctx.block_terminated = false;
-                        compile_body(ctx, body, &Type::Nil);
-                        if !ctx.block_terminated {
-                            ctx.builder.ins().jump(merge_block, &[]);
-                        }
-                    }
-                    HirSelectArm::Default(_) => unreachable!(),
-                }
-
-                ctx.builder.switch_to_block(next_block);
-                ctx.builder.seal_block(next_block);
+            panic!("Dynamic imports not supported in compiled mode");
+        }
+        "tok_array_filter" => {
+            if can_inline_hof(&args[1], &args[0].ty, 1) {
+                return compile_inline_filter(ctx, &args[0], &args[1], result_ty);
             }
+            let arr_raw =
+                compile_expr(ctx, &args[0]).expect("codegen: args[0] produced no value");
+            let arr = unwrap_any_ptr(ctx, arr_raw, &args[0].ty);
+            let closure =
+                compile_expr(ctx, &args[1]).expect("codegen: args[1] produced no value");
+            let func_ref = ctx.get_runtime_func_ref("tok_array_filter");
+            let call = ctx.builder.ins().call(func_ref, &[arr, closure]);
+            let result = ctx.builder.inst_results(call)[0];
+            if matches!(result_ty, Type::Any | Type::Optional(_) | Type::Result(_)) {
+                let tag = ctx.builder.ins().iconst(types::I64, TAG_ARRAY);
+                return Some(alloc_tokvalue_on_stack(ctx, tag, result));
+            }
+            return Some(result);
+        }
+        "tok_array_reduce" => {
+            if can_inline_hof(&args[2], &args[0].ty, 2) {
+                return compile_inline_reduce(ctx, &args[0], &args[1], &args[2], result_ty);
+            }
+            let arr_raw =
+                compile_expr(ctx, &args[0]).expect("codegen: args[0] produced no value");
+            let arr = unwrap_any_ptr(ctx, arr_raw, &args[0].ty);
+            let init_val = compile_expr(ctx, &args[1]);
+            let closure =
+                compile_expr(ctx, &args[2]).expect("codegen: args[2] produced no value");
+            let (init_tag, init_data) = if let Some(iv) = init_val {
+                to_tokvalue(ctx, iv, &args[1].ty)
+            } else {
+                let zero = ctx.builder.ins().iconst(types::I64, 0);
+                (zero, zero)
+            };
+            let func_ref = ctx.get_runtime_func_ref("tok_array_reduce");
+            let call = ctx
+                .builder
+                .ins()
+                .call(func_ref, &[arr, init_tag, init_data, closure]);
+            let results = ctx.builder.inst_results(call);
+            return Some(from_tokvalue(ctx, results[0], results[1], result_ty));
+        }
+        "tok_array_push" => {
+            let arr_raw =
+                compile_expr(ctx, &args[0]).expect("codegen: args[0] produced no value");
+            let arr = unwrap_any_ptr(ctx, arr_raw, &args[0].ty);
+            let val =
+                compile_expr(ctx, &args[1]).expect("codegen: args[1] produced no value");
+            let (tag, data) = to_tokvalue(ctx, val, &args[1].ty);
+            let func_ref = ctx.get_runtime_func_ref("tok_array_push");
+            let call = ctx.builder.ins().call(func_ref, &[arr, tag, data]);
+            return Some(ctx.builder.inst_results(call)[0]);
+        }
+        "tok_value_to_string" => {
+            let val =
+                compile_expr(ctx, &args[0]).expect("codegen: args[0] produced no value");
+            let (tag, data) = to_tokvalue(ctx, val, &args[0].ty);
+            let func_ref = ctx.get_runtime_func_ref("tok_value_to_string");
+            let call = ctx.builder.ins().call(func_ref, &[tag, data]);
+            return Some(ctx.builder.inst_results(call)[0]);
+        }
+        "tok_array_concat" => {
+            let a_raw =
+                compile_expr(ctx, &args[0]).expect("codegen: args[0] produced no value");
+            let a = unwrap_any_ptr(ctx, a_raw, &args[0].ty);
+            let b_raw =
+                compile_expr(ctx, &args[1]).expect("codegen: args[1] produced no value");
+            let b = unwrap_any_ptr(ctx, b_raw, &args[1].ty);
+            let func_ref = ctx.get_runtime_func_ref("tok_array_concat");
+            let call = ctx.builder.ins().call(func_ref, &[a, b]);
+            return Some(ctx.builder.inst_results(call)[0]);
+        }
+        _ => {}
+    }
+    // Generic runtime call
+    let mut arg_vals = Vec::new();
+    for arg in args {
+        if let Some(v) = compile_expr(ctx, arg) {
+            arg_vals.push(v);
+        }
+    }
+    let func_ref = ctx.get_runtime_func_ref(name);
+    let call = ctx.builder.ins().call(func_ref, &arg_vals);
+    let results = ctx.builder.inst_results(call);
+    if results.is_empty() {
+        None
+    } else {
+        Some(results[0])
+    }
+}
 
-            // All non-blocking attempts failed — we're in the fallthrough block
-            if let Some(body) = default_body {
-                // Default arm exists: execute it
+/// Compile a lambda expression: capture analysis, env allocation, closure creation.
+fn compile_lambda_expr(
+    ctx: &mut FuncCtx,
+    params: &[HirParam],
+    ret_type: &Type,
+    body: &[HirStmt],
+) -> Option<Value> {
+    let lambda_name = format!("__tok_lambda_{}", ctx.compiler.lambda_counter);
+    ctx.compiler.lambda_counter += 1;
+
+    let param_names: HashSet<String> = params.iter().map(|p| p.name.clone()).collect();
+    let free_var_names = collect_free_vars(body, &param_names);
+    let captures = collect_captures(ctx, &free_var_names);
+
+    let mut sig = ctx.compiler.module.make_signature();
+    sig.params.push(AbiParam::new(PTR)); // env_ptr
+    for _ in params {
+        sig.params.push(AbiParam::new(types::I64)); // tag
+        sig.params.push(AbiParam::new(types::I64)); // data
+    }
+    sig.returns.push(AbiParam::new(types::I64)); // result tag
+    sig.returns.push(AbiParam::new(types::I64)); // result data
+
+    let func_id = ctx
+        .compiler
+        .module
+        .declare_function(&lambda_name, Linkage::Local, &sig)
+        .expect("codegen: failed to declare lambda");
+
+    let pending_idx = ctx.compiler.pending_lambdas.len();
+    ctx.compiler.pending_lambdas.push(PendingLambda {
+        name: lambda_name.clone(),
+        func_id,
+        params: params.to_vec(),
+        ret_type: ret_type.clone(),
+        body: body.to_vec(),
+        captures: captures.clone(),
+        specialized_param_types: None,
+    });
+
+    let func_ref = ctx
+        .compiler
+        .module
+        .declare_func_in_func(func_id, ctx.builder.func);
+    let fn_ptr = ctx.builder.ins().func_addr(PTR, func_ref);
+
+    let env_ptr = alloc_capture_env(ctx, &captures);
+
+    ctx.last_lambda_info = Some((func_id, env_ptr, pending_idx));
+
+    let arity = ctx.builder.ins().iconst(types::I32, params.len() as i64);
+    let env_count_val = ctx
+        .builder
+        .ins()
+        .iconst(types::I32, captures.len() as i64);
+    let alloc_ref = ctx.get_runtime_func_ref("tok_closure_alloc");
+    let call = ctx
+        .builder
+        .ins()
+        .call(alloc_ref, &[fn_ptr, env_ptr, arity, env_count_val]);
+    Some(ctx.builder.inst_results(call)[0])
+}
+
+/// Compile a goroutine spawn expression.
+fn compile_go_expr(ctx: &mut FuncCtx, body_expr: &HirExpr) -> Option<Value> {
+    let thunk_name = format!("__tok_goroutine_{}", ctx.compiler.lambda_counter);
+    ctx.compiler.lambda_counter += 1;
+
+    let empty_locals = HashSet::new();
+    let mut free_set = HashSet::new();
+    collect_free_vars_expr(body_expr, &empty_locals, &mut free_set, 0);
+    let captures = collect_captures(ctx, &free_set);
+
+    let mut sig = ctx.compiler.module.make_signature();
+    sig.params.push(AbiParam::new(PTR));
+    sig.returns.push(AbiParam::new(types::I64));
+    sig.returns.push(AbiParam::new(types::I64));
+
+    let func_id = ctx
+        .compiler
+        .module
+        .declare_function(&thunk_name, Linkage::Local, &sig)
+        .expect("codegen: failed to declare go thunk");
+
+    ctx.compiler.pending_lambdas.push(PendingLambda {
+        name: thunk_name.clone(),
+        func_id,
+        params: vec![],
+        ret_type: body_expr.ty.clone(),
+        body: vec![HirStmt::Expr(body_expr.clone())],
+        captures: captures.clone(),
+        specialized_param_types: None,
+    });
+
+    let func_ref = ctx
+        .compiler
+        .module
+        .declare_func_in_func(func_id, ctx.builder.func);
+    let fn_ptr = ctx.builder.ins().func_addr(PTR, func_ref);
+
+    let env_ptr = alloc_capture_env(ctx, &captures);
+
+    let go_ref = ctx.get_runtime_func_ref("tok_go");
+    let call = ctx.builder.ins().call(go_ref, &[fn_ptr, env_ptr]);
+    Some(ctx.builder.inst_results(call)[0])
+}
+
+/// Compile a channel receive or handle join expression.
+fn compile_receive_expr(ctx: &mut FuncCtx, chan_expr: &HirExpr, result_ty: &Type) -> Option<Value> {
+    let chan = compile_expr(ctx, chan_expr).expect("codegen: channel expr produced no value");
+    match &chan_expr.ty {
+        Type::Handle(_) => {
+            let func_ref = ctx.get_runtime_func_ref("tok_handle_join");
+            let call = ctx.builder.ins().call(func_ref, &[chan]);
+            let results = ctx.builder.inst_results(call);
+            Some(from_tokvalue(ctx, results[0], results[1], result_ty))
+        }
+        _ => {
+            let func_ref = ctx.get_runtime_func_ref("tok_channel_recv");
+            let call = ctx.builder.ins().call(func_ref, &[chan]);
+            let results = ctx.builder.inst_results(call);
+            Some(from_tokvalue(ctx, results[0], results[1], result_ty))
+        }
+    }
+}
+
+/// Compile a select expression (non-blocking try of each arm).
+fn compile_select_expr(ctx: &mut FuncCtx, arms: &[HirSelectArm]) -> Option<Value> {
+    let merge_block = ctx.builder.create_block();
+
+    let mut default_body: Option<&Vec<HirStmt>> = None;
+    let mut channel_arms: Vec<&HirSelectArm> = Vec::new();
+    for arm in arms.iter() {
+        match arm {
+            HirSelectArm::Default(body) => default_body = Some(body),
+            _ => channel_arms.push(arm),
+        }
+    }
+
+    for arm in channel_arms.iter() {
+        let next_block = ctx.builder.create_block();
+        let body_block = ctx.builder.create_block();
+
+        match arm {
+            HirSelectArm::Recv { var, chan, body } => {
+                let chan_val = compile_expr(ctx, chan)
+                    .expect("codegen: channel expr produced no value");
+                let ss = ctx.builder.create_sized_stack_slot(StackSlotData::new(
+                    StackSlotKind::ExplicitSlot,
+                    16,
+                    3,
+                ));
+                let out_ptr = ctx.builder.ins().stack_addr(PTR, ss, 0);
+                let try_recv_ref = ctx.get_runtime_func_ref("tok_channel_try_recv");
+                let call = ctx.builder.ins().call(try_recv_ref, &[chan_val, out_ptr]);
+                let ok = ctx.builder.inst_results(call)[0];
+                ctx.builder
+                    .ins()
+                    .brif(ok, body_block, &[], next_block, &[]);
+
+                ctx.builder.switch_to_block(body_block);
+                ctx.builder.seal_block(body_block);
+                let ct = cl_type_or_i64(&Type::Any);
+                let v = ctx.new_var(ct);
+                ctx.builder.def_var(v, out_ptr);
+                ctx.vars.insert(var.clone(), (v, Type::Any));
                 ctx.block_terminated = false;
                 compile_body(ctx, body, &Type::Nil);
                 if !ctx.block_terminated {
                     ctx.builder.ins().jump(merge_block, &[]);
                 }
-            } else if let Some(first_recv) = channel_arms
-                .iter()
-                .find(|a| matches!(a, HirSelectArm::Recv { .. }))
-            {
-                // No default: block on first recv arm
-                if let HirSelectArm::Recv { var, chan, body } = first_recv {
-                    let chan_val =
-                        compile_expr(ctx, chan).expect("codegen: channel expr produced no value");
-                    let recv_ref = ctx.get_runtime_func_ref("tok_channel_recv");
-                    let call = ctx.builder.ins().call(recv_ref, &[chan_val]);
-                    let results = ctx.builder.inst_results(call);
-                    let tag = results[0];
-                    let data = results[1];
-                    // Store as TokValue on stack for Any-typed access
-                    let val_ptr = alloc_tokvalue_on_stack(ctx, tag, data);
-                    let ct = cl_type_or_i64(&Type::Any);
-                    let v = ctx.new_var(ct);
-                    ctx.builder.def_var(v, val_ptr);
-                    ctx.vars.insert(var.clone(), (v, Type::Any));
-                    ctx.block_terminated = false;
-                    compile_body(ctx, body, &Type::Nil);
-                    if !ctx.block_terminated {
-                        ctx.builder.ins().jump(merge_block, &[]);
-                    }
+            }
+            HirSelectArm::Send { chan, value, body } => {
+                let chan_val = compile_expr(ctx, chan)
+                    .expect("codegen: channel expr produced no value");
+                let val = compile_expr(ctx, value)
+                    .expect("codegen: value expr produced no value");
+                let (tag, data) = to_tokvalue(ctx, val, &value.ty);
+                let try_send_ref = ctx.get_runtime_func_ref("tok_channel_try_send");
+                let call = ctx
+                    .builder
+                    .ins()
+                    .call(try_send_ref, &[chan_val, tag, data]);
+                let ok = ctx.builder.inst_results(call)[0];
+                ctx.builder
+                    .ins()
+                    .brif(ok, body_block, &[], next_block, &[]);
+
+                ctx.builder.switch_to_block(body_block);
+                ctx.builder.seal_block(body_block);
+                ctx.block_terminated = false;
+                compile_body(ctx, body, &Type::Nil);
+                if !ctx.block_terminated {
+                    ctx.builder.ins().jump(merge_block, &[]);
                 }
-            } else {
-                // No recv arms and no default — just jump to merge
+            }
+            HirSelectArm::Default(_) => unreachable!(),
+        }
+
+        ctx.builder.switch_to_block(next_block);
+        ctx.builder.seal_block(next_block);
+    }
+
+    if let Some(body) = default_body {
+        ctx.block_terminated = false;
+        compile_body(ctx, body, &Type::Nil);
+        if !ctx.block_terminated {
+            ctx.builder.ins().jump(merge_block, &[]);
+        }
+    } else if let Some(first_recv) = channel_arms
+        .iter()
+        .find(|a| matches!(a, HirSelectArm::Recv { .. }))
+    {
+        if let HirSelectArm::Recv { var, chan, body } = first_recv {
+            let chan_val =
+                compile_expr(ctx, chan).expect("codegen: channel expr produced no value");
+            let recv_ref = ctx.get_runtime_func_ref("tok_channel_recv");
+            let call = ctx.builder.ins().call(recv_ref, &[chan_val]);
+            let results = ctx.builder.inst_results(call);
+            let tag = results[0];
+            let data = results[1];
+            let val_ptr = alloc_tokvalue_on_stack(ctx, tag, data);
+            let ct = cl_type_or_i64(&Type::Any);
+            let v = ctx.new_var(ct);
+            ctx.builder.def_var(v, val_ptr);
+            ctx.vars.insert(var.clone(), (v, Type::Any));
+            ctx.block_terminated = false;
+            compile_body(ctx, body, &Type::Nil);
+            if !ctx.block_terminated {
                 ctx.builder.ins().jump(merge_block, &[]);
             }
+        }
+    } else {
+        ctx.builder.ins().jump(merge_block, &[]);
+    }
 
-            ctx.builder.switch_to_block(merge_block);
-            ctx.builder.seal_block(merge_block);
-            None
+    ctx.builder.switch_to_block(merge_block);
+    ctx.builder.seal_block(merge_block);
+    None
+}
+
+/// Collect captured variables from a set of free variable names.
+fn collect_captures(ctx: &FuncCtx, free_var_names: &HashSet<String>) -> Vec<CapturedVar> {
+    let mut captures: Vec<CapturedVar> = Vec::new();
+    for name in free_var_names {
+        if let Some((_var, var_ty)) = ctx.vars.get(name) {
+            captures.push(CapturedVar {
+                name: name.clone(),
+                ty: var_ty.clone(),
+            });
         }
     }
+    captures.sort_by(|a, b| a.name.cmp(&b.name));
+    captures
+}
+
+/// Allocate a capture environment and store captured variables into it.
+fn alloc_capture_env(ctx: &mut FuncCtx, captures: &[CapturedVar]) -> Value {
+    if captures.is_empty() {
+        return ctx.builder.ins().iconst(PTR, 0);
+    }
+    let count = ctx
+        .builder
+        .ins()
+        .iconst(types::I64, captures.len() as i64);
+    let alloc_ref = ctx.get_runtime_func_ref("tok_env_alloc");
+    let alloc_call = ctx.builder.ins().call(alloc_ref, &[count]);
+    let env = ctx.builder.inst_results(alloc_call)[0];
+
+    for (i, cap) in captures.iter().enumerate() {
+        let (var, var_ty) = ctx
+            .vars
+            .get(&cap.name)
+            .expect("codegen: captured var not found")
+            .clone();
+        let val = ctx.builder.use_var(var);
+        let (tag, data) = to_tokvalue(ctx, val, &var_ty);
+        let offset = (i * 16) as i32;
+        ctx.builder
+            .ins()
+            .store(MemFlags::trusted(), tag, env, offset);
+        ctx.builder
+            .ins()
+            .store(MemFlags::trusted(), data, env, offset + 8);
+        let rc_inc_ref = ctx.get_runtime_func_ref("tok_value_rc_inc");
+        ctx.builder.ins().call(rc_inc_ref, &[tag, data]);
+    }
+    env
 }
 
 // ─── Binary operators ─────────────────────────────────────────────────
