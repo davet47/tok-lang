@@ -94,7 +94,13 @@ pub extern "C" fn tok_env_alloc(count: i64) -> *mut u8 {
         return std::ptr::null_mut();
     }
     let size = (count as usize) * 16; // each TokValue is 16 bytes (tag: i64 + data: i64)
-    let layout = std::alloc::Layout::from_size_align(size, 8).unwrap();
+    let layout = match std::alloc::Layout::from_size_align(size, 8) {
+        Ok(l) => l,
+        Err(_) => {
+            eprintln!("tok_env_alloc: invalid layout (count={})", count);
+            return std::ptr::null_mut();
+        }
+    };
     unsafe {
         let ptr = std::alloc::alloc_zeroed(layout);
         if ptr.is_null() {
@@ -118,7 +124,13 @@ pub extern "C" fn tok_env_free(ptr: *mut u8, count: i64) {
             let tv_ptr = ptr.add(i * 16) as *const crate::value::TokValue;
             (*tv_ptr).rc_dec();
         }
-        let layout = std::alloc::Layout::from_size_align(size, 8).unwrap();
+        let layout = match std::alloc::Layout::from_size_align(size, 8) {
+            Ok(l) => l,
+            Err(_) => {
+                eprintln!("tok_env_free: invalid layout (count={})", count);
+                return;
+            }
+        };
         std::alloc::dealloc(ptr, layout);
     }
 }
