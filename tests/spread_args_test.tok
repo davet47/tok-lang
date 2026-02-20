@@ -1,0 +1,23 @@
+# Spread in function call arguments
+
+# Basic spread: pass array elements as separate args
+f add(a b)=a+b
+pair=[3 7]
+p(add(..pair))
+
+# Spread with fixed args before and after
+f triple(a b c)=a*100+b*10+c
+nums=[2 3]
+p(triple(1 ..nums))
+
+# Spread into variadic function
+f sum(..nums)=nums/>\(a x)=a+x
+arr=[1 2 3 4 5]
+p(sum(..arr))
+
+# Mix of spread and literal args into variadic
+p(sum(10 ..arr 20))
+
+# Spread of empty array
+f greet(..names)=#names
+p(greet(..[])==0)

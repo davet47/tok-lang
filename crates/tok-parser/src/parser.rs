@@ -35,6 +35,9 @@ pub fn parse(tokens: Vec<Token>) -> Result<Program, ParseError> {
 pub struct Parser {
     tokens: Vec<Token>,
     pos: usize,
+    /// When true, `parse_range` skips `..` so it won't be consumed as a range.
+    /// Used inside call args to allow spread syntax `f(1 ..arr)`.
+    suppress_range: bool,
 }
 
 /// Lightweight cursor for multi-token lookahead without advancing the parser.
@@ -82,7 +85,11 @@ impl<'a> LookaheadCursor<'a> {
 
 impl Parser {
     pub fn new(tokens: Vec<Token>) -> Self {
-        Parser { tokens, pos: 0 }
+        Parser {
+            tokens,
+            pos: 0,
+            suppress_range: false,
+        }
     }
 
     /// Create a lookahead cursor starting at the given absolute position.
@@ -1148,6 +1155,10 @@ impl Parser {
     /// Prec 8: Range `.. ..=` (non-associative)
     fn parse_range(&mut self) -> Result<Expr, ParseError> {
         let expr = self.parse_additive()?;
+        // In call args context, don't consume `..` as range — it's a spread boundary.
+        if self.suppress_range {
+            return Ok(expr);
+        }
         match self.peek() {
             Token::DotDot => {
                 self.advance();
@@ -1369,11 +1380,23 @@ impl Parser {
 
     fn parse_call_args(&mut self) -> Result<Vec<Expr>, ParseError> {
         let mut args = Vec::new();
+        // Suppress range parsing so `..` is available as spread boundary.
+        // e.g. `f(1 ..arr)` → two args: `1` and `..arr`, not `1..arr` (range).
+        // Ranges in call args need explicit parens: `f((0..10))`.
+        let prev = self.suppress_range;
+        self.suppress_range = true;
         self.skip_newlines();
         while !matches!(self.peek(), Token::RParen | Token::Eof) {
-            args.push(self.parse_expr()?);
+            if matches!(self.peek(), Token::DotDot) {
+                self.advance(); // consume ..
+                let inner = self.parse_expr()?;
+                args.push(Expr::Spread(Box::new(inner)));
+            } else {
+                args.push(self.parse_expr()?);
+            }
             self.skip_newlines();
         }
+        self.suppress_range = prev;
         Ok(args)
     }
 
@@ -2335,6 +2358,20 @@ mod tests {
                 }
             }
             _ => panic!("expected Member"),
+        }
+    }
+
+    #[test]
+    fn test_spread_in_call() {
+        let prog = parse_str("f(1 ..arr 2)").unwrap();
+        match &prog[0] {
+            Stmt::Expr(Expr::Call { args, .. }) => {
+                assert_eq!(args.len(), 3);
+                assert!(matches!(args[0], Expr::Int(1)));
+                assert!(matches!(args[1], Expr::Spread(_)));
+                assert!(matches!(args[2], Expr::Int(2)));
+            }
+            _ => panic!("expected Call with spread arg"),
         }
     }
 }

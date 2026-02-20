@@ -35,6 +35,8 @@ struct Lowerer<'a> {
     /// Variadic function info (pre-collected for forward refs).
     /// Maps function name → number of fixed (non-variadic) params.
     func_variadic: std::collections::HashMap<String, usize>,
+    /// Total parameter count for named functions (pre-collected for spread desugaring).
+    func_arity: std::collections::HashMap<String, usize>,
 }
 
 impl<'a> Lowerer<'a> {
@@ -45,6 +47,7 @@ impl<'a> Lowerer<'a> {
             scopes: Vec::new(),
             func_defaults: std::collections::HashMap::new(),
             func_variadic: std::collections::HashMap::new(),
+            func_arity: std::collections::HashMap::new(),
         }
     }
 
@@ -896,6 +899,10 @@ impl<'a> Lowerer<'a> {
 
             // Function call
             Expr::Call { func, args } => {
+                let has_spread = args.iter().any(|a| matches!(a, Expr::Spread(_)));
+                if has_spread {
+                    return self.lower_call_with_spread(func, args);
+                }
                 let hir_func = self.lower_expr(func);
                 let mut hir_args: Vec<HirExpr> = args.iter().map(|a| self.lower_expr(a)).collect();
                 // Pad missing args with default expressions for named functions
@@ -1362,6 +1369,166 @@ impl<'a> Lowerer<'a> {
         result.unwrap_or_else(|| HirExpr::new(HirExprKind::Str(String::new()), Type::Str))
     }
 
+    /// Lower a function call that has spread arguments.
+    ///
+    /// Desugars `f(a ..arr b)` into:
+    /// ```text
+    /// { _tmp = alloc(); _tmp = push(_tmp, a); _tmp = concat(_tmp, arr);
+    ///   _tmp = push(_tmp, b); f(_tmp[0], _tmp[1], ..., _tmp[N-1]) }
+    /// ```
+    /// For variadic functions: fixed args extracted by index, rest via slice.
+    fn lower_call_with_spread(&mut self, func: &Expr, args: &[Expr]) -> HirExpr {
+        let hir_func = self.lower_expr(func);
+        let arr_ty = Type::Array(Box::new(Type::Any));
+
+        // Step 1: Build a flat array of all args (same pattern as array spread)
+        let tmp = self.gensym();
+        let mut stmts = Vec::new();
+
+        // _tmp = tok_array_alloc()
+        stmts.push(HirStmt::Assign {
+            name: tmp.clone(),
+            ty: arr_ty.clone(),
+            value: HirExpr::new(
+                HirExprKind::RuntimeCall {
+                    name: "tok_array_alloc".to_string(),
+                    args: vec![],
+                },
+                arr_ty.clone(),
+            ),
+        });
+
+        for arg in args {
+            match arg {
+                Expr::Spread(inner) => {
+                    let hir_inner = self.lower_expr(inner);
+                    // _tmp = tok_array_concat(_tmp, inner)
+                    stmts.push(HirStmt::Assign {
+                        name: tmp.clone(),
+                        ty: arr_ty.clone(),
+                        value: HirExpr::new(
+                            HirExprKind::RuntimeCall {
+                                name: "tok_array_concat".to_string(),
+                                args: vec![
+                                    HirExpr::new(HirExprKind::Ident(tmp.clone()), arr_ty.clone()),
+                                    hir_inner,
+                                ],
+                            },
+                            arr_ty.clone(),
+                        ),
+                    });
+                }
+                _ => {
+                    let hir_arg = self.lower_expr(arg);
+                    // _tmp = tok_array_push(_tmp, arg)
+                    stmts.push(HirStmt::Assign {
+                        name: tmp.clone(),
+                        ty: arr_ty.clone(),
+                        value: HirExpr::new(
+                            HirExprKind::RuntimeCall {
+                                name: "tok_array_push".to_string(),
+                                args: vec![
+                                    HirExpr::new(HirExprKind::Ident(tmp.clone()), arr_ty.clone()),
+                                    hir_arg,
+                                ],
+                            },
+                            arr_ty.clone(),
+                        ),
+                    });
+                }
+            }
+        }
+
+        // Step 2: Determine arity and extract args from the flat array
+        let func_name = if let Expr::Ident(name) = func {
+            Some(name.as_str())
+        } else {
+            None
+        };
+
+        let n_fixed = func_name.and_then(|n| self.func_variadic.get(n).copied());
+        let arity = func_name.and_then(|n| self.func_arity.get(n).copied()).or(
+            if let Type::Func(ft) = &hir_func.ty {
+                Some(ft.params.len())
+            } else {
+                None
+            },
+        );
+
+        let tmp_ident = || HirExpr::new(HirExprKind::Ident(tmp.clone()), arr_ty.clone());
+
+        let mut hir_args = Vec::new();
+
+        if let Some(n_fixed) = n_fixed {
+            // Variadic function: extract fixed args, slice the rest
+            for i in 0..n_fixed {
+                hir_args.push(HirExpr::new(
+                    HirExprKind::Index {
+                        target: Box::new(tmp_ident()),
+                        index: Box::new(HirExpr::new(HirExprKind::Int(i as i64), Type::Int)),
+                    },
+                    Type::Any,
+                ));
+            }
+            // Variadic rest: tok_array_slice(_tmp, n_fixed, tok_array_len(_tmp))
+            let len_expr = HirExpr::new(
+                HirExprKind::RuntimeCall {
+                    name: "tok_array_len".to_string(),
+                    args: vec![tmp_ident()],
+                },
+                Type::Int,
+            );
+            hir_args.push(HirExpr::new(
+                HirExprKind::RuntimeCall {
+                    name: "tok_array_slice".to_string(),
+                    args: vec![
+                        tmp_ident(),
+                        HirExpr::new(HirExprKind::Int(n_fixed as i64), Type::Int),
+                        len_expr,
+                    ],
+                },
+                arr_ty.clone(),
+            ));
+        } else if let Some(arity) = arity {
+            // Non-variadic function with known arity: extract each arg by index
+            for i in 0..arity {
+                hir_args.push(HirExpr::new(
+                    HirExprKind::Index {
+                        target: Box::new(tmp_ident()),
+                        index: Box::new(HirExpr::new(HirExprKind::Int(i as i64), Type::Int)),
+                    },
+                    Type::Any,
+                ));
+            }
+        } else {
+            // Unknown arity: pass the flat array as a single spread arg.
+            // This works for variadic functions that take (..args).
+            hir_args.push(tmp_ident());
+        }
+
+        let ret_ty = match &hir_func.ty {
+            Type::Func(ft) => *ft.ret.clone(),
+            _ => Type::Any,
+        };
+
+        let call_expr = HirExpr::new(
+            HirExprKind::Call {
+                func: Box::new(hir_func),
+                args: hir_args,
+            },
+            ret_ty.clone(),
+        );
+
+        // Wrap in block: { _tmp = alloc(); ...; f(_tmp[0], ...) }
+        HirExpr::new(
+            HirExprKind::Block {
+                stmts,
+                expr: Some(Box::new(call_expr)),
+            },
+            ret_ty,
+        )
+    }
+
     /// Lower array literal, handling spread elements.
     fn lower_array(&mut self, elts: &[Expr]) -> HirExpr {
         let has_spread = elts.iter().any(|e| matches!(e, Expr::Spread(_)));
@@ -1459,6 +1626,13 @@ impl<'a> Lowerer<'a> {
         match right {
             // x |> f(y, z) -> f(x, y, z)
             Expr::Call { func, args } => {
+                // If any arg is a spread, delegate to lower_call_with_spread
+                // with left prepended to the args list
+                if args.iter().any(|a| matches!(a, Expr::Spread(_))) {
+                    let mut all_args = vec![left.clone()];
+                    all_args.extend(args.iter().cloned());
+                    return self.lower_call_with_spread(func, &all_args);
+                }
                 let hir_func = self.lower_expr(func);
                 let mut hir_args = vec![hir_left];
                 for arg in args {
@@ -1990,6 +2164,7 @@ pub fn lower(program: &Program, type_info: &TypeInfo) -> HirProgram {
             if params.last().is_some_and(|p| p.variadic) {
                 lowerer.func_variadic.insert(name.clone(), params.len() - 1);
             }
+            lowerer.func_arity.insert(name.clone(), params.len());
         }
     }
     lowerer.push_scope(); // top-level scope for local variable tracking
@@ -3023,6 +3198,132 @@ mod tests {
                 );
             }
             _ => panic!("expected FuncDecl"),
+        }
+    }
+
+    #[test]
+    fn spread_in_call_desugared_to_block() {
+        // f add(a b)=a+b
+        // r=add(..arr)   -> should desugar to block with array build + index extraction
+        let prog = vec![
+            Stmt::FuncDecl {
+                name: "add".into(),
+                params: vec![
+                    Param {
+                        name: "a".into(),
+                        ty: None,
+                        default: None,
+                        variadic: false,
+                    },
+                    Param {
+                        name: "b".into(),
+                        ty: None,
+                        default: None,
+                        variadic: false,
+                    },
+                ],
+                ret_type: None,
+                body: FuncBody::Expr(Box::new(Expr::BinOp {
+                    op: BinOp::Add,
+                    left: Box::new(Expr::Ident("a".into())),
+                    right: Box::new(Expr::Ident("b".into())),
+                })),
+            },
+            Stmt::Assign {
+                name: "r".into(),
+                ty: None,
+                value: Expr::Call {
+                    func: Box::new(Expr::Ident("add".into())),
+                    args: vec![Expr::Spread(Box::new(Expr::Ident("arr".into())))],
+                },
+            },
+        ];
+        let hir = lower_program(prog);
+        assert_eq!(hir.len(), 2);
+        // The call should be wrapped in a Block (array build + call)
+        match &hir[1] {
+            HirStmt::Assign { value, .. } => match &value.kind {
+                HirExprKind::Block { stmts, expr } => {
+                    // stmts: alloc + concat (for the spread)
+                    assert!(stmts.len() >= 2, "should have alloc + concat stmts");
+                    // expr: the call with indexed args
+                    let call = expr.as_ref().unwrap();
+                    match &call.kind {
+                        HirExprKind::Call { args, .. } => {
+                            assert_eq!(args.len(), 2, "add takes 2 params, should extract 2 args");
+                            // Both args should be Index expressions
+                            assert!(
+                                matches!(args[0].kind, HirExprKind::Index { .. }),
+                                "first arg should be Index"
+                            );
+                            assert!(
+                                matches!(args[1].kind, HirExprKind::Index { .. }),
+                                "second arg should be Index"
+                            );
+                        }
+                        _ => panic!("expected Call inside Block"),
+                    }
+                }
+                _ => panic!("expected Block for spread call"),
+            },
+            _ => panic!("expected Assign"),
+        }
+    }
+
+    #[test]
+    fn spread_in_variadic_call_desugared() {
+        // f sum(..nums)=nums
+        // r=sum(1 ..arr 2)   -> should build flat array, extract via slice
+        let prog = vec![
+            Stmt::FuncDecl {
+                name: "sum".into(),
+                params: vec![Param {
+                    name: "nums".into(),
+                    ty: None,
+                    default: None,
+                    variadic: true,
+                }],
+                ret_type: None,
+                body: FuncBody::Expr(Box::new(Expr::Ident("nums".into()))),
+            },
+            Stmt::Assign {
+                name: "r".into(),
+                ty: None,
+                value: Expr::Call {
+                    func: Box::new(Expr::Ident("sum".into())),
+                    args: vec![
+                        Expr::Int(1),
+                        Expr::Spread(Box::new(Expr::Ident("arr".into()))),
+                        Expr::Int(2),
+                    ],
+                },
+            },
+        ];
+        let hir = lower_program(prog);
+        assert_eq!(hir.len(), 2);
+        // The call should be wrapped in a Block
+        match &hir[1] {
+            HirStmt::Assign { value, .. } => match &value.kind {
+                HirExprKind::Block { stmts, expr } => {
+                    // stmts: alloc + push(1) + concat(arr) + push(2) = 4
+                    assert_eq!(stmts.len(), 4, "should have alloc + push + concat + push");
+                    // expr: call with 1 arg (the sliced array for variadic)
+                    let call = expr.as_ref().unwrap();
+                    match &call.kind {
+                        HirExprKind::Call { args, .. } => {
+                            // 0 fixed params → slice from 0..len = the whole array
+                            assert_eq!(args.len(), 1, "variadic with 0 fixed → 1 array arg");
+                            assert!(
+                                matches!(args[0].kind, HirExprKind::RuntimeCall { .. }),
+                                "arg should be tok_array_slice"
+                            );
+                        }
+                        _ => panic!("expected Call inside Block"),
+                    }
+                }
+                _ => panic!("expected Block for spread call"),
+            },
+            _ => panic!("expected Assign"),
         }
     }
 }
