@@ -89,29 +89,7 @@ pub extern "C" fn tok_math_max_t(
 
 #[no_mangle]
 pub extern "C" fn tok_math_random_t(_env: *mut u8) -> TokValue {
-    // Thread-safe xorshift PRNG using thread-local state.
-    use std::cell::Cell;
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    thread_local! {
-        static STATE: Cell<u64> = Cell::new({
-            let seed = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_nanos() as u64;
-            if seed == 0 { 1 } else { seed }
-        });
-    }
-
-    let f = STATE.with(|s| {
-        let mut x = s.get();
-        x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
-        s.set(x);
-        (x >> 11) as f64 / (1u64 << 53) as f64
-    });
-    TokValue::from_float(f)
+    TokValue::from_float(crate::stdlib_helpers::xorshift_rand())
 }
 
 // ═══════════════════════════════════════════════════════════════

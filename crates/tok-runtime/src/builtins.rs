@@ -351,31 +351,7 @@ pub extern "C" fn tok_value_to_bool(val: TokValue) -> i8 {
 
 #[no_mangle]
 pub extern "C" fn tok_rand() -> f64 {
-    // Simple xorshift-based PRNG seeded from system time.
-    // No external dependency needed.
-    use std::cell::Cell;
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    thread_local! {
-        static STATE: Cell<u64> = Cell::new({
-            let seed = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_nanos() as u64;
-            // Make sure seed is never 0 for xorshift
-            if seed == 0 { 1 } else { seed }
-        });
-    }
-
-    STATE.with(|s| {
-        let mut x = s.get();
-        x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
-        s.set(x);
-        // Convert to [0.0, 1.0)
-        (x >> 11) as f64 / (1u64 << 53) as f64
-    })
+    crate::stdlib_helpers::xorshift_rand()
 }
 
 #[no_mangle]

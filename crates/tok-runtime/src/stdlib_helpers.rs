@@ -93,6 +93,34 @@ pub fn to_result_tuple(result: Result<String, String>) -> TokValue {
     }
 }
 
+/// Thread-local xorshift64 PRNG returning a value in [0.0, 1.0).
+///
+/// Used by both the `rand()` builtin and `math.random()`. The state is
+/// lazily seeded from the system clock on first use in each thread.
+pub fn xorshift_rand() -> f64 {
+    use std::cell::Cell;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    thread_local! {
+        static STATE: Cell<u64> = Cell::new({
+            let seed = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos() as u64;
+            if seed == 0 { 1 } else { seed }
+        });
+    }
+
+    STATE.with(|s| {
+        let mut x = s.get();
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        s.set(x);
+        (x >> 11) as f64 / (1u64 << 53) as f64
+    })
+}
+
 /// Generate a 1-arg `f64 → f64` trampoline function.
 ///
 /// Produces a `#[no_mangle] pub extern "C" fn $name(_env, tag, data) -> TokValue`
