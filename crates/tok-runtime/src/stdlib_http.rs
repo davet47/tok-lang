@@ -5,7 +5,6 @@
 
 use crate::map::TokMap;
 use crate::string::TokString;
-use crate::tuple::TokTuple;
 use crate::value::{TokValue, TAG_FUNC, TAG_INT, TAG_MAP, TAG_STRING};
 
 use std::io::{BufRead, BufReader, Read, Write};
@@ -27,7 +26,7 @@ fn get_tls_config() -> Arc<rustls::ClientConfig> {
         .clone()
 }
 
-use crate::stdlib_helpers::{arg_to_i64, arg_to_str, insert_func};
+use crate::stdlib_helpers::{arg_to_i64, arg_to_str, insert_func, to_result_tuple};
 
 /// Parse a URL into (host, port, path, is_https).
 fn parse_url(url: &str) -> Option<(String, u16, String, bool)> {
@@ -198,25 +197,6 @@ fn decode_chunked(body: &str) -> String {
     result
 }
 
-/// Helper: wrap result as (body, err) tuple
-fn to_result_tuple(result: Result<String, String>) -> TokValue {
-    match result {
-        Ok(body) => {
-            let elems = vec![
-                TokValue::from_string(TokString::alloc(body)),
-                TokValue::nil(),
-            ];
-            TokValue::from_tuple(TokTuple::alloc(elems))
-        }
-        Err(err) => {
-            let elems = vec![
-                TokValue::nil(),
-                TokValue::from_string(TokString::alloc(err)),
-            ];
-            TokValue::from_tuple(TokTuple::alloc(elems))
-        }
-    }
-}
 
 // ═══════════════════════════════════════════════════════════════
 // Trampolines

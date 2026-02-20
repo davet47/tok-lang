@@ -10,10 +10,9 @@
 use crate::map::TokMap;
 use crate::stdlib_http::http_request_with_headers;
 use crate::string::TokString;
-use crate::tuple::TokTuple;
 use crate::value::{TokValue, TAG_ARRAY, TAG_FLOAT, TAG_INT, TAG_MAP, TAG_NIL, TAG_STRING};
 
-use crate::stdlib_helpers::{arg_to_str, insert_func};
+use crate::stdlib_helpers::{arg_to_str, insert_func, to_result_tuple};
 
 /// Get a string field from a TokMap, or default.
 unsafe fn map_get_str(map: *const TokMap, key: &str) -> Option<String> {
@@ -57,25 +56,6 @@ unsafe fn map_get_float(map: *const TokMap, key: &str) -> Option<f64> {
             None
         }
     })
-}
-
-fn to_result_tuple(result: Result<String, String>) -> TokValue {
-    match result {
-        Ok(body) => {
-            let elems = vec![
-                TokValue::from_string(TokString::alloc(body)),
-                TokValue::nil(),
-            ];
-            TokValue::from_tuple(TokTuple::alloc(elems))
-        }
-        Err(err) => {
-            let elems = vec![
-                TokValue::nil(),
-                TokValue::from_string(TokString::alloc(err)),
-            ];
-            TokValue::from_tuple(TokTuple::alloc(elems))
-        }
-    }
 }
 
 /// Escape a string for JSON (handle backslash, quotes, newlines, tabs).

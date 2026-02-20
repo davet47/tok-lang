@@ -7,6 +7,7 @@
 use crate::closure::TokClosure;
 use crate::map::TokMap;
 use crate::string::TokString;
+use crate::tuple::TokTuple;
 use crate::value::{safe_f64_to_i64, TokValue, TAG_FLOAT, TAG_INT, TAG_STRING};
 
 /// Insert a function entry into a stdlib module map.
@@ -67,6 +68,28 @@ pub fn arg_to_f64(tag: i64, data: i64) -> f64 {
         TAG_FLOAT => f64::from_bits(data as u64),
         TAG_INT => data as f64,
         _ => 0.0,
+    }
+}
+
+/// Wrap a `Result<String, String>` as a Tok result tuple `(value, error)`.
+///
+/// Success: `(string_value, Nil)`.  Failure: `(Nil, error_string)`.
+pub fn to_result_tuple(result: Result<String, String>) -> TokValue {
+    match result {
+        Ok(body) => {
+            let elems = vec![
+                TokValue::from_string(TokString::alloc(body)),
+                TokValue::nil(),
+            ];
+            TokValue::from_tuple(TokTuple::alloc(elems))
+        }
+        Err(err) => {
+            let elems = vec![
+                TokValue::nil(),
+                TokValue::from_string(TokString::alloc(err)),
+            ];
+            TokValue::from_tuple(TokTuple::alloc(elems))
+        }
     }
 }
 
