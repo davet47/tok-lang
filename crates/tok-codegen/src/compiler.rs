@@ -6050,9 +6050,7 @@ fn retype_expr(expr: &HirExpr, type_map: &HashMap<String, Type>) -> HirExpr {
                 **ee = retype_expr(ee, type_map);
             }
         }
-        HirExprKind::Block {
-            expr: Some(e), ..
-        } => {
+        HirExprKind::Block { expr: Some(e), .. } => {
             **e = retype_expr(e, type_map);
         }
         HirExprKind::Array(elems) | HirExprKind::Tuple(elems) => {
