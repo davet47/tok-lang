@@ -14,8 +14,17 @@ use serde_json::Value as JsonValue;
 
 use crate::stdlib_helpers::{arg_to_str, insert_func};
 
+const MAX_DEPTH: usize = 128;
+
 /// Convert a serde_json::Value into a TokValue.
 fn json_to_tok(jv: &JsonValue) -> TokValue {
+    json_to_tok_depth(jv, 0)
+}
+
+fn json_to_tok_depth(jv: &JsonValue, depth: usize) -> TokValue {
+    if depth >= MAX_DEPTH {
+        return TokValue::nil();
+    }
     match jv {
         JsonValue::Null => TokValue::nil(),
         JsonValue::Bool(b) => TokValue::from_bool(*b),
@@ -33,7 +42,7 @@ fn json_to_tok(jv: &JsonValue) -> TokValue {
             let tok_arr = TokArray::alloc();
             unsafe {
                 for item in arr {
-                    (*tok_arr).data.push(json_to_tok(item));
+                    (*tok_arr).data.push(json_to_tok_depth(item, depth + 1));
                 }
             }
             TokValue::from_array(tok_arr)
@@ -42,7 +51,7 @@ fn json_to_tok(jv: &JsonValue) -> TokValue {
             let tok_map = TokMap::alloc();
             unsafe {
                 for (k, v) in obj {
-                    (*tok_map).data.insert(k.clone(), json_to_tok(v));
+                    (*tok_map).data.insert(k.clone(), json_to_tok_depth(v, depth + 1));
                 }
             }
             TokValue::from_map(tok_map)
@@ -52,6 +61,13 @@ fn json_to_tok(jv: &JsonValue) -> TokValue {
 
 /// Convert a TokValue into a serde_json::Value.
 unsafe fn tok_to_json(tv: &TokValue) -> JsonValue {
+    tok_to_json_depth(tv, 0)
+}
+
+unsafe fn tok_to_json_depth(tv: &TokValue, depth: usize) -> JsonValue {
+    if depth >= MAX_DEPTH {
+        return JsonValue::Null;
+    }
     match tv.tag {
         TAG_NIL => JsonValue::Null,
         TAG_BOOL => JsonValue::Bool(tv.data.bool_val != 0),
@@ -77,7 +93,11 @@ unsafe fn tok_to_json(tv: &TokValue) -> JsonValue {
             if p.is_null() {
                 JsonValue::Array(vec![])
             } else {
-                let items: Vec<JsonValue> = (*p).data.iter().map(|v| tok_to_json(v)).collect();
+                let items: Vec<JsonValue> = (*p)
+                    .data
+                    .iter()
+                    .map(|v| tok_to_json_depth(v, depth + 1))
+                    .collect();
                 JsonValue::Array(items)
             }
         }
@@ -88,7 +108,7 @@ unsafe fn tok_to_json(tv: &TokValue) -> JsonValue {
             } else {
                 let mut obj = serde_json::Map::new();
                 for (k, v) in &(*p).data {
-                    obj.insert(k.clone(), tok_to_json(v));
+                    obj.insert(k.clone(), tok_to_json_depth(v, depth + 1));
                 }
                 JsonValue::Object(obj)
             }
@@ -98,7 +118,11 @@ unsafe fn tok_to_json(tv: &TokValue) -> JsonValue {
             if p.is_null() {
                 JsonValue::Array(vec![])
             } else {
-                let items: Vec<JsonValue> = (*p).data.iter().map(|v| tok_to_json(v)).collect();
+                let items: Vec<JsonValue> = (*p)
+                    .data
+                    .iter()
+                    .map(|v| tok_to_json_depth(v, depth + 1))
+                    .collect();
                 JsonValue::Array(items)
             }
         }

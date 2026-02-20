@@ -14,6 +14,8 @@ use crate::value::{
 
 use crate::stdlib_helpers::{arg_to_str, insert_func};
 
+const MAX_DEPTH: usize = 128;
+
 /// Convert a TokValue to its string representation for template output.
 unsafe fn value_to_string(tv: &TokValue) -> String {
     match tv.tag {
@@ -89,7 +91,7 @@ fn parse_template(input: &str) -> Vec<Node> {
                     let key = rest.trim().to_string();
                     // Parse children until matching {./key.}
                     let close_tag = format!("/{}", key);
-                    let (children, new_pos) = parse_section_body(input, tag_end + 2, &close_tag);
+                    let (children, new_pos) = parse_section_body(input, tag_end + 2, &close_tag, 0);
                     nodes.push(Node::Section(key, children));
                     pos = new_pos;
                     continue;
@@ -97,7 +99,7 @@ fn parse_template(input: &str) -> Vec<Node> {
                     // Inverted section open
                     let key = rest.trim().to_string();
                     let close_tag = format!("/{}", key);
-                    let (children, new_pos) = parse_section_body(input, tag_end + 2, &close_tag);
+                    let (children, new_pos) = parse_section_body(input, tag_end + 2, &close_tag, 0);
                     nodes.push(Node::Inverted(key, children));
                     pos = new_pos;
                     continue;
@@ -170,7 +172,10 @@ fn find_close_tag(bytes: &[u8], start: usize) -> Option<usize> {
 
 /// Parse template body until we find the matching close tag `{./key.}`.
 /// Returns (children, position after the close tag).
-fn parse_section_body(input: &str, start: usize, close_tag: &str) -> (Vec<Node>, usize) {
+fn parse_section_body(input: &str, start: usize, close_tag: &str, depth: usize) -> (Vec<Node>, usize) {
+    if depth >= MAX_DEPTH {
+        return (Vec::new(), input.len());
+    }
     let mut nodes = Vec::new();
     let mut pos = start;
     let bytes = input.as_bytes();
@@ -223,14 +228,14 @@ fn parse_section_body(input: &str, start: usize, close_tag: &str) -> (Vec<Node>,
                 } else if let Some(rest) = inner.strip_prefix('#') {
                     let key = rest.trim().to_string();
                     let nested_close = format!("/{}", key);
-                    let (children, new_pos) = parse_section_body(input, tag_end + 2, &nested_close);
+                    let (children, new_pos) = parse_section_body(input, tag_end + 2, &nested_close, depth + 1);
                     nodes.push(Node::Section(key, children));
                     pos = new_pos;
                     continue;
                 } else if let Some(rest) = inner.strip_prefix('^') {
                     let key = rest.trim().to_string();
                     let nested_close = format!("/{}", key);
-                    let (children, new_pos) = parse_section_body(input, tag_end + 2, &nested_close);
+                    let (children, new_pos) = parse_section_body(input, tag_end + 2, &nested_close, depth + 1);
                     nodes.push(Node::Inverted(key, children));
                     pos = new_pos;
                     continue;

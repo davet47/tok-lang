@@ -13,6 +13,8 @@ use crate::value::{
 
 use crate::stdlib_helpers::{arg_to_str, insert_func};
 
+const MAX_DEPTH: usize = 128;
+
 // ═══════════════════════════════════════════════════════════════
 // TOON Parser
 // ═══════════════════════════════════════════════════════════════
@@ -77,7 +79,7 @@ impl<'a> ToonParser<'a> {
         }
 
         // Otherwise: root object
-        self.parse_object_block(0)
+        self.parse_object_block(0, 0)
     }
 
     /// Parse a root-level array (no key prefix).
@@ -100,13 +102,16 @@ impl<'a> ToonParser<'a> {
                 // Mixed root array
                 let base_indent = self.lines[self.pos].indent;
                 self.advance();
-                self.parse_mixed_array(base_indent)
+                self.parse_mixed_array(base_indent, 0)
             }
         }
     }
 
     /// Parse an object block at a given indentation level.
-    fn parse_object_block(&mut self, base_indent: usize) -> TokValue {
+    fn parse_object_block(&mut self, base_indent: usize, depth: usize) -> TokValue {
+        if depth >= MAX_DEPTH {
+            return TokValue::from_map(TokMap::alloc());
+        }
         let map = TokMap::alloc();
 
         while let Some(line) = self.peek() {
@@ -143,7 +148,7 @@ impl<'a> ToonParser<'a> {
                         // Mixed array
                         let parent_indent = line.indent;
                         self.advance();
-                        let arr = self.parse_mixed_array(parent_indent);
+                        let arr = self.parse_mixed_array(parent_indent, depth + 1);
                         unsafe {
                             (*map).data.insert(key.to_string(), arr);
                         }
@@ -162,12 +167,12 @@ impl<'a> ToonParser<'a> {
                             let child_indent = next.indent;
                             // Check if children are array items (start with "- ")
                             if next.content.starts_with("- ") {
-                                let arr = self.parse_mixed_array(base_indent);
+                                let arr = self.parse_mixed_array(base_indent, depth + 1);
                                 unsafe {
                                     (*map).data.insert(key.to_string(), arr);
                                 }
                             } else {
-                                let child = self.parse_object_block(child_indent);
+                                let child = self.parse_object_block(child_indent, depth + 1);
                                 unsafe {
                                     (*map).data.insert(key.to_string(), child);
                                 }
@@ -232,7 +237,10 @@ impl<'a> ToonParser<'a> {
     }
 
     /// Parse a mixed array: children at indent > parent, each prefixed with `- `.
-    fn parse_mixed_array(&mut self, parent_indent: usize) -> TokValue {
+    fn parse_mixed_array(&mut self, parent_indent: usize, depth: usize) -> TokValue {
+        if depth >= MAX_DEPTH {
+            return TokValue::from_array(TokArray::alloc());
+        }
         let arr = TokArray::alloc();
         while let Some(line) = self.peek() {
             if line.indent <= parent_indent {
@@ -253,7 +261,7 @@ impl<'a> ToonParser<'a> {
                             // Check for indented children
                             if let Some(next) = self.peek() {
                                 if next.indent > item_indent {
-                                    let child = self.parse_object_block(next.indent);
+                                    let child = self.parse_object_block(next.indent, depth + 1);
                                     unsafe {
                                         (*item_map).data.insert(key.to_string(), child);
                                     }
@@ -309,7 +317,7 @@ impl<'a> ToonParser<'a> {
                         // Nested object as array element
                         if let Some(next) = self.peek() {
                             if next.indent > item_indent {
-                                let child = self.parse_object_block(next.indent);
+                                let child = self.parse_object_block(next.indent, depth + 1);
                                 unsafe {
                                     (*item_map).data.insert(key.to_string(), child);
                                 }
