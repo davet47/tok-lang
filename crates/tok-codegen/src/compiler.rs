@@ -1100,6 +1100,98 @@ fn compile_function(
         .expect("codegen: failed to define function");
 }
 
+/// Load captured variables from an environment pointer into the function context.
+///
+/// Each capture occupies 16 bytes (tag @ offset 0, data @ offset 8) in the env buffer.
+/// When `specialized` is true, concrete types (Int, Float, Bool) are extracted as native
+/// values; other types fall back to Any (TokValue on stack). When `specialized` is false,
+/// all captures are loaded as Any regardless of their declared type.
+fn load_captures_from_env(
+    ctx: &mut FuncCtx,
+    captures: &[CapturedVar],
+    env_ptr: Value,
+    specialized: bool,
+) {
+    for (i, cap) in captures.iter().enumerate() {
+        let offset = (i * 16) as i32;
+        if specialized {
+            match &cap.ty {
+                Type::Int => {
+                    let data = ctx.builder.ins().load(
+                        types::I64,
+                        MemFlags::trusted(),
+                        env_ptr,
+                        offset + 8,
+                    );
+                    let var = ctx.new_var(types::I64);
+                    ctx.builder.def_var(var, data);
+                    ctx.vars.insert(cap.name.clone(), (var, Type::Int));
+                }
+                Type::Float => {
+                    let data = ctx.builder.ins().load(
+                        types::I64,
+                        MemFlags::trusted(),
+                        env_ptr,
+                        offset + 8,
+                    );
+                    let fval = ctx
+                        .builder
+                        .ins()
+                        .bitcast(types::F64, MemFlags::new(), data);
+                    let var = ctx.new_var(types::F64);
+                    ctx.builder.def_var(var, fval);
+                    ctx.vars.insert(cap.name.clone(), (var, Type::Float));
+                }
+                Type::Bool => {
+                    let data = ctx.builder.ins().load(
+                        types::I64,
+                        MemFlags::trusted(),
+                        env_ptr,
+                        offset + 8,
+                    );
+                    let bval = ctx.builder.ins().ireduce(types::I8, data);
+                    let var = ctx.new_var(types::I8);
+                    ctx.builder.def_var(var, bval);
+                    ctx.vars.insert(cap.name.clone(), (var, Type::Bool));
+                }
+                _ => {
+                    // Non-primitive type — load as Any (TokValue on stack)
+                    let tag = ctx.builder.ins().load(
+                        types::I64,
+                        MemFlags::trusted(),
+                        env_ptr,
+                        offset,
+                    );
+                    let data = ctx.builder.ins().load(
+                        types::I64,
+                        MemFlags::trusted(),
+                        env_ptr,
+                        offset + 8,
+                    );
+                    let addr = alloc_tokvalue_on_stack(ctx, tag, data);
+                    let var = ctx.new_var(PTR);
+                    ctx.builder.def_var(var, addr);
+                    ctx.vars.insert(cap.name.clone(), (var, Type::Any));
+                }
+            }
+        } else {
+            // Generic path: load all captures as Any
+            let tag = ctx
+                .builder
+                .ins()
+                .load(types::I64, MemFlags::trusted(), env_ptr, offset);
+            let data =
+                ctx.builder
+                    .ins()
+                    .load(types::I64, MemFlags::trusted(), env_ptr, offset + 8);
+            let addr = alloc_tokvalue_on_stack(ctx, tag, data);
+            let var = ctx.new_var(PTR);
+            ctx.builder.def_var(var, addr);
+            ctx.vars.insert(cap.name.clone(), (var, Type::Any));
+        }
+    }
+}
+
 /// Compile a deferred lambda body into its own Cranelift function.
 ///
 /// Lambda calling convention: (env_ptr: PTR, arg0_tag: I64, arg0_data: I64, ...) -> (I64, I64)
@@ -1171,24 +1263,8 @@ fn compile_lambda_body(compiler: &mut Compiler, lambda: &PendingLambda) {
         func_ctx.vars.insert(param.name.clone(), (var, Type::Any));
     }
 
-    // Load captured variables from env_ptr
-    for (i, cap) in lambda.captures.iter().enumerate() {
-        let offset = (i * 16) as i32;
-        let tag = func_ctx
-            .builder
-            .ins()
-            .load(types::I64, MemFlags::trusted(), env_ptr_val, offset);
-        let data =
-            func_ctx
-                .builder
-                .ins()
-                .load(types::I64, MemFlags::trusted(), env_ptr_val, offset + 8);
-        // Store as stack-allocated TokValue and bind to captured var name as Any
-        let addr = alloc_tokvalue_on_stack(&mut func_ctx, tag, data);
-        let var = func_ctx.new_var(PTR);
-        func_ctx.builder.def_var(var, addr);
-        func_ctx.vars.insert(cap.name.clone(), (var, Type::Any));
-    }
+    // Load captured variables from env_ptr (all as Any for generic lambda)
+    load_captures_from_env(&mut func_ctx, &lambda.captures, env_ptr_val, false);
 
     // Compile body
     let last_val = compile_body(&mut func_ctx, &lambda.body, &lambda.ret_type);
@@ -1301,70 +1377,8 @@ fn compile_specialized_lambda_body(compiler: &mut Compiler, lambda: &PendingLamb
             .insert(param.name.clone(), (var, param_ty.clone()));
     }
 
-    // Load captured variables from env_ptr
-    for (i, cap) in lambda.captures.iter().enumerate() {
-        let offset = (i * 16) as i32;
-        match &cap.ty {
-            Type::Int => {
-                // Extract data field directly as i64 (skip tag)
-                let data = func_ctx.builder.ins().load(
-                    types::I64,
-                    MemFlags::trusted(),
-                    env_ptr_val,
-                    offset + 8,
-                );
-                let var = func_ctx.new_var(types::I64);
-                func_ctx.builder.def_var(var, data);
-                func_ctx.vars.insert(cap.name.clone(), (var, Type::Int));
-            }
-            Type::Float => {
-                let data = func_ctx.builder.ins().load(
-                    types::I64,
-                    MemFlags::trusted(),
-                    env_ptr_val,
-                    offset + 8,
-                );
-                let fval = func_ctx
-                    .builder
-                    .ins()
-                    .bitcast(types::F64, MemFlags::new(), data);
-                let var = func_ctx.new_var(types::F64);
-                func_ctx.builder.def_var(var, fval);
-                func_ctx.vars.insert(cap.name.clone(), (var, Type::Float));
-            }
-            Type::Bool => {
-                let data = func_ctx.builder.ins().load(
-                    types::I64,
-                    MemFlags::trusted(),
-                    env_ptr_val,
-                    offset + 8,
-                );
-                let bval = func_ctx.builder.ins().ireduce(types::I8, data);
-                let var = func_ctx.new_var(types::I8);
-                func_ctx.builder.def_var(var, bval);
-                func_ctx.vars.insert(cap.name.clone(), (var, Type::Bool));
-            }
-            _ => {
-                // Unknown type — load as Any (TokValue on stack)
-                let tag = func_ctx.builder.ins().load(
-                    types::I64,
-                    MemFlags::trusted(),
-                    env_ptr_val,
-                    offset,
-                );
-                let data = func_ctx.builder.ins().load(
-                    types::I64,
-                    MemFlags::trusted(),
-                    env_ptr_val,
-                    offset + 8,
-                );
-                let addr = alloc_tokvalue_on_stack(&mut func_ctx, tag, data);
-                let var = func_ctx.new_var(PTR);
-                func_ctx.builder.def_var(var, addr);
-                func_ctx.vars.insert(cap.name.clone(), (var, Type::Any));
-            }
-        }
-    }
+    // Load captured variables from env_ptr (with type-specific extraction)
+    load_captures_from_env(&mut func_ctx, &lambda.captures, env_ptr_val, true);
 
     // Compile body
     let last_val = compile_body(&mut func_ctx, &lambda.body, &lambda.ret_type);
@@ -4417,48 +4431,10 @@ fn compile_inline_closure_call(
     let mut old_capture_bindings: Vec<(String, Option<(Variable, Type)>)> = Vec::new();
     if !captures.is_empty() {
         let env_ptr = kc.env_ptr;
-        for (i, cap) in captures.iter().enumerate() {
+        for cap in captures.iter() {
             old_capture_bindings.push((cap.name.clone(), ctx.vars.remove(&cap.name)));
-            let offset = (i * 16) as i32;
-            match &cap.ty {
-                Type::Int => {
-                    let data = ctx.builder.ins().load(
-                        types::I64,
-                        MemFlags::trusted(),
-                        env_ptr,
-                        offset + 8,
-                    );
-                    let var = ctx.new_var(types::I64);
-                    ctx.builder.def_var(var, data);
-                    ctx.vars.insert(cap.name.clone(), (var, Type::Int));
-                }
-                Type::Float => {
-                    let data = ctx.builder.ins().load(
-                        types::I64,
-                        MemFlags::trusted(),
-                        env_ptr,
-                        offset + 8,
-                    );
-                    let fval = ctx.builder.ins().bitcast(types::F64, MemFlags::new(), data);
-                    let var = ctx.new_var(types::F64);
-                    ctx.builder.def_var(var, fval);
-                    ctx.vars.insert(cap.name.clone(), (var, Type::Float));
-                }
-                Type::Bool => {
-                    let data = ctx.builder.ins().load(
-                        types::I64,
-                        MemFlags::trusted(),
-                        env_ptr,
-                        offset + 8,
-                    );
-                    let bval = ctx.builder.ins().ireduce(types::I8, data);
-                    let var = ctx.new_var(types::I8);
-                    ctx.builder.def_var(var, bval);
-                    ctx.vars.insert(cap.name.clone(), (var, Type::Bool));
-                }
-                _ => unreachable!("can_inline_closure_call requires all captures concrete"),
-            }
         }
+        load_captures_from_env(ctx, &captures, env_ptr, true);
     }
 
     // Build type map and retype body for concrete types
