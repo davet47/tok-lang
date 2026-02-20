@@ -106,12 +106,14 @@ pub extern "C" fn tok_map_del(m: *mut TokMap, key: *mut TokString) -> *mut TokMa
     null_check!(key, "tok_map_del: null key");
     unsafe {
         let key_str = &(*key).data;
+        // Clone the map, then remove the key (avoids rebuilding the entire map)
         let result = TokMap::alloc();
-        for (k, v) in &(*m).data {
-            if k != key_str {
-                v.rc_inc();
-                (*result).data.insert(k.clone(), *v);
-            }
+        (*result).data = (*m).data.clone();
+        for v in (*result).data.values() {
+            v.rc_inc();
+        }
+        if let Some(removed) = (*result).data.remove(key_str) {
+            removed.rc_dec();
         }
         result
     }
