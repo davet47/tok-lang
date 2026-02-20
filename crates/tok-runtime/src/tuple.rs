@@ -54,9 +54,10 @@ pub extern "C" fn tok_tuple_alloc(count: i64) -> *mut TokTuple {
 pub extern "C" fn tok_tuple_get(t: *mut TokTuple, idx: i64) -> TokValue {
     null_check!(t, "tok_tuple_get: null tuple");
     unsafe {
-        let i = idx as usize;
-        if i < (*t).data.len() {
-            let val = (*t).data[i];
+        let len = (*t).data.len() as i64;
+        let resolved = if idx < 0 { idx + len } else { idx };
+        if resolved >= 0 && resolved < len {
+            let val = (*t).data[resolved as usize];
             val.rc_inc();
             val
         } else {
@@ -69,8 +70,10 @@ pub extern "C" fn tok_tuple_get(t: *mut TokTuple, idx: i64) -> TokValue {
 pub extern "C" fn tok_tuple_set(t: *mut TokTuple, idx: i64, val: TokValue) {
     null_check!(t, "tok_tuple_set: null tuple");
     unsafe {
-        let i = idx as usize;
-        if i < (*t).data.len() {
+        let len = (*t).data.len() as i64;
+        let resolved = if idx < 0 { idx + len } else { idx };
+        if resolved >= 0 && resolved < len {
+            let i = resolved as usize;
             let old = (*t).data[i];
             old.rc_dec();
             val.rc_inc();
@@ -106,6 +109,26 @@ mod tests {
         unsafe {
             assert_eq!(v0.data.int_val, 10);
             assert_eq!(v1.data.int_val, 20);
+            drop(Box::from_raw(t));
+        }
+    }
+
+    #[test]
+    fn test_negative_indices() {
+        let t = tok_tuple_alloc(3);
+        tok_tuple_set(t, 0, TokValue::from_int(10));
+        tok_tuple_set(t, 1, TokValue::from_int(20));
+        tok_tuple_set(t, 2, TokValue::from_int(30));
+
+        let last = tok_tuple_get(t, -1);
+        let second = tok_tuple_get(t, -2);
+        let first = tok_tuple_get(t, -3);
+        let oob = tok_tuple_get(t, -4);
+        unsafe {
+            assert_eq!(last.data.int_val, 30);
+            assert_eq!(second.data.int_val, 20);
+            assert_eq!(first.data.int_val, 10);
+            assert_eq!(oob.tag, 0); // NIL
             drop(Box::from_raw(t));
         }
     }
