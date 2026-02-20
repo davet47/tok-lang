@@ -112,7 +112,7 @@ pub extern "C" fn tok_map_del(m: *mut TokMap, key: *mut TokString) -> *mut TokMa
         for v in (*result).data.values() {
             v.rc_inc();
         }
-        if let Some(removed) = (*result).data.remove(key_str) {
+        if let Some(removed) = (*result).data.shift_remove(key_str) {
             removed.rc_dec();
         }
         result
