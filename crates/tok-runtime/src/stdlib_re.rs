@@ -39,7 +39,11 @@ fn get_or_compile_regex(pat: &str) -> Option<Regex> {
                 // Evict oldest entries if at capacity
                 if cache.len() >= REGEX_CACHE_CAPACITY {
                     // Simple eviction: clear half the cache
-                    let keys: Vec<String> = cache.keys().take(REGEX_CACHE_CAPACITY / 2).cloned().collect();
+                    let keys: Vec<String> = cache
+                        .keys()
+                        .take(REGEX_CACHE_CAPACITY / 2)
+                        .cloned()
+                        .collect();
                     for k in keys {
                         cache.remove(&k);
                     }

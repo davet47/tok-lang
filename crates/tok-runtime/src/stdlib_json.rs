@@ -51,7 +51,9 @@ fn json_to_tok_depth(jv: &JsonValue, depth: usize) -> TokValue {
             let tok_map = TokMap::alloc();
             unsafe {
                 for (k, v) in obj {
-                    (*tok_map).data.insert(k.clone(), json_to_tok_depth(v, depth + 1));
+                    (*tok_map)
+                        .data
+                        .insert(k.clone(), json_to_tok_depth(v, depth + 1));
                 }
             }
             TokValue::from_map(tok_map)

@@ -290,7 +290,7 @@ impl Parser {
                 Token::Dot => {
                     saw_member_or_index = true;
                     la.advance(); // skip `.`
-                    // skip field name (Ident or Int for tuple index)
+                                  // skip field name (Ident or Int for tuple index)
                     if matches!(la.at(), Token::Ident(_) | Token::Int(_)) {
                         la.advance();
                     } else {
@@ -303,8 +303,14 @@ impl Parser {
                     let mut depth = 1u32;
                     while depth > 0 {
                         match la.at() {
-                            Token::LBracket => { depth += 1; la.advance(); }
-                            Token::RBracket => { depth -= 1; la.advance(); }
+                            Token::LBracket => {
+                                depth += 1;
+                                la.advance();
+                            }
+                            Token::RBracket => {
+                                depth -= 1;
+                                la.advance();
+                            }
                             Token::Eof => return false,
                             _ => la.advance(),
                         }

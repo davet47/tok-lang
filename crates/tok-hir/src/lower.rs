@@ -1934,10 +1934,7 @@ pub fn lower(program: &Program, type_info: &TypeInfo) -> HirProgram {
     // Pre-collect default parameter expressions for named functions.
     // This handles forward references (call before declaration).
     for stmt in program {
-        if let Stmt::FuncDecl {
-            name, params, ..
-        } = stmt
-        {
+        if let Stmt::FuncDecl { name, params, .. } = stmt {
             if params.iter().any(|p| p.default.is_some()) {
                 lowerer.func_defaults.insert(
                     name.clone(),
