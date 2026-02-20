@@ -124,16 +124,15 @@ pub extern "C" fn tok_string_cmp(a: *mut TokString, b: *mut TokString) -> i64 {
 pub extern "C" fn tok_string_index(s: *mut TokString, i: i64) -> *mut TokString {
     null_check!(s, "tok_string_index: null pointer");
     unsafe {
-        let chars: Vec<char> = (*s).data.chars().collect();
+        let char_count = (*s).data.chars().count();
         let idx = if i < 0 {
-            (chars.len() as i64 + i) as usize
+            (char_count as i64 + i) as usize
         } else {
             i as usize
         };
-        if idx < chars.len() {
-            TokString::alloc(chars[idx].to_string())
-        } else {
-            TokString::alloc(String::new())
+        match (*s).data.chars().nth(idx) {
+            Some(ch) => TokString::alloc(ch.to_string()),
+            None => TokString::alloc(String::new()),
         }
     }
 }
