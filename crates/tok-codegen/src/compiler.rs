@@ -347,6 +347,7 @@ impl Compiler {
         self.declare_runtime_func("tok_map_keys", &[PTR], &[PTR]);
         self.declare_runtime_func("tok_map_vals", &[PTR], &[PTR]);
         self.declare_runtime_func("tok_map_len", &[PTR], &[types::I64]);
+        self.declare_runtime_func("tok_map_clone", &[PTR], &[PTR]);
 
         // Tuple
         self.declare_runtime_func("tok_tuple_alloc", &[types::I64], &[PTR]);
@@ -2469,6 +2470,23 @@ fn compile_runtime_call(
             let func_ref = ctx.get_runtime_func_ref("tok_array_concat");
             let call = ctx.builder.ins().call(func_ref, &[a, b]);
             return Some(ctx.builder.inst_results(call)[0]);
+        }
+        "tok_map_clone" => {
+            let src = compile_expr_as_ptr(ctx, &args[0]);
+            let func_ref = ctx.get_runtime_func_ref("tok_map_clone");
+            let call = ctx.builder.ins().call(func_ref, &[src]);
+            return Some(ctx.builder.inst_results(call)[0]);
+        }
+        "tok_map_set" if args.len() == 3 => {
+            // HIR emits tok_map_set(map, key_str, value) — need to split value into (tag, data)
+            let map = compile_expr_as_ptr(ctx, &args[0]);
+            let key = compile_expr_as_ptr(ctx, &args[1]);
+            let val =
+                compile_expr(ctx, &args[2]).expect("codegen: map_set value produced no value");
+            let (tag, data) = to_tokvalue(ctx, val, &args[2].ty);
+            let func_ref = ctx.get_runtime_func_ref("tok_map_set");
+            ctx.builder.ins().call(func_ref, &[map, key, tag, data]);
+            return None;
         }
         _ => {}
     }

@@ -1,0 +1,37 @@
+# Head/tail array destructuring: [h ..t] = arr
+
+# Basic: split into first element and rest
+[h ..t]=[1 2 3 4 5]
+p(h)
+p(t)
+
+# Two elements
+[a ..b]=[10 20]
+p(a)
+p(b)
+
+# Single element: tail is empty
+[x ..rest]=[42]
+p(x)
+p(#rest)
+
+# Use with string arrays
+[first ..others]=["hello" "world" "foo"]
+p(first)
+p(#others)
+
+# Computed array
+arr=[7 8 9]
+[head ..tail]=arr
+p(head)
+p(#tail)
+
+# Recursive sum using head/tail
+f rsum(arr){
+  (#arr)==0?^0
+  [h ..t]=arr
+  ^h+rsum(t)
+}
+p(rsum([1 2 3 4 5]))
+p(rsum([10]))
+p(rsum([]))

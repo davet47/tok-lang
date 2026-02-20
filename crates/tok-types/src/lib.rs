@@ -1111,6 +1111,18 @@ impl TypeChecker {
                 result_ty
             }
 
+            // Implicit self (`.field` inside method bodies)
+            Expr::ImplicitSelf(_) => Type::Any,
+
+            // Prototype instantiation
+            Expr::ProtoInit { proto, overrides } => {
+                self.check_expr(proto);
+                for (_, v) in overrides {
+                    self.check_expr(v);
+                }
+                Type::Map(Box::new(Type::Any))
+            }
+
             // Import
             Expr::Import(_) => Type::Map(Box::new(Type::Any)),
 

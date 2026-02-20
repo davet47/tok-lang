@@ -37,6 +37,11 @@ struct Lowerer<'a> {
     func_variadic: std::collections::HashMap<String, usize>,
     /// Total parameter count for named functions (pre-collected for spread desugaring).
     func_arity: std::collections::HashMap<String, usize>,
+    /// Current method's self variable name (set during method lambda lowering).
+    self_param: Option<String>,
+    /// Tracks which variables have method fields (for self-injection at call sites).
+    /// Maps variable name → set of field names that are methods.
+    method_fields: std::collections::HashMap<String, std::collections::HashSet<String>>,
 }
 
 impl<'a> Lowerer<'a> {
@@ -48,6 +53,8 @@ impl<'a> Lowerer<'a> {
             func_defaults: std::collections::HashMap::new(),
             func_variadic: std::collections::HashMap::new(),
             func_arity: std::collections::HashMap::new(),
+            self_param: None,
+            method_fields: std::collections::HashMap::new(),
         }
     }
 
@@ -279,6 +286,8 @@ impl<'a> Lowerer<'a> {
             }
             Expr::Send { .. } => Type::Nil,
             Expr::Select(_) => Type::Any,
+            Expr::ImplicitSelf(_) => Type::Any,
+            Expr::ProtoInit { .. } => Type::Map(Box::new(Type::Any)),
             Expr::Import(_) => Type::Map(Box::new(Type::Any)),
             Expr::Return(_) | Expr::Break | Expr::Continue => Type::Never,
         }
@@ -351,6 +360,44 @@ impl<'a> Lowerer<'a> {
                 let ty = hir_value.ty.clone();
                 // Track the local variable type for subsequent references
                 self.define_local(name, ty.clone());
+
+                // Track method_fields: if the value was a Map or ProtoInit with methods,
+                // associate the variable name with those method field names.
+                if let Some(pending) = self.method_fields.remove("__pending_map__") {
+                    self.method_fields.insert(name.clone(), pending);
+                }
+                // If ProtoInit lowering stored methods under its tmp var, transfer to this name
+                if let Expr::ProtoInit { proto, .. } = value {
+                    // The lower_proto_init already computed and stored under tmp;
+                    // we need to find the gensym'd tmp name from the block.
+                    // Instead, check if the lowered value is a Block and extract the tmp name.
+                    if let HirExprKind::Block {
+                        expr: Some(ref result),
+                        ..
+                    } = hir_value.kind
+                    {
+                        if let HirExprKind::Ident(ref tmp_name) = result.kind {
+                            if let Some(methods) = self.method_fields.remove(tmp_name) {
+                                self.method_fields.insert(name.clone(), methods);
+                            }
+                        }
+                    }
+                    // Also inherit from proto if not already handled
+                    if !self.method_fields.contains_key(name) {
+                        if let Expr::Ident(proto_name) = proto.as_ref() {
+                            if let Some(methods) = self.method_fields.get(proto_name).cloned() {
+                                self.method_fields.insert(name.clone(), methods);
+                            }
+                        }
+                    }
+                }
+                // If assigning from another variable, propagate method_fields
+                if let Expr::Ident(src_name) = value {
+                    if let Some(methods) = self.method_fields.get(src_name).cloned() {
+                        self.method_fields.insert(name.clone(), methods);
+                    }
+                }
+
                 out.push(HirStmt::Assign {
                     name: name.clone(),
                     ty,
@@ -699,13 +746,22 @@ impl<'a> Lowerer<'a> {
             Expr::Array(elts) => self.lower_array(elts),
 
             Expr::Map(pairs) => {
+                // Track which fields are methods (lambdas)
+                let mut methods = std::collections::HashSet::new();
                 let hir_pairs: Vec<(String, HirExpr)> = pairs
                     .iter()
                     .map(|(key, val)| {
                         let key_str = match key {
                             MapKey::Ident(s) | MapKey::Str(s) => s.clone(),
                         };
-                        (key_str, self.lower_expr(val))
+                        let is_method = matches!(val, Expr::Lambda { .. });
+                        let hir_val = if is_method {
+                            methods.insert(key_str.clone());
+                            self.lower_method_lambda(val)
+                        } else {
+                            self.lower_expr(val)
+                        };
+                        (key_str, hir_val)
                     })
                     .collect();
                 let val_ty = if hir_pairs.is_empty() {
@@ -717,6 +773,12 @@ impl<'a> Lowerer<'a> {
                     }
                     t
                 };
+                // Store methods info temporarily using _map_methods_ prefix
+                // The assign handler will pick this up
+                if !methods.is_empty() {
+                    self.method_fields
+                        .insert("__pending_map__".to_string(), methods);
+                }
                 HirExpr::new(HirExprKind::Map(hir_pairs), Type::Map(Box::new(val_ty)))
             }
 
@@ -899,6 +961,41 @@ impl<'a> Lowerer<'a> {
 
             // Function call
             Expr::Call { func, args } => {
+                // Method call self-injection: obj.method(args) → method(__self=obj, args)
+                if let Expr::Member {
+                    expr: ref target,
+                    field,
+                } = func.as_ref()
+                {
+                    if let Expr::Ident(ref obj_name) = target.as_ref() {
+                        if self
+                            .method_fields
+                            .get(obj_name)
+                            .is_some_and(|methods| methods.contains(field))
+                        {
+                            // It's a method call — inject obj as first arg
+                            let hir_func = self.lower_expr(func);
+                            let obj_hir = HirExpr::new(
+                                HirExprKind::Ident(obj_name.clone()),
+                                Type::Map(Box::new(Type::Any)),
+                            );
+                            let mut hir_args = vec![obj_hir];
+                            hir_args.extend(args.iter().map(|a| self.lower_expr(a)));
+                            let ret_ty = match &hir_func.ty {
+                                Type::Func(ft) => *ft.ret.clone(),
+                                _ => Type::Any,
+                            };
+                            return HirExpr::new(
+                                HirExprKind::Call {
+                                    func: Box::new(hir_func),
+                                    args: hir_args,
+                                },
+                                ret_ty,
+                            );
+                        }
+                    }
+                }
+
                 let has_spread = args.iter().any(|a| matches!(a, Expr::Spread(_)));
                 if has_spread {
                     return self.lower_call_with_spread(func, args);
@@ -1269,6 +1366,26 @@ impl<'a> Lowerer<'a> {
                 HirExpr::new(HirExprKind::Select(hir_arms), Type::Any)
             }
 
+            // Implicit self: `.field` → `__self.field` (or whatever self_param is set to)
+            Expr::ImplicitSelf(field) => {
+                let self_name = self
+                    .self_param
+                    .clone()
+                    .unwrap_or_else(|| "__self".to_string());
+                let target = HirExpr::new(HirExprKind::Ident(self_name), Type::Any);
+                HirExpr::new(
+                    HirExprKind::Member {
+                        target: Box::new(target),
+                        field: field.clone(),
+                    },
+                    Type::Any,
+                )
+            }
+
+            // Prototype instantiation: Proto{k1:v1 k2:v2}
+            // Desugars to: { _tmp = tok_map_clone(proto); tok_map_set(_tmp, "k1", v1); ...; _tmp }
+            Expr::ProtoInit { proto, overrides } => self.lower_proto_init(proto, overrides),
+
             // Import as expression
             Expr::Import(path) => {
                 // Import as expression returns a map
@@ -1315,6 +1432,149 @@ impl<'a> Lowerer<'a> {
     // ═══════════════════════════════════════════════════════════
     // Complex desugaring helpers
     // ═══════════════════════════════════════════════════════════
+
+    /// Lower prototype instantiation: Proto{k1:v1 k2:v2}
+    /// Desugars to: { _tmp = tok_map_clone(proto); tok_map_set(_tmp, "k1", v1); ...; _tmp }
+    fn lower_proto_init(&mut self, proto: &Expr, overrides: &[(MapKey, Expr)]) -> HirExpr {
+        let tmp = self.gensym();
+        let mut stmts = Vec::new();
+
+        // _tmp = tok_map_clone(proto)
+        let proto_hir = self.lower_expr(proto);
+        let clone_call = HirExpr::new(
+            HirExprKind::RuntimeCall {
+                name: "tok_map_clone".to_string(),
+                args: vec![proto_hir],
+            },
+            Type::Map(Box::new(Type::Any)),
+        );
+        stmts.push(HirStmt::Assign {
+            name: tmp.clone(),
+            ty: Type::Map(Box::new(Type::Any)),
+            value: clone_call,
+        });
+
+        // Collect which overrides are methods (for method_fields tracking)
+        let mut override_methods = std::collections::HashSet::new();
+
+        // tok_map_set(_tmp, "key", value) for each override
+        for (key, val) in overrides {
+            let key_str = match key {
+                MapKey::Ident(s) | MapKey::Str(s) => s.clone(),
+            };
+            let is_method = matches!(val, Expr::Lambda { .. });
+            let val_hir = if is_method {
+                // Inject __self as first param for methods
+                self.lower_method_lambda(val)
+            } else {
+                self.lower_expr(val)
+            };
+            if is_method {
+                override_methods.insert(key_str.clone());
+            }
+            let tmp_ident = HirExpr::new(
+                HirExprKind::Ident(tmp.clone()),
+                Type::Map(Box::new(Type::Any)),
+            );
+            let key_hir = HirExpr::new(HirExprKind::Str(key_str), Type::Str);
+            stmts.push(HirStmt::Expr(HirExpr::new(
+                HirExprKind::RuntimeCall {
+                    name: "tok_map_set".to_string(),
+                    args: vec![tmp_ident, key_hir, val_hir],
+                },
+                Type::Nil,
+            )));
+        }
+
+        // Merge method_fields from prototype with override methods
+        if let Expr::Ident(proto_name) = proto {
+            if let Some(proto_methods) = self.method_fields.get(proto_name).cloned() {
+                let mut merged = proto_methods;
+                merged.extend(override_methods);
+                // We'll store this mapping after the assign (see lower_stmt)
+                // For now, store under tmp so the assign handler can pick it up
+                self.method_fields.insert(tmp.clone(), merged);
+            } else if !override_methods.is_empty() {
+                self.method_fields.insert(tmp.clone(), override_methods);
+            }
+        } else if !override_methods.is_empty() {
+            self.method_fields.insert(tmp.clone(), override_methods);
+        }
+
+        // Final expression: _tmp
+        let result = HirExpr::new(HirExprKind::Ident(tmp), Type::Map(Box::new(Type::Any)));
+        HirExpr::new(
+            HirExprKind::Block {
+                stmts,
+                expr: Some(Box::new(result)),
+            },
+            Type::Map(Box::new(Type::Any)),
+        )
+    }
+
+    /// Lower a lambda that's a method in a map/prototype — inject `__self` as first param.
+    fn lower_method_lambda(&mut self, expr: &Expr) -> HirExpr {
+        if let Expr::Lambda {
+            params,
+            ret_type: _,
+            body,
+        } = expr
+        {
+            // Inject __self as first parameter
+            let mut new_params = vec![ast::Param {
+                name: "__self".to_string(),
+                ty: None,
+                default: None,
+                variadic: false,
+            }];
+            new_params.extend(params.clone());
+
+            // Lower params
+            let hir_params: Vec<HirParam> = new_params
+                .iter()
+                .map(|p| HirParam {
+                    name: p.name.clone(),
+                    ty: Type::Any,
+                    variadic: p.variadic,
+                    has_default: p.default.is_some(),
+                })
+                .collect();
+
+            // Set self_param while lowering body
+            let prev_self = self.self_param.take();
+            self.self_param = Some("__self".to_string());
+            self.push_scope();
+            for p in &new_params {
+                self.define_local(&p.name, Type::Any);
+            }
+
+            let hir_body = self.lower_func_body(body);
+
+            self.pop_scope();
+            self.self_param = prev_self;
+
+            HirExpr::new(
+                HirExprKind::Lambda {
+                    params: hir_params,
+                    ret_type: Type::Any,
+                    body: hir_body,
+                },
+                Type::Func(tok_types::FuncType {
+                    params: new_params
+                        .iter()
+                        .map(|_| tok_types::ParamType {
+                            ty: Type::Any,
+                            has_default: false,
+                        })
+                        .collect(),
+                    ret: Box::new(Type::Any),
+                    variadic: false,
+                }),
+            )
+        } else {
+            self.lower_expr(expr)
+        }
+    }
 
     /// Lower string interpolation to a chain of tok_string_concat runtime calls.
     fn lower_interp(&mut self, parts: &[InterpPart]) -> HirExpr {

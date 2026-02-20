@@ -1,0 +1,46 @@
+# Prototype-based objects
+
+# Basic prototype with data fields
+Point={x:0 y:0}
+p(Point.x)
+p(Point.y)
+
+# Instantiation with overrides
+p1=Point{x:3 y:4}
+p(p1.x)
+p(p1.y)
+
+# Prototype with methods
+Point2={x:0 y:0 dist:f()=(.x**2+.y**2)**0.5}
+p2=Point2{x:3 y:4}
+p(p2.x)
+p(p2.y)
+p(p2.dist())
+
+# Override only some fields
+p3=Point2{x:5}
+p(p3.x)
+p(p3.y)
+
+# Data-only prototype (no methods)
+Color={r:0 g:0 b:0}
+red=Color{r:255}
+p(red.r)
+p(red.g)
+p(red.b)
+
+# Method with arguments
+Rect={w:0 h:0 area:f()=.w*.h scale:f(n)={w:.w*n h:.h*n}}
+r=Rect{w:3 h:4}
+p(r.area())
+r2=r.scale(2)
+p(r2.w)
+p(r2.h)
+
+# Prototype inheritance (chain)
+Point3D=Point2{z:0 dist:f()=(.x**2+.y**2+.z**2)**0.5}
+p3d=Point3D{x:1 y:2 z:3}
+p(p3d.x)
+p(p3d.y)
+p(p3d.z)
+p(p3d.dist())

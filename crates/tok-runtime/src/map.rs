@@ -151,6 +151,19 @@ pub extern "C" fn tok_map_len(m: *mut TokMap) -> i64 {
     unsafe { (*m).data.len() as i64 }
 }
 
+#[no_mangle]
+pub extern "C" fn tok_map_clone(src: *mut TokMap) -> *mut TokMap {
+    null_check!(src, "tok_map_clone: null map");
+    unsafe {
+        let result = TokMap::alloc();
+        (*result).data = (*src).data.clone();
+        for v in (*result).data.values() {
+            v.rc_inc();
+        }
+        result
+    }
+}
+
 // ═══════════════════════════════════════════════════════════════
 // Tests
 // ═══════════════════════════════════════════════════════════════

@@ -248,6 +248,15 @@ pub enum Expr {
     },
     Select(Vec<SelectArm>),
 
+    // Implicit self (`.field` inside method bodies)
+    ImplicitSelf(String),
+
+    // Prototype instantiation: Proto{key:val ...}
+    ProtoInit {
+        proto: Box<Expr>,
+        overrides: Vec<(MapKey, Expr)>,
+    },
+
     // Modules
     Import(String),
 

@@ -171,6 +171,7 @@ impl Parser {
                 | Token::Go
                 | Token::Sel
                 | Token::QuestionEq
+                | Token::Dot
         )
     }
 
@@ -1330,6 +1331,37 @@ impl Parser {
                         }
                     }
                 }
+                Token::LBrace
+                    if matches!(expr, Expr::Ident(_) | Expr::Member { .. })
+                        && self.is_map_literal() =>
+                {
+                    // Prototype instantiation: Proto{key:val ...}
+                    self.advance(); // consume `{`
+                    let mut overrides = Vec::new();
+                    self.skip_newlines();
+                    while !matches!(self.peek(), Token::RBrace | Token::Eof) {
+                        let key = match self.advance() {
+                            Token::Ident(s) => MapKey::Ident(s),
+                            Token::Str(s) => MapKey::Str(s),
+                            Token::RawStr(s) => MapKey::Str(s),
+                            other => {
+                                return Err(self.error(format!(
+                                    "expected key in prototype init, found {:?}",
+                                    other
+                                )))
+                            }
+                        };
+                        self.expect(&Token::Colon)?;
+                        let value = self.parse_map_value()?;
+                        overrides.push((key, value));
+                        self.skip_newlines();
+                    }
+                    self.expect(&Token::RBrace)?;
+                    expr = Expr::ProtoInit {
+                        proto: Box::new(expr),
+                        overrides,
+                    };
+                }
                 Token::LBracket => {
                     // GOTCHA: If current expr is Array, don't chain — it would be
                     // `[1 2][3 4]` being misinterpreted as index access.
@@ -1497,6 +1529,23 @@ impl Parser {
                 };
                 Ok(Expr::Go(Box::new(inner)))
             }
+            Token::Dot => {
+                // Implicit self: .field (inside method bodies)
+                self.advance(); // consume `.`
+                match self.peek().clone() {
+                    Token::Ident(field) => {
+                        self.advance();
+                        Ok(Expr::ImplicitSelf(field))
+                    }
+                    Token::Int(n) => {
+                        self.advance();
+                        Ok(Expr::ImplicitSelf(n.to_string()))
+                    }
+                    other => {
+                        Err(self.error(format!("expected field name after `.`, found {:?}", other)))
+                    }
+                }
+            }
             Token::Sel => self.parse_select(),
             Token::Caret => {
                 // Early return as expression: ^expr
@@ -1584,6 +1633,45 @@ impl Parser {
     }
 
     /// Parse map literal: `{key:val key:val ...}` or `{}`
+    /// Parse a map value. Detects method shorthand `f(params)=body` or `f(params){block}`.
+    /// In maps, `f` lexes as `Ident("f")` (not `Token::Func`) because `(` follows.
+    fn parse_map_value(&mut self) -> Result<Expr, ParseError> {
+        // Check for method shorthand: Ident("f") followed by LParen
+        if let Token::Ident(ref name) = self.peek().clone() {
+            if name == "f" && matches!(self.peek_at(1), Token::LParen) {
+                // It's a method: f(params)=expr or f(params){block}
+                self.advance(); // consume "f"
+                self.expect(&Token::LParen)?;
+                let params = self.parse_params()?;
+                self.expect(&Token::RParen)?;
+                // Optional return type
+                let ret_type = if matches!(self.peek(), Token::Colon) {
+                    self.advance();
+                    Some(self.parse_type()?)
+                } else {
+                    None
+                };
+                let body = if matches!(self.peek(), Token::Eq) {
+                    self.advance();
+                    FuncBody::Expr(Box::new(self.parse_or()?))
+                } else if matches!(self.peek(), Token::LBrace) {
+                    FuncBody::Block(self.parse_block()?)
+                } else {
+                    return Err(self.error(format!(
+                        "expected '=' or '{{' in method, found {:?}",
+                        self.peek()
+                    )));
+                };
+                return Ok(Expr::Lambda {
+                    params,
+                    ret_type,
+                    body,
+                });
+            }
+        }
+        self.parse_expr()
+    }
+
     fn parse_map_literal(&mut self) -> Result<Expr, ParseError> {
         self.expect(&Token::LBrace)?;
         let mut entries = Vec::new();
@@ -1596,7 +1684,7 @@ impl Parser {
                 other => return Err(self.error(format!("expected map key, found {:?}", other))),
             };
             self.expect(&Token::Colon)?;
-            let value = self.parse_expr()?;
+            let value = self.parse_map_value()?;
             entries.push((key, value));
             self.skip_newlines();
         }
