@@ -128,6 +128,8 @@ fn is_heap_type(ty: &Type) -> bool {
             | Type::Func(_)
             | Type::Channel(_)
             | Type::Handle(_)
+            | Type::Optional(_)
+            | Type::Result(_)
     )
 }
 
@@ -5999,13 +6001,41 @@ fn retype_expr(expr: &HirExpr, type_map: &HashMap<String, Type>) -> HirExpr {
             }
             // Don't change the call's result type — it depends on the callee
         }
-        // Literals keep their types — no rewriting needed
-        HirExprKind::Int(_)
-        | HirExprKind::Float(_)
-        | HirExprKind::Bool(_)
-        | HirExprKind::Str(_)
-        | HirExprKind::Nil => {}
-        // For other complex nodes, just leave as-is
+        HirExprKind::Index { target, index } => {
+            **target = retype_expr(target, type_map);
+            **index = retype_expr(index, type_map);
+        }
+        HirExprKind::Member { target, .. } => {
+            **target = retype_expr(target, type_map);
+        }
+        HirExprKind::If {
+            cond,
+            then_expr,
+            else_expr,
+            ..
+        } => {
+            **cond = retype_expr(cond, type_map);
+            if let Some(te) = then_expr {
+                **te = retype_expr(te, type_map);
+            }
+            if let Some(ee) = else_expr {
+                **ee = retype_expr(ee, type_map);
+            }
+        }
+        HirExprKind::Block { expr, .. } => {
+            if let Some(e) = expr {
+                **e = retype_expr(e, type_map);
+            }
+        }
+        HirExprKind::Array(elems) | HirExprKind::Tuple(elems) => {
+            for elem in elems.iter_mut() {
+                *elem = retype_expr(elem, type_map);
+            }
+        }
+        HirExprKind::Length(inner) => {
+            **inner = retype_expr(inner, type_map);
+        }
+        // Literals and other nodes keep their types
         _ => {}
     }
     e
