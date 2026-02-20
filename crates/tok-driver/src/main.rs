@@ -239,27 +239,37 @@ fn cmd_run(output_path: &str) -> Result<(), DriverError> {
 }
 
 fn find_runtime_lib() -> String {
-    // Look for libtok_runtime.a in target/debug or target/release
-    let candidates = [
-        "target/debug/libtok_runtime.a",
-        "target/release/libtok_runtime.a",
-    ];
-    for c in &candidates {
-        if Path::new(c).exists() {
-            return c.to_string();
+    let lib_name = "libtok_runtime.a";
+
+    // 1. Relative to the executable (covers `cargo install` and typical builds).
+    //    The executable lives in target/{debug,release}/ alongside the lib.
+    if let Ok(exe) = env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let lib = dir.join(lib_name);
+            if lib.exists() {
+                return lib.to_string_lossy().into_owned();
+            }
+            // Also check ../debug and ../release (if exe is in a nested path)
+            for profile in &["debug", "release"] {
+                if let Some(parent) = dir.parent() {
+                    let lib = parent.join(profile).join(lib_name);
+                    if lib.exists() {
+                        return lib.to_string_lossy().into_owned();
+                    }
+                }
+            }
         }
     }
-    // Try using the cargo-built location relative to the executable
-    let exe_dir = env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|d| d.to_path_buf()));
-    if let Some(dir) = exe_dir {
-        let lib = dir.join("libtok_runtime.a");
-        if lib.exists() {
-            return lib.to_string_lossy().into_owned();
+
+    // 2. Relative to CWD (for development in the repo root).
+    for profile in &["debug", "release"] {
+        let candidate = Path::new("target").join(profile).join(lib_name);
+        if candidate.exists() {
+            return candidate.to_string_lossy().into_owned();
         }
     }
+
     // Fallback
-    eprintln!("Warning: could not find libtok_runtime.a, trying system path");
-    "libtok_runtime.a".to_string()
+    eprintln!("Warning: could not find {}, trying system path", lib_name);
+    lib_name.to_string()
 }
