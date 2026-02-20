@@ -43,6 +43,43 @@ use std::str::FromStr;
 use tok_hir::hir::*;
 use tok_types::Type;
 
+// ─── Stdlib module registry (single source of truth) ──────────────────
+
+/// Mapping from stdlib module name to its runtime constructor symbol.
+///
+/// This is the authoritative list of all stdlib modules. Both the codegen
+/// import handler and the driver's `is_stdlib_module()` check use this table.
+const STDLIB_MODULE_CONSTRUCTORS: &[(&str, &str)] = &[
+    ("math", "tok_stdlib_math"),
+    ("str", "tok_stdlib_str"),
+    ("os", "tok_stdlib_os"),
+    ("io", "tok_stdlib_io"),
+    ("json", "tok_stdlib_json"),
+    ("llm", "tok_stdlib_llm"),
+    ("csv", "tok_stdlib_csv"),
+    ("fs", "tok_stdlib_fs"),
+    ("http", "tok_stdlib_http"),
+    ("re", "tok_stdlib_re"),
+    ("time", "tok_stdlib_time"),
+    ("tmpl", "tok_stdlib_tmpl"),
+    ("toon", "tok_stdlib_toon"),
+];
+
+/// Check if a name is a known stdlib module (not a file import).
+pub fn is_stdlib_module(name: &str) -> bool {
+    STDLIB_MODULE_CONSTRUCTORS
+        .iter()
+        .any(|(n, _)| *n == name)
+}
+
+/// Get the runtime constructor symbol for a stdlib module name.
+fn stdlib_constructor(name: &str) -> Option<&'static str> {
+    STDLIB_MODULE_CONSTRUCTORS
+        .iter()
+        .find(|(n, _)| *n == name)
+        .map(|(_, sym)| *sym)
+}
+
 // ─── Cranelift type helpers ────────────────────────────────────────────
 
 /// The pointer type on the target (always 64-bit for now).
@@ -2359,22 +2396,12 @@ fn compile_runtime_call(
     match name {
         "tok_import" => {
             if let HirExprKind::Str(path) = &args[0].kind {
-                let constructor = match path.as_str() {
-                    "math" => "tok_stdlib_math",
-                    "str"  => "tok_stdlib_str",
-                    "os"   => "tok_stdlib_os",
-                    "io"   => "tok_stdlib_io",
-                    "json" => "tok_stdlib_json",
-                    "llm"  => "tok_stdlib_llm",
-                    "csv"  => "tok_stdlib_csv",
-                    "fs"   => "tok_stdlib_fs",
-                    "http" => "tok_stdlib_http",
-                    "re"   => "tok_stdlib_re",
-                    "time" => "tok_stdlib_time",
-                    "tmpl" => "tok_stdlib_tmpl",
-                    "toon" => "tok_stdlib_toon",
-                    other  => panic!("Unknown module: @\"{}\" — only stdlib modules (math, str, os, io, json, csv, fs, http, re, time, tmpl, toon, llm) are supported in compiled mode", other),
-                };
+                let constructor = stdlib_constructor(path).unwrap_or_else(|| {
+                    panic!(
+                        "Unknown module: @\"{}\" — only stdlib modules are supported in compiled mode",
+                        path
+                    )
+                });
                 let func_ref = ctx.get_runtime_func_ref(constructor);
                 let call = ctx.builder.ins().call(func_ref, &[]);
                 return Some(ctx.builder.inst_results(call)[0]);

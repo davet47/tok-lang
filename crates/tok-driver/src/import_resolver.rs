@@ -95,14 +95,9 @@ impl ImportCtx {
     }
 }
 
-/// Known stdlib module names — anything else is a file import.
-const STDLIB_MODULES: &[&str] = &[
-    "math", "str", "os", "io", "json", "csv", "fs", "http", "re", "time", "tmpl", "toon", "llm",
-];
-
 /// Check if a path is a file-based import (not a stdlib module name).
 fn is_file_import(path: &str) -> bool {
-    !STDLIB_MODULES.contains(&path)
+    !tok_codegen::is_stdlib_module(path)
 }
 
 /// Resolve the actual file path for an import, adding .tok if needed.
