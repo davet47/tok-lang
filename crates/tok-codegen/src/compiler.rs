@@ -3518,15 +3518,27 @@ fn compile_builtin_call(
         "exit" => {
             if let Some(arg) = args.first() {
                 let val = compile_expr(ctx, arg).expect("codegen: arg produced no value");
+                // Unwrap Any-typed arg to get the raw i64 exit code
+                let code = if matches!(arg.ty, Type::Any) {
+                    from_tokvalue_raw_data(ctx, val)
+                } else {
+                    val
+                };
                 let func_ref = ctx.get_runtime_func_ref("tok_exit");
-                ctx.builder.ins().call(func_ref, &[val]);
+                ctx.builder.ins().call(func_ref, &[code]);
             }
             // exit never returns a useful value
             None
         }
         "chan" => {
             let cap = if let Some(arg) = args.first() {
-                compile_expr(ctx, arg).expect("codegen: arg produced no value")
+                let val = compile_expr(ctx, arg).expect("codegen: arg produced no value");
+                // Unwrap Any-typed arg to get the raw i64 capacity
+                if matches!(arg.ty, Type::Any) {
+                    from_tokvalue_raw_data(ctx, val)
+                } else {
+                    val
+                }
             } else {
                 ctx.builder.ins().iconst(types::I64, 0)
             };
@@ -5720,6 +5732,17 @@ fn unwrap_any_ptr(ctx: &mut FuncCtx, val: Value, ty: &Type) -> Value {
     } else {
         val
     }
+}
+
+/// Extract the raw i64 data field from a stack-allocated TokValue pointer.
+///
+/// TokValue layout: tag (i64) at offset 0, data (i64) at offset 8.
+/// Use when the caller needs the untagged payload (e.g., an int exit code
+/// or channel capacity) from an Any-typed value.
+fn from_tokvalue_raw_data(ctx: &mut FuncCtx, tokvalue_ptr: Value) -> Value {
+    ctx.builder
+        .ins()
+        .load(types::I64, MemFlags::trusted(), tokvalue_ptr, 8)
 }
 
 /// Compile an expression and extract its raw pointer, unwrapping from Any if needed.
