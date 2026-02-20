@@ -37,9 +37,57 @@ pub struct Parser {
     pos: usize,
 }
 
+/// Lightweight cursor for multi-token lookahead without advancing the parser.
+///
+/// Wraps a reference to the token slice and a mutable position, providing
+/// convenience methods like `skip_newlines()`, `check()`, and `at()` to
+/// reduce bounds-checking boilerplate in `is_*` lookahead functions.
+struct LookaheadCursor<'a> {
+    tokens: &'a [Token],
+    pos: usize,
+}
+
+impl<'a> LookaheadCursor<'a> {
+    fn new(tokens: &'a [Token], start: usize) -> Self {
+        Self { tokens, pos: start }
+    }
+
+    /// Current token, or Eof if past end.
+    fn at(&self) -> &Token {
+        self.tokens.get(self.pos).unwrap_or(&Token::Eof)
+    }
+
+    /// Advance by one position.
+    fn advance(&mut self) {
+        self.pos += 1;
+    }
+
+    /// Skip over any newline tokens.
+    fn skip_newlines(&mut self) {
+        while self.pos < self.tokens.len() && matches!(self.tokens[self.pos], Token::Newline) {
+            self.pos += 1;
+        }
+    }
+
+    /// Check if the current token matches a predicate, advance if true.
+    fn eat(&mut self, pred: impl FnOnce(&Token) -> bool) -> bool {
+        if self.pos < self.tokens.len() && pred(&self.tokens[self.pos]) {
+            self.pos += 1;
+            true
+        } else {
+            false
+        }
+    }
+}
+
 impl Parser {
     pub fn new(tokens: Vec<Token>) -> Self {
         Parser { tokens, pos: 0 }
+    }
+
+    /// Create a lookahead cursor starting at the given absolute position.
+    fn lookahead_from(&self, start: usize) -> LookaheadCursor<'_> {
+        LookaheadCursor::new(&self.tokens, start)
     }
 
     // ---------------------------------------------------------------
@@ -123,54 +171,33 @@ impl Parser {
     /// We're positioned at `{`. Look ahead (past newlines) for `IDENT:` or `STRING:`.
     /// An empty `{}` is also a map literal.
     fn is_map_literal(&self) -> bool {
-        let mut look = self.pos + 1; // past the `{`
-                                     // skip newlines
-        while look < self.tokens.len() && matches!(self.tokens[look], Token::Newline) {
-            look += 1;
-        }
+        let mut c = self.lookahead_from(self.pos + 1); // past the `{`
+        c.skip_newlines();
         // Empty map: `{}`
-        if look < self.tokens.len() && matches!(self.tokens[look], Token::RBrace) {
+        if matches!(c.at(), Token::RBrace) {
             return true;
         }
         // Check for `IDENT :` or `STRING :` pattern
-        if look < self.tokens.len() {
-            match &self.tokens[look] {
-                Token::Ident(_) | Token::Str(_) | Token::RawStr(_) => {
-                    let next = look + 1;
-                    if next < self.tokens.len() && matches!(self.tokens[next], Token::Colon) {
-                        return true;
-                    }
-                }
-                _ => {}
+        match c.at() {
+            Token::Ident(_) | Token::Str(_) | Token::RawStr(_) => {
+                c.advance();
+                matches!(c.at(), Token::Colon)
             }
+            _ => false,
         }
-        false
     }
 
     /// Check if the current position is a tuple destructure: `IDENT IDENT+ =`
     fn is_tuple_destructure(&self) -> bool {
-        // We need at least: ident ident ... =
-        // The first ident is at self.pos. We need at least one more ident then =.
         if !matches!(self.peek(), Token::Ident(_)) {
             return false;
         }
-        let mut look = self.pos + 1;
-        // Count consecutive idents (and _)
+        let mut c = self.lookahead_from(self.pos + 1);
         let mut ident_count = 1;
-        while look < self.tokens.len() {
-            match &self.tokens[look] {
-                Token::Ident(_) => {
-                    ident_count += 1;
-                    look += 1;
-                }
-                _ => break,
-            }
+        while c.eat(|t| matches!(t, Token::Ident(_))) {
+            ident_count += 1;
         }
-        // Need at least 2 identifiers, then `=`
-        if ident_count >= 2 && look < self.tokens.len() && matches!(self.tokens[look], Token::Eq) {
-            return true;
-        }
-        false
+        ident_count >= 2 && matches!(c.at(), Token::Eq)
     }
 
     /// Check if current position is a map destructure: `{ident ident...} =`
@@ -178,33 +205,20 @@ impl Parser {
         if !matches!(self.peek(), Token::LBrace) {
             return false;
         }
-        let mut look = self.pos + 1;
-        // Check for ident+ then }
+        let mut c = self.lookahead_from(self.pos + 1);
         let mut has_idents = false;
-        while look < self.tokens.len() {
-            match &self.tokens[look] {
-                Token::Ident(_) => {
-                    has_idents = true;
-                    look += 1;
-                }
-                Token::Newline => {
-                    look += 1;
-                }
-                Token::RBrace => {
-                    look += 1;
-                    break;
-                }
-                _ => return false,
+        loop {
+            if c.eat(|t| matches!(t, Token::Ident(_))) {
+                has_idents = true;
+            } else if c.eat(|t| matches!(t, Token::Newline)) {
+                // skip
+            } else if c.eat(|t| matches!(t, Token::RBrace)) {
+                break;
+            } else {
+                return false;
             }
         }
-        if !has_idents {
-            return false;
-        }
-        // After `}`, check for `=`
-        if look < self.tokens.len() && matches!(self.tokens[look], Token::Eq) {
-            return true;
-        }
-        false
+        has_idents && matches!(c.at(), Token::Eq)
     }
 
     /// Check if current position is an array destructure: `[ident ..ident] =`
@@ -212,44 +226,23 @@ impl Parser {
         if !matches!(self.peek(), Token::LBracket) {
             return false;
         }
-        let mut look = self.pos + 1;
-        // Skip newlines
-        while look < self.tokens.len() && matches!(self.tokens[look], Token::Newline) {
-            look += 1;
-        }
-        // Expect ident
-        if look >= self.tokens.len() || !matches!(self.tokens[look], Token::Ident(_)) {
+        let mut c = self.lookahead_from(self.pos + 1);
+        c.skip_newlines();
+        if !c.eat(|t| matches!(t, Token::Ident(_))) {
             return false;
         }
-        look += 1;
-        // Skip newlines
-        while look < self.tokens.len() && matches!(self.tokens[look], Token::Newline) {
-            look += 1;
-        }
-        // Expect `..`
-        if look >= self.tokens.len() || !matches!(self.tokens[look], Token::DotDot) {
+        c.skip_newlines();
+        if !c.eat(|t| matches!(t, Token::DotDot)) {
             return false;
         }
-        look += 1;
-        // Expect ident
-        if look >= self.tokens.len() || !matches!(self.tokens[look], Token::Ident(_)) {
+        if !c.eat(|t| matches!(t, Token::Ident(_))) {
             return false;
         }
-        look += 1;
-        // Skip newlines
-        while look < self.tokens.len() && matches!(self.tokens[look], Token::Newline) {
-            look += 1;
-        }
-        // Expect `]`
-        if look >= self.tokens.len() || !matches!(self.tokens[look], Token::RBracket) {
+        c.skip_newlines();
+        if !c.eat(|t| matches!(t, Token::RBracket)) {
             return false;
         }
-        look += 1;
-        // Expect `=`
-        if look >= self.tokens.len() || !matches!(self.tokens[look], Token::Eq) {
-            return false;
-        }
-        true
+        matches!(c.at(), Token::Eq)
     }
 
     /// Check if current position is assignment: `IDENT = ...` (not `==`)
