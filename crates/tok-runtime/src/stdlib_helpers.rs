@@ -70,6 +70,81 @@ pub fn arg_to_f64(tag: i64, data: i64) -> f64 {
     }
 }
 
+/// Generate a 1-arg `f64 → f64` trampoline function.
+///
+/// Produces a `#[no_mangle] pub extern "C" fn $name(_env, tag, data) -> TokValue`
+/// that calls `arg_to_f64(tag, data).$method()` and wraps the result.
+///
+/// Usage: `math_f64_unary!(tok_math_sqrt_t, sqrt);`
+#[macro_export]
+macro_rules! math_f64_unary {
+    ($name:ident, $method:ident) => {
+        #[no_mangle]
+        pub extern "C" fn $name(_env: *mut u8, tag: i64, data: i64) -> $crate::value::TokValue {
+            $crate::value::TokValue::from_float(
+                $crate::stdlib_helpers::arg_to_f64(tag, data).$method(),
+            )
+        }
+    };
+}
+
+/// Generate a 1-arg `f64 → i64` trampoline (floor/ceil/round).
+///
+/// Usage: `math_f64_to_int!(tok_math_floor_t, floor);`
+#[macro_export]
+macro_rules! math_f64_to_int {
+    ($name:ident, $method:ident) => {
+        #[no_mangle]
+        pub extern "C" fn $name(_env: *mut u8, tag: i64, data: i64) -> $crate::value::TokValue {
+            $crate::value::TokValue::from_int($crate::value::safe_f64_to_i64(
+                $crate::stdlib_helpers::arg_to_f64(tag, data).$method(),
+            ))
+        }
+    };
+}
+
+/// Generate a 2-arg `(f64, f64) → f64` trampoline.
+///
+/// Usage: `math_f64_binary!(tok_math_pow_t, powf);`
+#[macro_export]
+macro_rules! math_f64_binary {
+    ($name:ident, $method:ident) => {
+        #[no_mangle]
+        pub extern "C" fn $name(
+            _env: *mut u8,
+            tag1: i64,
+            data1: i64,
+            tag2: i64,
+            data2: i64,
+        ) -> $crate::value::TokValue {
+            let a = $crate::stdlib_helpers::arg_to_f64(tag1, data1);
+            let b = $crate::stdlib_helpers::arg_to_f64(tag2, data2);
+            $crate::value::TokValue::from_float(a.$method(b))
+        }
+    };
+}
+
+/// Generate a 1-arg `str → str` trampoline.
+///
+/// Calls `arg_to_str(tag, data).$method()` and wraps as TokString.
+/// The method must return something that implements `ToString`.
+///
+/// Usage: `str_unary!(tok_str_upper_t, to_uppercase);`
+#[macro_export]
+macro_rules! str_unary {
+    ($name:ident, $method:ident) => {
+        #[no_mangle]
+        pub extern "C" fn $name(_env: *mut u8, tag: i64, data: i64) -> $crate::value::TokValue {
+            unsafe {
+                let s = $crate::stdlib_helpers::arg_to_str(tag, data);
+                $crate::value::TokValue::from_string($crate::string::TokString::alloc(
+                    s.$method().to_string(),
+                ))
+            }
+        }
+    };
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

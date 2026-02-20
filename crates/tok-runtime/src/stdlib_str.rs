@@ -4,6 +4,7 @@
 
 use crate::array::TokArray;
 use crate::map::TokMap;
+use crate::str_unary;
 use crate::string::TokString;
 use crate::value::TokValue;
 
@@ -17,47 +18,12 @@ use crate::stdlib_helpers::{arg_to_i64, arg_to_str, insert_func};
 // Trampolines
 // ═══════════════════════════════════════════════════════════════
 
-// --- 1-arg Str -> Str ---
-
-#[no_mangle]
-pub extern "C" fn tok_str_upper_t(_env: *mut u8, tag: i64, data: i64) -> TokValue {
-    unsafe {
-        let s = arg_to_str(tag, data);
-        TokValue::from_string(TokString::alloc(s.to_uppercase()))
-    }
-}
-
-#[no_mangle]
-pub extern "C" fn tok_str_lower_t(_env: *mut u8, tag: i64, data: i64) -> TokValue {
-    unsafe {
-        let s = arg_to_str(tag, data);
-        TokValue::from_string(TokString::alloc(s.to_lowercase()))
-    }
-}
-
-#[no_mangle]
-pub extern "C" fn tok_str_trim_t(_env: *mut u8, tag: i64, data: i64) -> TokValue {
-    unsafe {
-        let s = arg_to_str(tag, data);
-        TokValue::from_string(TokString::alloc(s.trim().to_string()))
-    }
-}
-
-#[no_mangle]
-pub extern "C" fn tok_str_trim_left_t(_env: *mut u8, tag: i64, data: i64) -> TokValue {
-    unsafe {
-        let s = arg_to_str(tag, data);
-        TokValue::from_string(TokString::alloc(s.trim_start().to_string()))
-    }
-}
-
-#[no_mangle]
-pub extern "C" fn tok_str_trim_right_t(_env: *mut u8, tag: i64, data: i64) -> TokValue {
-    unsafe {
-        let s = arg_to_str(tag, data);
-        TokValue::from_string(TokString::alloc(s.trim_end().to_string()))
-    }
-}
+// --- 1-arg Str -> Str (generated via macro) ---
+str_unary!(tok_str_upper_t, to_uppercase);
+str_unary!(tok_str_lower_t, to_lowercase);
+str_unary!(tok_str_trim_t, trim);
+str_unary!(tok_str_trim_left_t, trim_start);
+str_unary!(tok_str_trim_right_t, trim_end);
 
 #[no_mangle]
 pub extern "C" fn tok_str_chars_t(_env: *mut u8, tag: i64, data: i64) -> TokValue {

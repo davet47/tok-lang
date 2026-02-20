@@ -3,7 +3,10 @@
 //! Provides mathematical functions and constants as a TokMap of closures.
 
 use crate::map::TokMap;
-use crate::value::{safe_f64_to_i64, TokValue, TAG_FLOAT, TAG_INT};
+use crate::math_f64_binary;
+use crate::math_f64_to_int;
+use crate::math_f64_unary;
+use crate::value::{TokValue, TAG_FLOAT, TAG_INT};
 
 use std::f64::consts;
 
@@ -13,79 +16,23 @@ use crate::stdlib_helpers::{arg_to_f64, insert_func};
 // Trampolines — closure ABI: (env, tag, data, ...) -> TokValue
 // ═══════════════════════════════════════════════════════════════
 
-// --- 1-arg Float -> Float ---
+// --- 1-arg Float -> Float (generated via macro) ---
+math_f64_unary!(tok_math_sqrt_t, sqrt);
+math_f64_unary!(tok_math_sin_t, sin);
+math_f64_unary!(tok_math_cos_t, cos);
+math_f64_unary!(tok_math_tan_t, tan);
+math_f64_unary!(tok_math_asin_t, asin);
+math_f64_unary!(tok_math_acos_t, acos);
+math_f64_unary!(tok_math_atan_t, atan);
+math_f64_unary!(tok_math_log_t, ln);
+math_f64_unary!(tok_math_log2_t, log2);
+math_f64_unary!(tok_math_log10_t, log10);
+math_f64_unary!(tok_math_exp_t, exp);
 
-#[no_mangle]
-pub extern "C" fn tok_math_sqrt_t(_env: *mut u8, tag: i64, data: i64) -> TokValue {
-    TokValue::from_float(arg_to_f64(tag, data).sqrt())
-}
-
-#[no_mangle]
-pub extern "C" fn tok_math_sin_t(_env: *mut u8, tag: i64, data: i64) -> TokValue {
-    TokValue::from_float(arg_to_f64(tag, data).sin())
-}
-
-#[no_mangle]
-pub extern "C" fn tok_math_cos_t(_env: *mut u8, tag: i64, data: i64) -> TokValue {
-    TokValue::from_float(arg_to_f64(tag, data).cos())
-}
-
-#[no_mangle]
-pub extern "C" fn tok_math_tan_t(_env: *mut u8, tag: i64, data: i64) -> TokValue {
-    TokValue::from_float(arg_to_f64(tag, data).tan())
-}
-
-#[no_mangle]
-pub extern "C" fn tok_math_asin_t(_env: *mut u8, tag: i64, data: i64) -> TokValue {
-    TokValue::from_float(arg_to_f64(tag, data).asin())
-}
-
-#[no_mangle]
-pub extern "C" fn tok_math_acos_t(_env: *mut u8, tag: i64, data: i64) -> TokValue {
-    TokValue::from_float(arg_to_f64(tag, data).acos())
-}
-
-#[no_mangle]
-pub extern "C" fn tok_math_atan_t(_env: *mut u8, tag: i64, data: i64) -> TokValue {
-    TokValue::from_float(arg_to_f64(tag, data).atan())
-}
-
-#[no_mangle]
-pub extern "C" fn tok_math_log_t(_env: *mut u8, tag: i64, data: i64) -> TokValue {
-    TokValue::from_float(arg_to_f64(tag, data).ln())
-}
-
-#[no_mangle]
-pub extern "C" fn tok_math_log2_t(_env: *mut u8, tag: i64, data: i64) -> TokValue {
-    TokValue::from_float(arg_to_f64(tag, data).log2())
-}
-
-#[no_mangle]
-pub extern "C" fn tok_math_log10_t(_env: *mut u8, tag: i64, data: i64) -> TokValue {
-    TokValue::from_float(arg_to_f64(tag, data).log10())
-}
-
-#[no_mangle]
-pub extern "C" fn tok_math_exp_t(_env: *mut u8, tag: i64, data: i64) -> TokValue {
-    TokValue::from_float(arg_to_f64(tag, data).exp())
-}
-
-// --- 1-arg Float -> Int ---
-
-#[no_mangle]
-pub extern "C" fn tok_math_floor_t(_env: *mut u8, tag: i64, data: i64) -> TokValue {
-    TokValue::from_int(safe_f64_to_i64(arg_to_f64(tag, data).floor()))
-}
-
-#[no_mangle]
-pub extern "C" fn tok_math_ceil_t(_env: *mut u8, tag: i64, data: i64) -> TokValue {
-    TokValue::from_int(safe_f64_to_i64(arg_to_f64(tag, data).ceil()))
-}
-
-#[no_mangle]
-pub extern "C" fn tok_math_round_t(_env: *mut u8, tag: i64, data: i64) -> TokValue {
-    TokValue::from_int(safe_f64_to_i64(arg_to_f64(tag, data).round()))
-}
+// --- 1-arg Float -> Int (generated via macro) ---
+math_f64_to_int!(tok_math_floor_t, floor);
+math_f64_to_int!(tok_math_ceil_t, ceil);
+math_f64_to_int!(tok_math_round_t, round);
 
 // --- 1-arg abs (preserves type) ---
 
@@ -98,33 +45,9 @@ pub extern "C" fn tok_math_abs_t(_env: *mut u8, tag: i64, data: i64) -> TokValue
     }
 }
 
-// --- 2-arg Float, Float -> Float ---
-
-#[no_mangle]
-pub extern "C" fn tok_math_pow_t(
-    _env: *mut u8,
-    tag1: i64,
-    data1: i64,
-    tag2: i64,
-    data2: i64,
-) -> TokValue {
-    let base = arg_to_f64(tag1, data1);
-    let exp = arg_to_f64(tag2, data2);
-    TokValue::from_float(base.powf(exp))
-}
-
-#[no_mangle]
-pub extern "C" fn tok_math_atan2_t(
-    _env: *mut u8,
-    tag1: i64,
-    data1: i64,
-    tag2: i64,
-    data2: i64,
-) -> TokValue {
-    let y = arg_to_f64(tag1, data1);
-    let x = arg_to_f64(tag2, data2);
-    TokValue::from_float(y.atan2(x))
-}
+// --- 2-arg Float, Float -> Float (generated via macro) ---
+math_f64_binary!(tok_math_pow_t, powf);
+math_f64_binary!(tok_math_atan2_t, atan2);
 
 // --- 2-arg min/max (preserves type) ---
 
