@@ -1168,20 +1168,16 @@ impl TypeChecker {
         self.env.push_scope();
         let mut last_ty = Type::Nil;
         for stmt in stmts {
-            self.check_stmt(stmt);
-            // Track last expression type for block result
+            // For expression stmts, capture the type from check_expr directly
+            // to avoid re-checking the last expression twice.
             if let Stmt::Expr(e) = stmt {
-                last_ty = self.check_expr_type_only(e);
+                last_ty = self.check_expr(e);
+            } else {
+                self.check_stmt(stmt);
             }
         }
         self.env.pop_scope();
         last_ty
-    }
-
-    /// Get the type of an already-checked expression without re-checking.
-    /// Falls back to re-checking (idempotent since we don't mutate the AST).
-    fn check_expr_type_only(&mut self, expr: &Expr) -> Type {
-        self.check_expr(expr)
     }
 }
 
