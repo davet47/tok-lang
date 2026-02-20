@@ -149,10 +149,13 @@ pub extern "C" fn tok_str_repeat_t(
     tag2: i64,
     data2: i64,
 ) -> TokValue {
+    const MAX_REPEAT_LEN: usize = 1_000_000;
     unsafe {
         let s = arg_to_str(tag1, data1);
         let n = arg_to_i64(tag2, data2).max(0) as usize;
-        TokValue::from_string(TokString::alloc(s.repeat(n)))
+        let slen = s.len();
+        let capped = if slen > 0 { n.min(MAX_REPEAT_LEN / slen) } else { n };
+        TokValue::from_string(TokString::alloc(s.repeat(capped)))
     }
 }
 

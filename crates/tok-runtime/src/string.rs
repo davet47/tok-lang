@@ -137,12 +137,21 @@ pub extern "C" fn tok_string_index(s: *mut TokString, i: i64) -> *mut TokString 
     }
 }
 
+/// Maximum total characters allowed from a string repeat operation.
+const MAX_REPEAT_LEN: usize = 1_000_000;
+
 #[no_mangle]
 pub extern "C" fn tok_string_repeat(s: *mut TokString, count: i64) -> *mut TokString {
     null_check!(s, "tok_string_repeat: null pointer");
     unsafe {
         let n = count.max(0) as usize;
-        TokString::alloc((*s).data.repeat(n))
+        let slen = (*s).data.len();
+        let capped = if slen > 0 {
+            n.min(MAX_REPEAT_LEN / slen)
+        } else {
+            n
+        };
+        TokString::alloc((*s).data.repeat(capped))
     }
 }
 
