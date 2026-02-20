@@ -86,15 +86,9 @@ pub extern "C" fn tok_io_readall_t(_env: *mut u8) -> TokValue {
 pub extern "C" fn tok_stdlib_io() -> *mut TokMap {
     let m = TokMap::alloc();
 
-    // input() with 0 args reads a line
-    insert_func(m, "input", tok_io_input_0_t as *const u8, 0);
-    // We also register a 1-arg version for input(prompt)
-    // Since the module system doesn't support overloading by arity,
-    // we'll use the 1-arg version and handle 0-arg calls gracefully.
-    // Actually, let's just register the 1-arg version as "input" —
-    // callers who want no prompt can pass "".
-    // But the spec says both input() and input(prompt) should work.
-    // We'll register the 1-arg version since it handles empty prompt too.
+    // Register only the 1-arg version: input(prompt). The 0-arg registration
+    // was previously overwritten here anyway since the module map doesn't
+    // support arity overloading. Callers who want no prompt can pass "".
     insert_func(m, "input", tok_io_input_1_t as *const u8, 1);
     insert_func(m, "readall", tok_io_readall_t as *const u8, 0);
 
