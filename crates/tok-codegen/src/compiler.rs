@@ -3393,427 +3393,8 @@ fn compile_call(
             return compile_user_func_call(ctx, name, args, result_ty);
         }
         // Built-in function calls
-        match name.as_str() {
-            "p" | "print" => {
-                return compile_print_call(ctx, args, false);
-            }
-            "pl" | "println" => {
-                return compile_print_call(ctx, args, true);
-            }
-            "len" => {
-                if let Some(arg) = args.first() {
-                    let val = compile_expr(ctx, arg).expect("codegen: arg produced no value");
-                    match &arg.ty {
-                        Type::Any | Type::Optional(_) | Type::Result(_) => {
-                            let (tag, data) = to_tokvalue(ctx, val, &arg.ty);
-                            let func_ref = ctx.get_runtime_func_ref("tok_value_len");
-                            let call = ctx.builder.ins().call(func_ref, &[tag, data]);
-                            return Some(ctx.builder.inst_results(call)[0]);
-                        }
-                        _ => {
-                            let func_name = match &arg.ty {
-                                Type::Array(_) => "tok_array_len",
-                                Type::Str => "tok_string_len",
-                                Type::Map(_) => "tok_map_len",
-                                Type::Tuple(_) => "tok_tuple_len",
-                                _ => return Some(ctx.builder.ins().iconst(types::I64, 0)),
-                            };
-                            let func_ref = ctx.get_runtime_func_ref(func_name);
-                            let call = ctx.builder.ins().call(func_ref, &[val]);
-                            return Some(ctx.builder.inst_results(call)[0]);
-                        }
-                    }
-                }
-            }
-            "push" => {
-                if args.len() >= 2 {
-                    let arr_raw =
-                        compile_expr(ctx, &args[0]).expect("codegen: args[0] produced no value");
-                    let mut arr = unwrap_any_ptr(ctx, arr_raw, &args[0].ty);
-                    let func_ref = ctx.get_runtime_func_ref("tok_array_push");
-                    for arg in &args[1..] {
-                        let val = compile_expr(ctx, arg).expect("codegen: arg produced no value");
-                        let (tag, data) = to_tokvalue(ctx, val, &arg.ty);
-                        let call = ctx.builder.ins().call(func_ref, &[arr, tag, data]);
-                        arr = ctx.builder.inst_results(call)[0];
-                    }
-                    return Some(arr);
-                }
-            }
-            "sort" => {
-                if args.len() == 1 {
-                    return compile_builtin_1_ptr(ctx, &args[0], "tok_array_sort");
-                }
-            }
-            "rev" => {
-                if args.len() == 1 {
-                    return compile_builtin_1_ptr(ctx, &args[0], "tok_array_rev");
-                }
-            }
-            "flat" => {
-                if args.len() == 1 {
-                    return compile_builtin_1_ptr(ctx, &args[0], "tok_array_flat");
-                }
-            }
-            "uniq" => {
-                if args.len() == 1 {
-                    return compile_builtin_1_ptr(ctx, &args[0], "tok_array_uniq");
-                }
-            }
-            "join" => {
-                if args.len() >= 2 {
-                    return compile_builtin_2_ptr(ctx, args, "tok_array_join");
-                }
-            }
-            "split" => {
-                if args.len() >= 2 {
-                    return compile_builtin_2_ptr(ctx, args, "tok_string_split");
-                }
-            }
-            "trim" => {
-                if args.len() == 1 {
-                    return compile_builtin_1_ptr(ctx, &args[0], "tok_string_trim");
-                }
-            }
-            "keys" => {
-                if args.len() == 1 {
-                    return compile_builtin_1_ptr(ctx, &args[0], "tok_map_keys");
-                }
-            }
-            "vals" => {
-                if args.len() == 1 {
-                    return compile_builtin_1_ptr(ctx, &args[0], "tok_map_vals");
-                }
-            }
-            "has" => {
-                if args.len() >= 2 {
-                    return compile_builtin_2_ptr(ctx, args, "tok_map_has");
-                }
-            }
-            "del" => {
-                if args.len() >= 2 {
-                    return compile_builtin_2_ptr(ctx, args, "tok_map_del");
-                }
-            }
-            "int" => {
-                if let Some(arg) = args.first() {
-                    let val = compile_expr(ctx, arg).expect("codegen: arg produced no value");
-                    if matches!(arg.ty, Type::Int) {
-                        return Some(val);
-                    }
-                    if matches!(arg.ty, Type::Float) {
-                        return Some(ctx.builder.ins().fcvt_to_sint_sat(types::I64, val));
-                    }
-                    let (tag, data) = to_tokvalue(ctx, val, &arg.ty);
-                    let func_ref = ctx.get_runtime_func_ref("tok_to_int");
-                    let call = ctx.builder.ins().call(func_ref, &[tag, data]);
-                    return Some(ctx.builder.inst_results(call)[0]);
-                }
-            }
-            "float" => {
-                if let Some(arg) = args.first() {
-                    let val = compile_expr(ctx, arg).expect("codegen: arg produced no value");
-                    if matches!(arg.ty, Type::Float) {
-                        return Some(val);
-                    }
-                    if matches!(arg.ty, Type::Int) {
-                        return Some(ctx.builder.ins().fcvt_from_sint(types::F64, val));
-                    }
-                    let (tag, data) = to_tokvalue(ctx, val, &arg.ty);
-                    let func_ref = ctx.get_runtime_func_ref("tok_to_float");
-                    let call = ctx.builder.ins().call(func_ref, &[tag, data]);
-                    return Some(ctx.builder.inst_results(call)[0]);
-                }
-            }
-            "str" => {
-                if let Some(arg) = args.first() {
-                    let val = compile_expr(ctx, arg).expect("codegen: arg produced no value");
-                    let func_name = match &arg.ty {
-                        Type::Int => "tok_int_to_string",
-                        Type::Float => "tok_float_to_string",
-                        Type::Bool => "tok_bool_to_string",
-                        Type::Str => return Some(val),
-                        _ => {
-                            let (tag, data) = to_tokvalue(ctx, val, &arg.ty);
-                            let func_ref = ctx.get_runtime_func_ref("tok_value_to_string");
-                            let call = ctx.builder.ins().call(func_ref, &[tag, data]);
-                            return Some(ctx.builder.inst_results(call)[0]);
-                        }
-                    };
-                    let func_ref = ctx.get_runtime_func_ref(func_name);
-                    let call = ctx.builder.ins().call(func_ref, &[val]);
-                    return Some(ctx.builder.inst_results(call)[0]);
-                }
-            }
-            "abs" => {
-                if let Some(arg) = args.first() {
-                    let val = compile_expr(ctx, arg).expect("codegen: arg produced no value");
-                    if matches!(arg.ty, Type::Any) {
-                        // Fully dynamic: dispatch at runtime
-                        let (tag, data) = to_tokvalue(ctx, val, &arg.ty);
-                        let func_ref = ctx.get_runtime_func_ref("tok_value_abs");
-                        let call = ctx.builder.ins().call(func_ref, &[tag, data]);
-                        let results = ctx.builder.inst_results(call);
-                        return Some(from_tokvalue(ctx, results[0], results[1], result_ty));
-                    }
-                    let is_float = matches!(arg.ty, Type::Float);
-                    let func_name = if is_float {
-                        "tok_abs_float"
-                    } else {
-                        "tok_abs_int"
-                    };
-                    let func_ref = ctx.get_runtime_func_ref(func_name);
-                    let call = ctx.builder.ins().call(func_ref, &[val]);
-                    let raw = ctx.builder.inst_results(call)[0];
-                    // Wrap if caller expects Any
-                    if matches!(result_ty, Type::Any) {
-                        let tag_val = ctx
-                            .builder
-                            .ins()
-                            .iconst(types::I64, if is_float { TAG_FLOAT } else { TAG_INT });
-                        let data_val = if is_float {
-                            ctx.builder.ins().bitcast(types::I64, MemFlags::new(), raw)
-                        } else {
-                            raw
-                        };
-                        return Some(alloc_tokvalue_on_stack(ctx, tag_val, data_val));
-                    }
-                    return Some(raw);
-                }
-            }
-            "floor" => {
-                if let Some(arg) = args.first() {
-                    let val = compile_expr(ctx, arg).expect("codegen: arg produced no value");
-                    if matches!(arg.ty, Type::Any) {
-                        let (tag, data) = to_tokvalue(ctx, val, &arg.ty);
-                        let func_ref = ctx.get_runtime_func_ref("tok_value_floor");
-                        let call = ctx.builder.ins().call(func_ref, &[tag, data]);
-                        let results = ctx.builder.inst_results(call);
-                        return Some(from_tokvalue(ctx, results[0], results[1], result_ty));
-                    }
-                    let func_ref = ctx.get_runtime_func_ref("tok_floor");
-                    let call = ctx.builder.ins().call(func_ref, &[val]);
-                    let raw = ctx.builder.inst_results(call)[0];
-                    if matches!(result_ty, Type::Any) {
-                        let tag_val = ctx.builder.ins().iconst(types::I64, TAG_INT);
-                        return Some(alloc_tokvalue_on_stack(ctx, tag_val, raw));
-                    }
-                    return Some(raw);
-                }
-            }
-            "ceil" => {
-                if let Some(arg) = args.first() {
-                    let val = compile_expr(ctx, arg).expect("codegen: arg produced no value");
-                    if matches!(arg.ty, Type::Any) {
-                        let (tag, data) = to_tokvalue(ctx, val, &arg.ty);
-                        let func_ref = ctx.get_runtime_func_ref("tok_value_ceil");
-                        let call = ctx.builder.ins().call(func_ref, &[tag, data]);
-                        let results = ctx.builder.inst_results(call);
-                        return Some(from_tokvalue(ctx, results[0], results[1], result_ty));
-                    }
-                    let func_ref = ctx.get_runtime_func_ref("tok_ceil");
-                    let call = ctx.builder.ins().call(func_ref, &[val]);
-                    let raw = ctx.builder.inst_results(call)[0];
-                    if matches!(result_ty, Type::Any) {
-                        let tag_val = ctx.builder.ins().iconst(types::I64, TAG_INT);
-                        return Some(alloc_tokvalue_on_stack(ctx, tag_val, raw));
-                    }
-                    return Some(raw);
-                }
-            }
-            "rand" => {
-                let func_ref = ctx.get_runtime_func_ref("tok_rand");
-                let call = ctx.builder.ins().call(func_ref, &[]);
-                return Some(ctx.builder.inst_results(call)[0]);
-            }
-            "clock" => {
-                let func_ref = ctx.get_runtime_func_ref("tok_clock");
-                let call = ctx.builder.ins().call(func_ref, &[]);
-                return Some(ctx.builder.inst_results(call)[0]);
-            }
-            "exit" => {
-                if let Some(arg) = args.first() {
-                    let val = compile_expr(ctx, arg).expect("codegen: arg produced no value");
-                    let func_ref = ctx.get_runtime_func_ref("tok_exit");
-                    ctx.builder.ins().call(func_ref, &[val]);
-                }
-                return None;
-            }
-            "chan" => {
-                let cap = if let Some(arg) = args.first() {
-                    compile_expr(ctx, arg).expect("codegen: arg produced no value")
-                } else {
-                    ctx.builder.ins().iconst(types::I64, 0)
-                };
-                let func_ref = ctx.get_runtime_func_ref("tok_channel_alloc");
-                let call = ctx.builder.ins().call(func_ref, &[cap]);
-                return Some(ctx.builder.inst_results(call)[0]);
-            }
-            "type" => {
-                if let Some(arg) = args.first() {
-                    let val = compile_expr(ctx, arg).expect("codegen: arg produced no value");
-                    let (tag, data) = to_tokvalue(ctx, val, &arg.ty);
-                    let func_ref = ctx.get_runtime_func_ref("tok_type_of");
-                    let call = ctx.builder.ins().call(func_ref, &[tag, data]);
-                    return Some(ctx.builder.inst_results(call)[0]);
-                }
-            }
-            "min" => {
-                if args.len() == 1 {
-                    return compile_builtin_1_tokvalue(ctx, &args[0], "tok_array_min", result_ty);
-                }
-            }
-            "max" => {
-                if args.len() == 1 {
-                    return compile_builtin_1_tokvalue(ctx, &args[0], "tok_array_max", result_ty);
-                }
-            }
-            "sum" => {
-                if args.len() == 1 {
-                    return compile_builtin_1_tokvalue(ctx, &args[0], "tok_array_sum", result_ty);
-                }
-            }
-            "slice" => {
-                if args.len() >= 3 {
-                    let target_raw =
-                        compile_expr(ctx, &args[0]).expect("codegen: args[0] produced no value");
-                    let start =
-                        compile_expr(ctx, &args[1]).expect("codegen: args[1] produced no value");
-                    let end =
-                        compile_expr(ctx, &args[2]).expect("codegen: args[2] produced no value");
-                    if matches!(args[0].ty, Type::Any) {
-                        // Fully dynamic: dispatch at runtime by tag
-                        let (tag, data) = to_tokvalue(ctx, target_raw, &args[0].ty);
-                        let func_ref = ctx.get_runtime_func_ref("tok_value_slice");
-                        let call = ctx.builder.ins().call(func_ref, &[tag, data, start, end]);
-                        let results = ctx.builder.inst_results(call);
-                        return Some(from_tokvalue(ctx, results[0], results[1], result_ty));
-                    }
-                    let target = unwrap_any_ptr(ctx, target_raw, &args[0].ty);
-                    let (func_name, tag_const) = match &args[0].ty {
-                        Type::Array(_) => ("tok_array_slice", TAG_ARRAY),
-                        Type::Str => ("tok_string_slice", TAG_STRING),
-                        _ => return None,
-                    };
-                    let func_ref = ctx.get_runtime_func_ref(func_name);
-                    let call = ctx.builder.ins().call(func_ref, &[target, start, end]);
-                    let raw = ctx.builder.inst_results(call)[0];
-                    // Wrap as TokValue if caller expects Any
-                    if matches!(result_ty, Type::Any) {
-                        let tag = ctx.builder.ins().iconst(types::I64, tag_const);
-                        return Some(alloc_tokvalue_on_stack(ctx, tag, raw));
-                    }
-                    return Some(raw);
-                }
-            }
-            "pmap" => {
-                if args.len() >= 2 {
-                    let arr_raw =
-                        compile_expr(ctx, &args[0]).expect("codegen: args[0] produced no value");
-                    let arr = unwrap_any_ptr(ctx, arr_raw, &args[0].ty);
-                    let closure =
-                        compile_expr(ctx, &args[1]).expect("codegen: args[1] produced no value");
-                    let closure_ptr = unwrap_any_ptr(ctx, closure, &args[1].ty);
-                    let func_ref = ctx.get_runtime_func_ref("tok_pmap");
-                    let call = ctx.builder.ins().call(func_ref, &[arr, closure_ptr]);
-                    return Some(ctx.builder.inst_results(call)[0]);
-                }
-            }
-            "is" => {
-                if args.len() >= 2 {
-                    // compile_expr returns None for Nil, so handle that
-                    let val_opt = compile_expr(ctx, &args[0]);
-                    let (tag, data) = if let Some(val) = val_opt {
-                        to_tokvalue(ctx, val, &args[0].ty)
-                    } else {
-                        // Nil value
-                        let tag = ctx.builder.ins().iconst(types::I64, 0); // TAG_NIL
-                        let data = ctx.builder.ins().iconst(types::I64, 0);
-                        (tag, data)
-                    };
-                    let type_str =
-                        compile_expr(ctx, &args[1]).expect("codegen: args[1] produced no value");
-                    let str_ptr = unwrap_any_ptr(ctx, type_str, &args[1].ty);
-                    let func_ref = ctx.get_runtime_func_ref("tok_is");
-                    let call = ctx.builder.ins().call(func_ref, &[tag, data, str_ptr]);
-                    return Some(ctx.builder.inst_results(call)[0]);
-                }
-            }
-            "pop" => {
-                if args.len() == 1 {
-                    return compile_builtin_1_tokvalue(ctx, &args[0], "tok_array_pop", result_ty);
-                }
-            }
-            "freq" => {
-                if args.len() == 1 {
-                    return compile_builtin_1_ptr(ctx, &args[0], "tok_array_freq");
-                }
-            }
-            "zip" => {
-                if args.len() >= 2 {
-                    return compile_builtin_2_ptr(ctx, args, "tok_array_zip");
-                }
-            }
-            "top" => {
-                if args.len() >= 2 {
-                    return compile_builtin_2_ptr(ctx, args, "tok_map_top");
-                }
-            }
-            "args" => {
-                let func_ref = ctx.get_runtime_func_ref("tok_args");
-                let call = ctx.builder.ins().call(func_ref, &[]);
-                return Some(ctx.builder.inst_results(call)[0]);
-            }
-            "env" => {
-                if args.len() == 1 {
-                    return compile_builtin_1_tokvalue(ctx, &args[0], "tok_env", result_ty);
-                }
-            }
-            _ => {
-                // Direct call optimization: if we know the FuncId, skip indirect dispatch
-                if let Some(kc) = ctx.known_closures.get(name).cloned() {
-                    // Try specialized call if all arg types are concrete
-                    let arg_types: Vec<Type> = args.iter().map(|a| a.ty.clone()).collect();
-                    let all_concrete = arg_types
-                        .iter()
-                        .all(|t| matches!(t, Type::Int | Type::Float | Type::Bool));
-                    if all_concrete {
-                        // Try inlining first for simple lambdas (single-expression body)
-                        if can_inline_closure_call(
-                            &ctx.compiler.pending_lambdas[kc.pending_idx],
-                            &arg_types,
-                            name,
-                        ) {
-                            return compile_inline_closure_call(
-                                ctx, name, &kc, args, &arg_types, result_ty,
-                            );
-                        }
-                        return compile_specialized_closure_call(
-                            ctx, name, &kc, args, &arg_types, result_ty,
-                        );
-                    }
-                    return compile_direct_closure_call(
-                        ctx, kc.func_id, kc.env_ptr, args, result_ty,
-                    );
-                }
-                // Check if it's a variable holding a closure
-                if let Some((var, var_ty)) = ctx.vars.get(name).cloned() {
-                    if matches!(var_ty, Type::Func(_)) {
-                        let closure_ptr = ctx.builder.use_var(var);
-                        return compile_closure_call(ctx, closure_ptr, args, result_ty);
-                    }
-                    if matches!(var_ty, Type::Any) {
-                        // Any-typed variable might hold a closure — extract ptr from TokValue data field
-                        let tokval_ptr = ctx.builder.use_var(var);
-                        let closure_ptr =
-                            ctx.builder
-                                .ins()
-                                .load(types::I64, MemFlags::trusted(), tokval_ptr, 8);
-                        return compile_closure_call(ctx, closure_ptr, args, result_ty);
-                    }
-                }
-                // Unknown — fall through to generic call below
-            }
+        if let Some(result) = compile_builtin_call(ctx, name, args, result_ty) {
+            return Some(result);
         }
     }
 
@@ -3835,6 +3416,361 @@ fn compile_call(
     }
 
     Some(ctx.builder.ins().iconst(types::I64, 0))
+}
+
+/// Compile a call to a built-in function. Returns Some(value) if handled, None to fall through.
+fn compile_builtin_call(
+    ctx: &mut FuncCtx,
+    name: &str,
+    args: &[HirExpr],
+    result_ty: &Type,
+) -> Option<Value> {
+    match name {
+        // ── I/O builtins ──────────────────────────────────────────
+        "p" | "print" => compile_print_call(ctx, args, false),
+        "pl" | "println" => compile_print_call(ctx, args, true),
+        // ── Collection query builtins ─────────────────────────────
+        "len" => compile_builtin_len(ctx, args),
+        "min" if args.len() == 1 => compile_builtin_1_tokvalue(ctx, &args[0], "tok_array_min", result_ty),
+        "max" if args.len() == 1 => compile_builtin_1_tokvalue(ctx, &args[0], "tok_array_max", result_ty),
+        "sum" if args.len() == 1 => compile_builtin_1_tokvalue(ctx, &args[0], "tok_array_sum", result_ty),
+        "pop" if args.len() == 1 => compile_builtin_1_tokvalue(ctx, &args[0], "tok_array_pop", result_ty),
+        // ── Array mutation builtins ───────────────────────────────
+        "push" if args.len() >= 2 => compile_builtin_push(ctx, args),
+        "sort" if args.len() == 1 => compile_builtin_1_ptr(ctx, &args[0], "tok_array_sort"),
+        "rev"  if args.len() == 1 => compile_builtin_1_ptr(ctx, &args[0], "tok_array_rev"),
+        "flat" if args.len() == 1 => compile_builtin_1_ptr(ctx, &args[0], "tok_array_flat"),
+        "uniq" if args.len() == 1 => compile_builtin_1_ptr(ctx, &args[0], "tok_array_uniq"),
+        "freq" if args.len() == 1 => compile_builtin_1_ptr(ctx, &args[0], "tok_array_freq"),
+        "zip" if args.len() >= 2 => compile_builtin_2_ptr(ctx, args, "tok_array_zip"),
+        "slice" if args.len() >= 3 => compile_builtin_slice(ctx, args, result_ty),
+        "pmap" if args.len() >= 2 => compile_builtin_pmap(ctx, args),
+        // ── String builtins ──────────────────────────────────────
+        "join"  if args.len() >= 2 => compile_builtin_2_ptr(ctx, args, "tok_array_join"),
+        "split" if args.len() >= 2 => compile_builtin_2_ptr(ctx, args, "tok_string_split"),
+        "trim"  if args.len() == 1 => compile_builtin_1_ptr(ctx, &args[0], "tok_string_trim"),
+        // ── Map builtins ─────────────────────────────────────────
+        "keys" if args.len() == 1 => compile_builtin_1_ptr(ctx, &args[0], "tok_map_keys"),
+        "vals" if args.len() == 1 => compile_builtin_1_ptr(ctx, &args[0], "tok_map_vals"),
+        "has"  if args.len() >= 2 => compile_builtin_2_ptr(ctx, args, "tok_map_has"),
+        "del"  if args.len() >= 2 => compile_builtin_2_ptr(ctx, args, "tok_map_del"),
+        "top"  if args.len() >= 2 => compile_builtin_2_ptr(ctx, args, "tok_map_top"),
+        // ── Type conversion builtins ─────────────────────────────
+        "int"   => compile_builtin_int(ctx, args),
+        "float" => compile_builtin_float(ctx, args),
+        "str"   => compile_builtin_str(ctx, args),
+        // ── Math builtins ────────────────────────────────────────
+        "abs"   => compile_builtin_abs(ctx, args, result_ty),
+        "floor" => compile_builtin_floor_ceil(ctx, args, result_ty, "tok_value_floor", "tok_floor"),
+        "ceil"  => compile_builtin_floor_ceil(ctx, args, result_ty, "tok_value_ceil", "tok_ceil"),
+        "rand"  => {
+            let func_ref = ctx.get_runtime_func_ref("tok_rand");
+            let call = ctx.builder.ins().call(func_ref, &[]);
+            Some(ctx.builder.inst_results(call)[0])
+        }
+        "clock" => {
+            let func_ref = ctx.get_runtime_func_ref("tok_clock");
+            let call = ctx.builder.ins().call(func_ref, &[]);
+            Some(ctx.builder.inst_results(call)[0])
+        }
+        // ── System / concurrency builtins ────────────────────────
+        "exit" => {
+            if let Some(arg) = args.first() {
+                let val = compile_expr(ctx, arg).expect("codegen: arg produced no value");
+                let func_ref = ctx.get_runtime_func_ref("tok_exit");
+                ctx.builder.ins().call(func_ref, &[val]);
+            }
+            // exit never returns a useful value
+            None
+        }
+        "chan" => {
+            let cap = if let Some(arg) = args.first() {
+                compile_expr(ctx, arg).expect("codegen: arg produced no value")
+            } else {
+                ctx.builder.ins().iconst(types::I64, 0)
+            };
+            let func_ref = ctx.get_runtime_func_ref("tok_channel_alloc");
+            let call = ctx.builder.ins().call(func_ref, &[cap]);
+            Some(ctx.builder.inst_results(call)[0])
+        }
+        "args" => {
+            let func_ref = ctx.get_runtime_func_ref("tok_args");
+            let call = ctx.builder.ins().call(func_ref, &[]);
+            Some(ctx.builder.inst_results(call)[0])
+        }
+        "env" if args.len() == 1 => compile_builtin_1_tokvalue(ctx, &args[0], "tok_env", result_ty),
+        // ── Introspection builtins ───────────────────────────────
+        "type" => {
+            if let Some(arg) = args.first() {
+                let val = compile_expr(ctx, arg).expect("codegen: arg produced no value");
+                let (tag, data) = to_tokvalue(ctx, val, &arg.ty);
+                let func_ref = ctx.get_runtime_func_ref("tok_type_of");
+                let call = ctx.builder.ins().call(func_ref, &[tag, data]);
+                Some(ctx.builder.inst_results(call)[0])
+            } else {
+                None
+            }
+        }
+        "is" if args.len() >= 2 => compile_builtin_is(ctx, args),
+        // ── Known closure / variable call ────────────────────────
+        _ => compile_known_closure_or_var_call(ctx, name, args, result_ty),
+    }
+}
+
+/// Compile builtin `len(x)`.
+fn compile_builtin_len(ctx: &mut FuncCtx, args: &[HirExpr]) -> Option<Value> {
+    let arg = args.first()?;
+    let val = compile_expr(ctx, arg).expect("codegen: arg produced no value");
+    match &arg.ty {
+        Type::Any | Type::Optional(_) | Type::Result(_) => {
+            let (tag, data) = to_tokvalue(ctx, val, &arg.ty);
+            let func_ref = ctx.get_runtime_func_ref("tok_value_len");
+            let call = ctx.builder.ins().call(func_ref, &[tag, data]);
+            Some(ctx.builder.inst_results(call)[0])
+        }
+        _ => {
+            let func_name = match &arg.ty {
+                Type::Array(_) => "tok_array_len",
+                Type::Str => "tok_string_len",
+                Type::Map(_) => "tok_map_len",
+                Type::Tuple(_) => "tok_tuple_len",
+                _ => return Some(ctx.builder.ins().iconst(types::I64, 0)),
+            };
+            let func_ref = ctx.get_runtime_func_ref(func_name);
+            let call = ctx.builder.ins().call(func_ref, &[val]);
+            Some(ctx.builder.inst_results(call)[0])
+        }
+    }
+}
+
+/// Compile variadic `push(arr, v1, v2, ...)`.
+fn compile_builtin_push(ctx: &mut FuncCtx, args: &[HirExpr]) -> Option<Value> {
+    let arr_raw = compile_expr(ctx, &args[0]).expect("codegen: args[0] produced no value");
+    let mut arr = unwrap_any_ptr(ctx, arr_raw, &args[0].ty);
+    let func_ref = ctx.get_runtime_func_ref("tok_array_push");
+    for arg in &args[1..] {
+        let val = compile_expr(ctx, arg).expect("codegen: arg produced no value");
+        let (tag, data) = to_tokvalue(ctx, val, &arg.ty);
+        let call = ctx.builder.ins().call(func_ref, &[arr, tag, data]);
+        arr = ctx.builder.inst_results(call)[0];
+    }
+    Some(arr)
+}
+
+/// Compile `int(x)` type conversion.
+fn compile_builtin_int(ctx: &mut FuncCtx, args: &[HirExpr]) -> Option<Value> {
+    let arg = args.first()?;
+    let val = compile_expr(ctx, arg).expect("codegen: arg produced no value");
+    if matches!(arg.ty, Type::Int) {
+        return Some(val);
+    }
+    if matches!(arg.ty, Type::Float) {
+        return Some(ctx.builder.ins().fcvt_to_sint_sat(types::I64, val));
+    }
+    let (tag, data) = to_tokvalue(ctx, val, &arg.ty);
+    let func_ref = ctx.get_runtime_func_ref("tok_to_int");
+    let call = ctx.builder.ins().call(func_ref, &[tag, data]);
+    Some(ctx.builder.inst_results(call)[0])
+}
+
+/// Compile `float(x)` type conversion.
+fn compile_builtin_float(ctx: &mut FuncCtx, args: &[HirExpr]) -> Option<Value> {
+    let arg = args.first()?;
+    let val = compile_expr(ctx, arg).expect("codegen: arg produced no value");
+    if matches!(arg.ty, Type::Float) {
+        return Some(val);
+    }
+    if matches!(arg.ty, Type::Int) {
+        return Some(ctx.builder.ins().fcvt_from_sint(types::F64, val));
+    }
+    let (tag, data) = to_tokvalue(ctx, val, &arg.ty);
+    let func_ref = ctx.get_runtime_func_ref("tok_to_float");
+    let call = ctx.builder.ins().call(func_ref, &[tag, data]);
+    Some(ctx.builder.inst_results(call)[0])
+}
+
+/// Compile `str(x)` type conversion.
+fn compile_builtin_str(ctx: &mut FuncCtx, args: &[HirExpr]) -> Option<Value> {
+    let arg = args.first()?;
+    let val = compile_expr(ctx, arg).expect("codegen: arg produced no value");
+    let func_name = match &arg.ty {
+        Type::Int => "tok_int_to_string",
+        Type::Float => "tok_float_to_string",
+        Type::Bool => "tok_bool_to_string",
+        Type::Str => return Some(val),
+        _ => {
+            let (tag, data) = to_tokvalue(ctx, val, &arg.ty);
+            let func_ref = ctx.get_runtime_func_ref("tok_value_to_string");
+            let call = ctx.builder.ins().call(func_ref, &[tag, data]);
+            return Some(ctx.builder.inst_results(call)[0]);
+        }
+    };
+    let func_ref = ctx.get_runtime_func_ref(func_name);
+    let call = ctx.builder.ins().call(func_ref, &[val]);
+    Some(ctx.builder.inst_results(call)[0])
+}
+
+/// Compile `abs(x)` with type-specific dispatch.
+fn compile_builtin_abs(
+    ctx: &mut FuncCtx,
+    args: &[HirExpr],
+    result_ty: &Type,
+) -> Option<Value> {
+    let arg = args.first()?;
+    let val = compile_expr(ctx, arg).expect("codegen: arg produced no value");
+    if matches!(arg.ty, Type::Any) {
+        let (tag, data) = to_tokvalue(ctx, val, &arg.ty);
+        let func_ref = ctx.get_runtime_func_ref("tok_value_abs");
+        let call = ctx.builder.ins().call(func_ref, &[tag, data]);
+        let results = ctx.builder.inst_results(call);
+        return Some(from_tokvalue(ctx, results[0], results[1], result_ty));
+    }
+    let is_float = matches!(arg.ty, Type::Float);
+    let func_name = if is_float { "tok_abs_float" } else { "tok_abs_int" };
+    let func_ref = ctx.get_runtime_func_ref(func_name);
+    let call = ctx.builder.ins().call(func_ref, &[val]);
+    let raw = ctx.builder.inst_results(call)[0];
+    if matches!(result_ty, Type::Any) {
+        let tag_val = ctx
+            .builder
+            .ins()
+            .iconst(types::I64, if is_float { TAG_FLOAT } else { TAG_INT });
+        let data_val = if is_float {
+            ctx.builder.ins().bitcast(types::I64, MemFlags::new(), raw)
+        } else {
+            raw
+        };
+        return Some(alloc_tokvalue_on_stack(ctx, tag_val, data_val));
+    }
+    Some(raw)
+}
+
+/// Compile `floor(x)` or `ceil(x)` with type-specific dispatch.
+fn compile_builtin_floor_ceil(
+    ctx: &mut FuncCtx,
+    args: &[HirExpr],
+    result_ty: &Type,
+    any_func: &str,
+    typed_func: &str,
+) -> Option<Value> {
+    let arg = args.first()?;
+    let val = compile_expr(ctx, arg).expect("codegen: arg produced no value");
+    if matches!(arg.ty, Type::Any) {
+        let (tag, data) = to_tokvalue(ctx, val, &arg.ty);
+        let func_ref = ctx.get_runtime_func_ref(any_func);
+        let call = ctx.builder.ins().call(func_ref, &[tag, data]);
+        let results = ctx.builder.inst_results(call);
+        return Some(from_tokvalue(ctx, results[0], results[1], result_ty));
+    }
+    let func_ref = ctx.get_runtime_func_ref(typed_func);
+    let call = ctx.builder.ins().call(func_ref, &[val]);
+    let raw = ctx.builder.inst_results(call)[0];
+    if matches!(result_ty, Type::Any) {
+        let tag_val = ctx.builder.ins().iconst(types::I64, TAG_INT);
+        return Some(alloc_tokvalue_on_stack(ctx, tag_val, raw));
+    }
+    Some(raw)
+}
+
+/// Compile `slice(target, start, end)`.
+fn compile_builtin_slice(
+    ctx: &mut FuncCtx,
+    args: &[HirExpr],
+    result_ty: &Type,
+) -> Option<Value> {
+    let target_raw = compile_expr(ctx, &args[0]).expect("codegen: args[0] produced no value");
+    let start = compile_expr(ctx, &args[1]).expect("codegen: args[1] produced no value");
+    let end = compile_expr(ctx, &args[2]).expect("codegen: args[2] produced no value");
+    if matches!(args[0].ty, Type::Any) {
+        let (tag, data) = to_tokvalue(ctx, target_raw, &args[0].ty);
+        let func_ref = ctx.get_runtime_func_ref("tok_value_slice");
+        let call = ctx.builder.ins().call(func_ref, &[tag, data, start, end]);
+        let results = ctx.builder.inst_results(call);
+        return Some(from_tokvalue(ctx, results[0], results[1], result_ty));
+    }
+    let target = unwrap_any_ptr(ctx, target_raw, &args[0].ty);
+    let (func_name, tag_const) = match &args[0].ty {
+        Type::Array(_) => ("tok_array_slice", TAG_ARRAY),
+        Type::Str => ("tok_string_slice", TAG_STRING),
+        _ => return None,
+    };
+    let func_ref = ctx.get_runtime_func_ref(func_name);
+    let call = ctx.builder.ins().call(func_ref, &[target, start, end]);
+    let raw = ctx.builder.inst_results(call)[0];
+    if matches!(result_ty, Type::Any) {
+        let tag = ctx.builder.ins().iconst(types::I64, tag_const);
+        return Some(alloc_tokvalue_on_stack(ctx, tag, raw));
+    }
+    Some(raw)
+}
+
+/// Compile `pmap(arr, closure)`.
+fn compile_builtin_pmap(ctx: &mut FuncCtx, args: &[HirExpr]) -> Option<Value> {
+    let arr_raw = compile_expr(ctx, &args[0]).expect("codegen: args[0] produced no value");
+    let arr = unwrap_any_ptr(ctx, arr_raw, &args[0].ty);
+    let closure = compile_expr(ctx, &args[1]).expect("codegen: args[1] produced no value");
+    let closure_ptr = unwrap_any_ptr(ctx, closure, &args[1].ty);
+    let func_ref = ctx.get_runtime_func_ref("tok_pmap");
+    let call = ctx.builder.ins().call(func_ref, &[arr, closure_ptr]);
+    Some(ctx.builder.inst_results(call)[0])
+}
+
+/// Compile `is(val, type_str)`.
+fn compile_builtin_is(ctx: &mut FuncCtx, args: &[HirExpr]) -> Option<Value> {
+    let val_opt = compile_expr(ctx, &args[0]);
+    let (tag, data) = if let Some(val) = val_opt {
+        to_tokvalue(ctx, val, &args[0].ty)
+    } else {
+        let tag = ctx.builder.ins().iconst(types::I64, 0);
+        let data = ctx.builder.ins().iconst(types::I64, 0);
+        (tag, data)
+    };
+    let type_str = compile_expr(ctx, &args[1]).expect("codegen: args[1] produced no value");
+    let str_ptr = unwrap_any_ptr(ctx, type_str, &args[1].ty);
+    let func_ref = ctx.get_runtime_func_ref("tok_is");
+    let call = ctx.builder.ins().call(func_ref, &[tag, data, str_ptr]);
+    Some(ctx.builder.inst_results(call)[0])
+}
+
+/// Try calling a known closure or variable-held closure. Returns None to fall through.
+fn compile_known_closure_or_var_call(
+    ctx: &mut FuncCtx,
+    name: &str,
+    args: &[HirExpr],
+    result_ty: &Type,
+) -> Option<Value> {
+    if let Some(kc) = ctx.known_closures.get(name).cloned() {
+        let arg_types: Vec<Type> = args.iter().map(|a| a.ty.clone()).collect();
+        let all_concrete = arg_types
+            .iter()
+            .all(|t| matches!(t, Type::Int | Type::Float | Type::Bool));
+        if all_concrete {
+            if can_inline_closure_call(
+                &ctx.compiler.pending_lambdas[kc.pending_idx],
+                &arg_types,
+                name,
+            ) {
+                return compile_inline_closure_call(ctx, name, &kc, args, &arg_types, result_ty);
+            }
+            return compile_specialized_closure_call(ctx, name, &kc, args, &arg_types, result_ty);
+        }
+        return compile_direct_closure_call(ctx, kc.func_id, kc.env_ptr, args, result_ty);
+    }
+    if let Some((var, var_ty)) = ctx.vars.get(name).cloned() {
+        if matches!(var_ty, Type::Func(_)) {
+            let closure_ptr = ctx.builder.use_var(var);
+            return compile_closure_call(ctx, closure_ptr, args, result_ty);
+        }
+        if matches!(var_ty, Type::Any) {
+            let tokval_ptr = ctx.builder.use_var(var);
+            let closure_ptr = ctx
+                .builder
+                .ins()
+                .load(types::I64, MemFlags::trusted(), tokval_ptr, 8);
+            return compile_closure_call(ctx, closure_ptr, args, result_ty);
+        }
+    }
+    None
 }
 
 /// Check if a user-defined function can be inlined at the call site.
