@@ -32,6 +32,9 @@ struct Lowerer<'a> {
     /// Default parameter expressions for named functions (pre-collected for forward refs).
     /// Maps function name → vec of Option<default_expr> for each param.
     func_defaults: std::collections::HashMap<String, Vec<Option<Expr>>>,
+    /// Variadic function info (pre-collected for forward refs).
+    /// Maps function name → number of fixed (non-variadic) params.
+    func_variadic: std::collections::HashMap<String, usize>,
 }
 
 impl<'a> Lowerer<'a> {
@@ -41,6 +44,7 @@ impl<'a> Lowerer<'a> {
             tmp_counter: 0,
             scopes: Vec::new(),
             func_defaults: std::collections::HashMap::new(),
+            func_variadic: std::collections::HashMap::new(),
         }
     }
 
@@ -907,6 +911,17 @@ impl<'a> Lowerer<'a> {
                     for default_expr in &missing {
                         hir_args.push(self.lower_expr(default_expr));
                     }
+                    // Wrap extra args into array for variadic functions
+                    if let Some(&n_fixed) = self.func_variadic.get(name.as_str()) {
+                        if hir_args.len() >= n_fixed {
+                            let fixed = hir_args[..n_fixed].to_vec();
+                            let variadic_elts = hir_args[n_fixed..].to_vec();
+                            let arr_ty = Type::Array(Box::new(Type::Any));
+                            let arr_expr = HirExpr::new(HirExprKind::Array(variadic_elts), arr_ty);
+                            hir_args = fixed;
+                            hir_args.push(arr_expr);
+                        }
+                    }
                 }
                 let ret_ty = match &hir_func.ty {
                     Type::Func(ft) => *ft.ret.clone(),
@@ -1463,6 +1478,17 @@ impl<'a> Lowerer<'a> {
                     for default_expr in &missing {
                         hir_args.push(self.lower_expr(default_expr));
                     }
+                    // Wrap extra args into array for variadic functions
+                    if let Some(&n_fixed) = self.func_variadic.get(name.as_str()) {
+                        if hir_args.len() >= n_fixed {
+                            let fixed = hir_args[..n_fixed].to_vec();
+                            let variadic_elts = hir_args[n_fixed..].to_vec();
+                            let arr_ty = Type::Array(Box::new(Type::Any));
+                            let arr_expr = HirExpr::new(HirExprKind::Array(variadic_elts), arr_ty);
+                            hir_args = fixed;
+                            hir_args.push(arr_expr);
+                        }
+                    }
                 }
                 let ret_ty = match &hir_func.ty {
                     Type::Func(ft) => *ft.ret.clone(),
@@ -1479,6 +1505,20 @@ impl<'a> Lowerer<'a> {
             // x |> f -> f(x)
             _ => {
                 let hir_func = self.lower_expr(right);
+                let mut hir_args = vec![hir_left];
+                // Wrap arg into array for variadic functions with 0 fixed params
+                if let Expr::Ident(name) = right {
+                    if let Some(&n_fixed) = self.func_variadic.get(name.as_str()) {
+                        if hir_args.len() >= n_fixed {
+                            let fixed = hir_args[..n_fixed].to_vec();
+                            let variadic_elts = hir_args[n_fixed..].to_vec();
+                            let arr_ty = Type::Array(Box::new(Type::Any));
+                            let arr_expr = HirExpr::new(HirExprKind::Array(variadic_elts), arr_ty);
+                            hir_args = fixed;
+                            hir_args.push(arr_expr);
+                        }
+                    }
+                }
                 let ret_ty = match &hir_func.ty {
                     Type::Func(ft) => *ft.ret.clone(),
                     _ => Type::Any,
@@ -1486,7 +1526,7 @@ impl<'a> Lowerer<'a> {
                 HirExpr::new(
                     HirExprKind::Call {
                         func: Box::new(hir_func),
-                        args: vec![hir_left],
+                        args: hir_args,
                     },
                     ret_ty,
                 )
@@ -1851,15 +1891,21 @@ impl<'a> Lowerer<'a> {
     fn lower_params(&self, params: &[Param]) -> Vec<HirParam> {
         params
             .iter()
-            .map(|p| HirParam {
-                name: p.name.clone(),
-                ty: p
-                    .ty
-                    .as_ref()
-                    .map(|te| self.resolve_type_expr(te))
-                    .unwrap_or(Type::Any),
-                variadic: p.variadic,
-                has_default: p.default.is_some(),
+            .map(|p| {
+                let ty = if p.variadic {
+                    // Variadic param collects remaining args into an array
+                    Type::Array(Box::new(Type::Any))
+                } else {
+                    p.ty.as_ref()
+                        .map(|te| self.resolve_type_expr(te))
+                        .unwrap_or(Type::Any)
+                };
+                HirParam {
+                    name: p.name.clone(),
+                    ty,
+                    variadic: p.variadic,
+                    has_default: p.default.is_some(),
+                }
             })
             .collect()
     }
@@ -1940,6 +1986,9 @@ pub fn lower(program: &Program, type_info: &TypeInfo) -> HirProgram {
                     name.clone(),
                     params.iter().map(|p| p.default.clone()).collect(),
                 );
+            }
+            if params.last().is_some_and(|p| p.variadic) {
+                lowerer.func_variadic.insert(name.clone(), params.len() - 1);
             }
         }
     }
@@ -2779,6 +2828,201 @@ mod tests {
                 _ => panic!("expected Block for collect loop"),
             },
             _ => panic!("expected Assign"),
+        }
+    }
+
+    #[test]
+    fn variadic_args_wrapped_into_array() {
+        // f sum(..nums)=nums
+        // r=sum(1 2 3)   -> should desugar to sum([1, 2, 3])
+        let prog = vec![
+            Stmt::FuncDecl {
+                name: "sum".into(),
+                params: vec![Param {
+                    name: "nums".into(),
+                    ty: None,
+                    default: None,
+                    variadic: true,
+                }],
+                ret_type: None,
+                body: FuncBody::Expr(Box::new(Expr::Ident("nums".into()))),
+            },
+            Stmt::Assign {
+                name: "r".into(),
+                ty: None,
+                value: Expr::Call {
+                    func: Box::new(Expr::Ident("sum".into())),
+                    args: vec![Expr::Int(1), Expr::Int(2), Expr::Int(3)],
+                },
+            },
+        ];
+        let hir = lower_program(prog);
+        assert_eq!(hir.len(), 2);
+        match &hir[1] {
+            HirStmt::Assign { value, .. } => match &value.kind {
+                HirExprKind::Call { args, .. } => {
+                    assert_eq!(
+                        args.len(),
+                        1,
+                        "variadic args should be wrapped into 1 array arg"
+                    );
+                    match &args[0].kind {
+                        HirExprKind::Array(elts) => {
+                            assert_eq!(elts.len(), 3);
+                            assert!(matches!(elts[0].kind, HirExprKind::Int(1)));
+                            assert!(matches!(elts[1].kind, HirExprKind::Int(2)));
+                            assert!(matches!(elts[2].kind, HirExprKind::Int(3)));
+                        }
+                        _ => panic!("expected Array wrapping variadic args"),
+                    }
+                }
+                _ => panic!("expected Call"),
+            },
+            _ => panic!("expected Assign"),
+        }
+    }
+
+    #[test]
+    fn variadic_with_fixed_params() {
+        // f foo(a b ..rest)=a
+        // r=foo(1 2 3 4)   -> should desugar to foo(1, 2, [3, 4])
+        let prog = vec![
+            Stmt::FuncDecl {
+                name: "foo".into(),
+                params: vec![
+                    Param {
+                        name: "a".into(),
+                        ty: None,
+                        default: None,
+                        variadic: false,
+                    },
+                    Param {
+                        name: "b".into(),
+                        ty: None,
+                        default: None,
+                        variadic: false,
+                    },
+                    Param {
+                        name: "rest".into(),
+                        ty: None,
+                        default: None,
+                        variadic: true,
+                    },
+                ],
+                ret_type: None,
+                body: FuncBody::Expr(Box::new(Expr::Ident("a".into()))),
+            },
+            Stmt::Assign {
+                name: "r".into(),
+                ty: None,
+                value: Expr::Call {
+                    func: Box::new(Expr::Ident("foo".into())),
+                    args: vec![Expr::Int(1), Expr::Int(2), Expr::Int(3), Expr::Int(4)],
+                },
+            },
+        ];
+        let hir = lower_program(prog);
+        assert_eq!(hir.len(), 2);
+        match &hir[1] {
+            HirStmt::Assign { value, .. } => match &value.kind {
+                HirExprKind::Call { args, .. } => {
+                    assert_eq!(args.len(), 3, "should be 2 fixed + 1 array");
+                    assert!(matches!(args[0].kind, HirExprKind::Int(1)));
+                    assert!(matches!(args[1].kind, HirExprKind::Int(2)));
+                    match &args[2].kind {
+                        HirExprKind::Array(elts) => {
+                            assert_eq!(elts.len(), 2);
+                            assert!(matches!(elts[0].kind, HirExprKind::Int(3)));
+                            assert!(matches!(elts[1].kind, HirExprKind::Int(4)));
+                        }
+                        _ => panic!("expected Array for variadic rest"),
+                    }
+                }
+                _ => panic!("expected Call"),
+            },
+            _ => panic!("expected Assign"),
+        }
+    }
+
+    #[test]
+    fn variadic_no_extra_args_gives_empty_array() {
+        // f foo(a ..rest)=a
+        // r=foo(1)   -> should desugar to foo(1, [])
+        let prog = vec![
+            Stmt::FuncDecl {
+                name: "foo".into(),
+                params: vec![
+                    Param {
+                        name: "a".into(),
+                        ty: None,
+                        default: None,
+                        variadic: false,
+                    },
+                    Param {
+                        name: "rest".into(),
+                        ty: None,
+                        default: None,
+                        variadic: true,
+                    },
+                ],
+                ret_type: None,
+                body: FuncBody::Expr(Box::new(Expr::Ident("a".into()))),
+            },
+            Stmt::Assign {
+                name: "r".into(),
+                ty: None,
+                value: Expr::Call {
+                    func: Box::new(Expr::Ident("foo".into())),
+                    args: vec![Expr::Int(1)],
+                },
+            },
+        ];
+        let hir = lower_program(prog);
+        assert_eq!(hir.len(), 2);
+        match &hir[1] {
+            HirStmt::Assign { value, .. } => match &value.kind {
+                HirExprKind::Call { args, .. } => {
+                    assert_eq!(args.len(), 2, "should be 1 fixed + 1 empty array");
+                    assert!(matches!(args[0].kind, HirExprKind::Int(1)));
+                    match &args[1].kind {
+                        HirExprKind::Array(elts) => {
+                            assert_eq!(elts.len(), 0, "empty variadic should give empty array");
+                        }
+                        _ => panic!("expected empty Array for variadic rest"),
+                    }
+                }
+                _ => panic!("expected Call"),
+            },
+            _ => panic!("expected Assign"),
+        }
+    }
+
+    #[test]
+    fn variadic_param_type_is_array() {
+        // f sum(..nums)=nums  ->  param type should be Array(Any)
+        let prog = vec![Stmt::FuncDecl {
+            name: "sum".into(),
+            params: vec![Param {
+                name: "nums".into(),
+                ty: None,
+                default: None,
+                variadic: true,
+            }],
+            ret_type: None,
+            body: FuncBody::Expr(Box::new(Expr::Ident("nums".into()))),
+        }];
+        let hir = lower_program(prog);
+        assert_eq!(hir.len(), 1);
+        match &hir[0] {
+            HirStmt::FuncDecl { params, .. } => {
+                assert_eq!(params.len(), 1);
+                assert!(params[0].variadic);
+                assert!(
+                    matches!(params[0].ty, Type::Array(_)),
+                    "variadic param should have Array type"
+                );
+            }
+            _ => panic!("expected FuncDecl"),
         }
     }
 }

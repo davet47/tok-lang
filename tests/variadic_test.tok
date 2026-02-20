@@ -1,0 +1,22 @@
+# Variadic parameters: all extra args collected into an array
+
+# Pure variadic (no fixed params)
+f sum(..nums)=nums/>\(a x)=a+x
+p(sum(1 2 3))
+p(sum(10))
+p(sum())
+
+# Fixed + variadic
+f first_and_rest(first ..rest)={
+  p("first: {first}")
+  p("rest len: {#rest}")
+}
+first_and_rest("a" "b" "c")
+
+# Variadic with multiple fixed params
+f tag(name kind ..attrs)={
+  p("{kind}: {name}")
+  p("attrs: {#attrs}")
+}
+tag("div" "element" "id" "class" "style")
+tag("span" "element")
