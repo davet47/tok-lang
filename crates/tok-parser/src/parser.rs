@@ -279,8 +279,54 @@ impl Parser {
         if !matches!(self.peek(), Token::Ident(_)) {
             return false;
         }
-        let next = self.peek_at(1);
-        matches!(next, Token::Dot | Token::LBracket)
+        // Walk past the postfix chain (`.field`, `[expr]`) to see if it
+        // ends with `=` or a compound assignment operator. This avoids the
+        // expensive parse_postfix + backtrack when the expression is not
+        // actually an assignment.
+        let mut la = self.lookahead_from(self.pos + 1); // skip initial Ident
+        let mut saw_member_or_index = false;
+        loop {
+            match la.at() {
+                Token::Dot => {
+                    saw_member_or_index = true;
+                    la.advance(); // skip `.`
+                    // skip field name (Ident or Int for tuple index)
+                    if matches!(la.at(), Token::Ident(_) | Token::Int(_)) {
+                        la.advance();
+                    } else {
+                        return false;
+                    }
+                }
+                Token::LBracket => {
+                    saw_member_or_index = true;
+                    la.advance(); // skip `[`
+                    let mut depth = 1u32;
+                    while depth > 0 {
+                        match la.at() {
+                            Token::LBracket => { depth += 1; la.advance(); }
+                            Token::RBracket => { depth -= 1; la.advance(); }
+                            Token::Eof => return false,
+                            _ => la.advance(),
+                        }
+                    }
+                }
+                _ => break,
+            }
+        }
+        if !saw_member_or_index {
+            return false;
+        }
+        matches!(
+            la.at(),
+            Token::Eq
+                | Token::PlusEq
+                | Token::MinusEq
+                | Token::StarEq
+                | Token::SlashEq
+                | Token::PercentEq
+                | Token::StarStarEq
+                | Token::LtLtEq
+        )
     }
 
     /// Try to parse the left-hand side of a member/index assignment and determine
