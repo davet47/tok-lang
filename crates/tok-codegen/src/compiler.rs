@@ -5839,8 +5839,16 @@ fn to_bool(ctx: &mut FuncCtx, val: Value, ty: &Type) -> Value {
                 zero,
             )
         }
-        Type::Str | Type::Array(_) | Type::Map(_) | Type::Tuple(_) => {
-            // Non-null pointer = truthy
+        Type::Str | Type::Array(_) | Type::Map(_) => {
+            // Match interpreter: empty string/array/map is falsy.
+            // Delegate to runtime truthiness check via tag+data.
+            let (tag, data) = to_tokvalue(ctx, val, ty);
+            let func_ref = ctx.get_runtime_func_ref("tok_value_truthiness");
+            let call = ctx.builder.ins().call(func_ref, &[tag, data]);
+            ctx.builder.inst_results(call)[0]
+        }
+        Type::Tuple(_) => {
+            // Tuples are always truthy (non-null pointer)
             let zero = ctx.builder.ins().iconst(PTR, 0);
             ctx.builder
                 .ins()
