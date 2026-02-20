@@ -1035,18 +1035,7 @@ Key unification rules:
 
 ---
 
-## 15. Unimplemented Codegen Features
-
-The following spec features are parsed but not yet implemented in the codegen:
-- Default parameters (`f greet(msg="hi")`)
-- Variadic parameters (`f sum(..nums)`)
-- Spread in function arguments (`f(..arr)`)
-- Array head/tail destructuring (`[h ..t]=arr`)
-- Prototype-based objects
-
----
-
-## 16. Complete Syntax Quick Reference
+## 15. Complete Syntax Quick Reference
 
 ```
 # Variables

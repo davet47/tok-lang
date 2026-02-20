@@ -63,11 +63,14 @@ t=(1 "hello" T)         # tuples
 ```tok
 f add(a b)=a+b                    # one-line function
 f greet(name)="Hello, {name}!"   # string interpolation
+f greet2(name msg="hi")="{msg} {name}"  # default parameter
 
 f factorial(n){                    # block body
   n<=1?^1                         # conditional return: ?^
   n*factorial(n-1)                # implicit return (last expr)
 }
+
+f sum(..nums)=nums/>0 \(a x)=a+x # variadic: collects args into array
 ```
 
 ### Control Flow
@@ -104,6 +107,25 @@ obj.?field                # optional chaining
 double=\(x)=x*2
 add=\(a b)=a+b
 [1 2 3]?>\(x)=x>1        # filter with lambda
+f(1 2 ..rest)             # spread array as call args
+```
+
+### Destructuring
+
+```tok
+a b=div(10 3)              # tuple unpack
+{x y}=point                # map destructure
+[h ..t]=[1 2 3 4 5]        # head/tail: h=1, t=[2 3 4 5]
+```
+
+### Prototype Objects
+
+```tok
+Point={x:0 y:0 dist:f()=(.x**2+.y**2)**0.5}
+p=Point{x:3 y:4}           # instantiate with overrides
+p.dist()                    # 5.0 — .x/.y refer to self
+
+Point3D=Point{z:0 dist:f()=(.x**2+.y**2+.z**2)**0.5}
 ```
 
 ### Error Handling
@@ -225,7 +247,7 @@ Forward-flow type inference (not Hindley-Milner). Lenient: emits warnings instea
 
 #### tok-hir
 
-Lowers the AST into a simpler, type-annotated intermediate representation. Every `HirExpr` node carries its inferred `Type`. Desugars: compound assignments (`+=`), string interpolation (to concat calls), pipelines (to nested calls), destructuring, nil coalesce / error propagation (to if-else chains), match (to if-else chains).
+Lowers the AST into a simpler, type-annotated intermediate representation. Every `HirExpr` node carries its inferred `Type`. Desugars: compound assignments (`+=`), string interpolation (to concat calls), pipelines (to nested calls), destructuring, nil coalesce / error propagation (to if-else chains), match (to if-else chains), default/variadic parameters, spread in call arguments, prototype instantiation (to clone + set), and method self-injection.
 
 #### tok-codegen
 
@@ -245,7 +267,7 @@ The C-ABI runtime library linked into every compiled binary. All heap types are 
 | **I/O** | `p`, `pl` (print/println with type dispatch) |
 | **Arrays** | alloc, push, get, set, len, sort, rev, flat, uniq, slice, filter, reduce, concat, min, max, sum |
 | **Strings** | alloc, concat, len, index, slice, split, trim, join, eq, cmp |
-| **Maps** | alloc, get, set, has, del, keys, vals, len (ordered `Vec`, not HashMap) |
+| **Maps** | alloc, get, set, has, del, keys, vals, len, clone (ordered `Vec`, not HashMap) |
 | **Tuples** | alloc, get, set, len |
 | **Closures** | alloc with fn_ptr + env_ptr, env heap allocation |
 | **Channels** | alloc (buffered/unbuffered), send, recv, try_send, try_recv |
@@ -294,7 +316,7 @@ All 9 phases of the language spec are complete:
 | 8 | Tuples, destructuring, error propagation (`?^`), nil coalesce (`??`), optional chain (`.?`) | Done |
 | 9 | Goroutines (`go`), channels, select (`sel`), parallel map (`pmap`) | Done |
 
-**Compiler backend**: Cranelift AOT compilation to native binaries. All language features compile to native code, including concurrency primitives.
+**Compiler backend**: Cranelift AOT compilation to native binaries. All language features compile to native code, including concurrency primitives, default/variadic parameters, spread arguments, and prototype-based objects.
 
 **Standard library**: 13 modules (math, str, io, fs, http, json, llm, csv, tmpl, toon, re, time, os) accessible via all import forms. HTTP module supports both HTTP and HTTPS. Stdlib calls are optimized with direct dispatch (no map lookup or indirect call overhead).
 
@@ -302,12 +324,11 @@ All 9 phases of the language spec are complete:
 
 - **No REPL/interpreter mode** -- all programs must be compiled to native binaries
 - **Reference counting only** -- no cycle detection, so reference cycles will leak memory
-- **File-based imports in compiled mode** -- only stdlib modules (`@"math"`, etc.) work; `@"file.tok"` imports are not yet supported in the compiler
 
 ## Tests
 
 ```bash
-# Unit tests (247 tests across all crates)
+# Unit tests (273 tests across all crates)
 cargo test --workspace
 
 # End-to-end compiler tests (compile + run each test file)
@@ -322,6 +343,11 @@ cargo run -- run tests/concurrency_test.tok
 cargo run -- run tests/any_test.tok
 cargo run -- run tests/builtins_new_test.tok
 cargo run -- run tests/imports_test.tok
+cargo run -- run tests/default_params_test.tok
+cargo run -- run tests/variadic_test.tok
+cargo run -- run tests/spread_args_test.tok
+cargo run -- run tests/head_tail_test.tok
+cargo run -- run tests/prototype_test.tok
 
 # Standard library tests
 cargo run -- run tests/stdlib_math_test.tok
@@ -361,7 +387,7 @@ tok-lang/
     tok-runtime/          # C-ABI runtime library
     tok-driver/           # CLI binary
   tests/
-    *_test.tok            # End-to-end test files (21 test suites)
+    *_test.tok            # End-to-end test files (31 test suites)
     bench/                # Benchmark programs (Tok vs Go vs Rust, 11 benchmarks)
   examples/               # Runnable example programs
   editors/

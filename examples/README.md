@@ -44,7 +44,7 @@ cargo run -- run examples/<file>.tok
 ## Examples
 
 ### `language_tour.tok`
-Core Tok syntax: variables, strings, arrays, maps, functions, lambdas, pipes, control flow (ternary, match, loops, FizzBuzz), tuples, error handling, destructuring, and higher-order functions.
+Core Tok syntax: variables, strings, arrays, maps, functions (with default and variadic parameters), lambdas, pipes, spread, control flow (ternary, match, loops, FizzBuzz), tuples, error handling, destructuring (tuple, map, head/tail), prototype objects, and higher-order functions.
 
 ```bash
 tok run examples/language_tour.tok

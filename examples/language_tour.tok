@@ -182,5 +182,54 @@ ages=[30 25 35]
 pairs=zip(names ages)
 pl("Zipped: {pairs}")
 
+# --- Default & Variadic Parameters ---
+pl("")
+pl("=== Default & Variadic Parameters ===")
+
+f greet_def(name msg="Hello")="{msg}, {name}!"
+pl(greet_def("Alice"))
+pl(greet_def("Bob" "Hey"))
+
+f sum_all(..nums)=nums/>0 \(a x)=a+x
+s1=sum_all(1 2 3)
+s2=sum_all(10 20 30 40)
+pl("sum_all(1 2 3) = {s1}")
+pl("sum_all(10 20 30 40) = {s2}")
+
+# --- Spread in Calls ---
+pl("")
+pl("=== Spread in Calls ===")
+
+f add3(a b c)=a+b+c
+args=[10 20 30]
+pl("add3(..args) = {add3(..args)}")
+
+# --- Head/Tail Destructuring ---
+pl("")
+pl("=== Head/Tail Destructuring ===")
+
+[h ..t]=[1 2 3 4 5]
+pl("head={h} tail={t}")
+
+[first ..rest]=["a" "b" "c"]
+pl("first={first} rest={rest}")
+
+# --- Prototype Objects ---
+pl("")
+pl("=== Prototype Objects ===")
+
+Point={x:0 y:0 dist:f()=(.x**2+.y**2)**0.5}
+p1=Point{x:3 y:4}
+pl("Point({p1.x}, {p1.y}) dist={p1.dist()}")
+
+Rect={w:0 h:0 area:f()=.w*.h}
+r=Rect{w:5 h:3}
+pl("Rect {r.w}x{r.h} area={r.area()}")
+
+# Prototype inheritance
+Point3D=Point{z:0 dist:f()=(.x**2+.y**2+.z**2)**0.5}
+p3=Point3D{x:1 y:2 z:2}
+pl("Point3D({p3.x}, {p3.y}, {p3.z}) dist={p3.dist()}")
+
 pl("")
 pl("Done!")
