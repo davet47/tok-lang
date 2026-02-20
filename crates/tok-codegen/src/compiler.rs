@@ -1958,8 +1958,20 @@ fn compile_return(ctx: &mut FuncCtx, opt_expr: Option<&HirExpr>) -> Option<Value
 
 // ─── Expression compilation ───────────────────────────────────────────
 
-/// Compile an HIR expression, returning the Cranelift Value.
-/// Returns None for Nil-typed expressions.
+/// Compile an HIR expression into Cranelift IR, returning the resulting value.
+///
+/// # Return value
+///
+/// - `Some(val)`: The expression produced a Cranelift `Value`. For concrete types
+///   (Int, Float, Bool, Str, Array, Map, etc.) this is the native representation.
+///   For `Type::Any` this is a pointer to a stack-allocated TokValue.
+/// - `None`: The expression is `Type::Nil` and produces no runtime value (e.g., a
+///   bare function call used as a statement, `print(x)`). Callers must handle `None`
+///   gracefully — typically by substituting `iconst(0)` when a value is required.
+///
+/// # Panics
+///
+/// Panics if the expression kind is not recognized by the compiler.
 fn compile_expr(ctx: &mut FuncCtx, expr: &HirExpr) -> Option<Value> {
     match &expr.kind {
         HirExprKind::Int(n) => Some(ctx.builder.ins().iconst(types::I64, *n)),
