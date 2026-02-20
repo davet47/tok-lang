@@ -1,137 +1,255 @@
 # Tok Language — Tech Debt Tracker
 
-Last updated: 2025-06-20 — 10 open items (79 fixed of 89 total)
+Last updated: 2025-06-20 — 49 open items | 79 previously fixed
+
+---
+
+## HIGH
+
+### 1. Unsafe `arg_to_str()` returns `'static` lifetime from non-static data (tok-runtime)
+**File:** `crates/tok-runtime/src/stdlib_helpers.rs` (lines 40-52)
+Returns `&'static str` from a `TokString` pointer whose lifetime is actually tied to the caller's stack frame. If a caller stores this reference beyond the current trampoline, it becomes a dangling reference.
+**Fix:** Change return type to `&str` with a proper lifetime parameter, or wrap in a guard type.
+
+### 2. `tok_pmap` memory leak on thread panic (tok-runtime)
+**File:** `crates/tok-runtime/src/array.rs` (lines 555-557)
+If a thread panics during `tok_pmap`, the join error path creates `TokValue::nil()` but the original element's refcount may not have been decremented. Repeated thread failures cause resource leaks.
+**Fix:** Use RAII wrapper (struct that calls `rc_dec` in `Drop`) to guarantee cleanup in all paths.
+
+### 3. `clone_env()` layout allocation panics on invalid size (tok-runtime)
+**File:** `crates/tok-runtime/src/array.rs` (line 470)
+`Layout::from_size_align(size, 8).unwrap()` will panic if `count * 16` overflows or produces an invalid layout. Same pattern in `free_env()` at line 496.
+**Fix:** Use `checked_mul` for the size calculation and return null on layout error instead of panicking.
+
+### 4. Excessive `clone()` on Token during parser pattern matching (tok-parser)
+**File:** `crates/tok-parser/src/parser.rs` (lines 457, 774, 871, 1227, 1264, 1267, 1293, 1377, 1646, 1801)
+`match self.peek().clone() { ... }` clones the entire token (including heap-allocated strings) when `peek()` returns `&Token`. 10+ occurrences, compounding on complex expressions.
+**Fix:** Change to `match self.peek() { ... }` with reference patterns.
+
+### 5. No bounds check on `-o` flag argument in driver (tok-driver)
+**File:** `crates/tok-driver/src/main.rs` (lines 91-94)
+`get_output_path()` accesses `args[i+1]` without checking bounds. Passing `-o` as the last argument causes a panic.
+**Fix:** Check `i + 1 < args.len()` before indexing.
+
+### 6. Missing validation of exported names in import resolver (tok-driver)
+**File:** `crates/tok-driver/src/import_resolver.rs` (lines 129-160)
+`extract_exports()` returns any public name without filtering reserved words or builtins. A user module can export `push`, `len`, etc., shadowing critical builtins.
+**Fix:** Filter exports against a set of reserved/builtin names.
+
+---
+
+## MEDIUM
+
+### 7. Integer overflow in `clone_env`/`free_env` size calculation (tok-runtime)
+**File:** `crates/tok-runtime/src/array.rs` (lines 469, 490)
+`let size = (count as usize) * 16;` can overflow silently on large count values, leading to undersized allocation and buffer overruns.
+**Fix:** Use `(count as usize).checked_mul(16).expect("environment size overflow")`.
+
+### 8. Missing null check on `fn_ptr` before transmute in closure calls (tok-runtime)
+**File:** `crates/tok-runtime/src/array.rs` (lines 398, 431, 509-510)
+`std::mem::transmute((*closure).fn_ptr)` is called without verifying `fn_ptr` is non-null. A null function pointer causes undefined behavior.
+**Fix:** Add null check before transmute; abort on null.
+
+### 9. Unsafe transmute in `tok_http_serve_t` without arity validation (tok-runtime)
+**File:** `crates/tok-runtime/src/stdlib_http.rs` (line 390)
+Transmutes `fn_ptr` to `extern "C" fn(...)` without verifying the closure's actual arity matches the expected signature.
+**Fix:** Check `(*closure_ptr).arity` before calling.
+
+### 10. `MAX_REPEAT_LEN` defined in two places (tok-runtime)
+**File:** `crates/tok-runtime/src/string.rs` (line 141), `crates/tok-runtime/src/stdlib_str.rs` (line 152)
+Same constant `1_000_000` defined independently in both files. Updating one without the other causes inconsistency.
+**Fix:** Define once as `pub const` in `stdlib_helpers.rs`.
+
+### 11. Closure env pointer cast without alignment validation (tok-runtime)
+**File:** `crates/tok-runtime/src/array.rs` (lines 529-530, 535)
+`thread_env_usize as *mut u8` reconstruction could create an unaligned pointer. Later `add(i * 16)` assumes proper alignment for TokValue access.
+**Fix:** Ensure allocations use 16-byte alignment via `Layout`, or store alignment info.
+
+### 12. `unreachable!()` in parser should be error returns (tok-parser)
+**File:** `crates/tok-parser/src/parser.rs` (lines 431, 477, 670, 690, 704, 719, 1637, 1730, 1751, 1755, 1920)
+11 calls to `unreachable!()` in paths that could theoretically be reached with malformed input. Panics instead of returning parse errors.
+**Fix:** Replace with `Err(self.error(...))`.
+
+### 13. Duplicate operator lexing in `lex_interpolation_expr()` (tok-lexer)
+**File:** `crates/tok-lexer/src/lib.rs` (lines 912-1176)
+~250 lines of token-matching logic duplicated from the main tokenization loop (lines 267-615). Operator changes must be updated in two places.
+**Fix:** Extract operator tokenization into a shared helper.
+
+### 14. Redundant UTF-8 validation in lexer (tok-lexer)
+**File:** `crates/tok-lexer/src/lib.rs` (lines 593-610)
+Manual UTF-8 byte sequence validation duplicates Rust's built-in handling. Input is `&str`, already guaranteed valid UTF-8.
+**Fix:** Remove dead validation code.
+
+### 15. Excessive `.clone()` in builtin type registration (tok-types)
+**File:** `crates/tok-types/src/lib.rs` (lines 318-407)
+`arr_any.clone()` and `map_any.clone()` called 20+ times during builtin registration. Creates unnecessary allocations at startup.
+**Fix:** Pass references or use a macro to generate signatures without cloning.
+
+### 16. Negative literal tuple index silently returns `Type::Any` (tok-types)
+**File:** `crates/tok-types/src/lib.rs` (line 810)
+`elts.get(*i as usize)` casts `i64` to `usize` without checking for negative values. Negative index wraps to huge positive, silently returning `Any` instead of an error.
+**Fix:** Check `*i >= 0` before casting.
+
+### 17. HIR lowerer re-infers types already computed by type checker (tok-hir)
+**File:** `crates/tok-hir/src/lower.rs` (lines 103-274)
+`infer_expr_type()` duplicates logic from `tok_types::check()`. The two can diverge, causing subtle type bugs.
+**Fix:** Pass `TypeInfo` results to the lowerer instead of re-inferring.
+
+### 18. `MAX_WALK_DEPTH` silently skips subtrees (tok-hir)
+**File:** `crates/tok-hir/src/lower.rs` (line 182)
+Hardcoded depth limit of 1000. When exceeded, the walker silently skips the subtree with only a warning — no error returned.
+**Fix:** Return an error instead of silently skipping.
+
+### 19. Circular import detection uses `Vec::contains()` — O(n) per check (tok-driver)
+**File:** `crates/tok-driver/src/import_resolver.rs` (line 62)
+`import_stack.contains(&canonical)` is O(n) linear search. Deeply nested imports degrade to O(n²).
+**Fix:** Use `HashSet` for import_stack.
+
+### 20. Fallback runtime lib search produces confusing linker error (tok-driver)
+**File:** `crates/tok-driver/src/main.rs` (lines 272-274)
+If runtime lib not found, falls back to bare `"libtok_runtime.a"`, producing an unhelpful linker "library not found" error.
+**Fix:** Make this a hard error listing all searched paths.
+
+### 21. Inefficient line-start detection in lexer (tok-lexer)
+**File:** `crates/tok-lexer/src/lib.rs` (lines 215-234)
+`is_at_line_start()` reverse-scans from current position to find newline — O(column_width) per call. Called on every `#` token.
+**Fix:** Track line-start positions during tokenization; use direct lookup.
+
+### 22. `parse_reduce_args()` ambiguous init vs function parsing (tok-parser)
+**File:** `crates/tok-parser/src/parser.rs` (lines 1006-1021)
+Cannot distinguish complex init expressions from the function argument in certain edge cases.
+**Fix:** Use lookahead for lambda marker `\(` to reliably separate init from function.
+
+### 23. Unsafe index access on `inst_results()`/`block_params()` (tok-codegen)
+**File:** `crates/tok-codegen/src/compiler.rs` (multiple: lines 1052-1053, 1091, 1292, 1334-1335, 1745, 1751, 1757, 2194-2195, etc.)
+Direct `[0]`/`[1]` indexing on Cranelift instruction results without bounds checking. Mismatch between assumed and actual return count will panic.
+**Fix:** Use `.get(0)` with proper error handling, or add debug assertions on result length.
+
+### 24. Free variable collection clones `locals` set on every branch (tok-codegen)
+**File:** `crates/tok-codegen/src/compiler.rs` (lines 6092-6299)
+`collect_free_vars_expr` clones the `locals` HashSet for if/else branches, loops, blocks. On deeply nested structures, this causes excessive allocation.
+**Fix:** Use `Rc<HashSet>` or mutable references with scope management.
+
+### 25. Missing error context in function declaration panics (tok-codegen)
+**File:** `crates/tok-codegen/src/compiler.rs` (lines 1599, 1611)
+`unwrap_or_else(|| panic!(...))` doesn't include the function name in the error message.
+**Fix:** Include function name in panic messages.
+
+### 26. Null pointer risk in Any-type member access (tok-codegen)
+**File:** `crates/tok-codegen/src/compiler.rs` (lines 2272-2275)
+Loads the data field at offset 8 from a TokValue without validating the pointer. If the TokValue is nil or corrupted, this is undefined behavior.
+**Fix:** Add a runtime null/tag check before loading.
+
+### 27. No cyclic detection for stdlib module self-imports (tok-driver)
+**File:** `crates/tok-driver/src/import_resolver.rs` (line 100)
+Stdlib modules bypass the file-import cycle detection path. A malformed stdlib module that imports itself would cause stack overflow.
+**Fix:** Add cycle detection to stdlib loading path.
 
 ---
 
 ## LOW
 
-### 43. Magic numbers without constants (tok-codegen)
-**File:** `crates/tok-codegen/src/compiler.rs`
-`(i * 16)` for TokValue offset, tag/data field sizes, etc. Should define `const TOKVALUE_SIZE: usize = 16`.
+### 28. Magic number `16` for TokValue size (tok-codegen, tok-runtime)
+**Files:** `crates/tok-codegen/src/compiler.rs`, `crates/tok-runtime/src/array.rs` (lines 469, 479, 490, 496)
+`(i * 16)` used for TokValue offset without a named constant. Not enforced by compile-time assertion.
+**Fix:** Define `const TOKVALUE_SIZE: usize = 16` and add `const _: () = assert!(size_of::<TokValue>() == 16);`.
 
-### 44. String index overflow (tok-runtime)
-**File:** `crates/tok-runtime/src/strings.rs`
-String indexing doesn't check for out-of-bounds access consistently. Some paths return empty string, others may panic.
+### 29. Dead code markers on compiler struct fields (tok-codegen)
+**File:** `crates/tok-codegen/src/compiler.rs` (lines ~157, 168, 207-208, 684, 693)
+`#[allow(dead_code)]` on `call_conv`, `gensym_counter`, `return_var`, `ret_type`. Remove if truly unused, document if kept for future use.
 
-### 45. Dead code markers (tok-codegen)
-**File:** `crates/tok-codegen/src/compiler.rs` (lines ~157, 168, 684, 693)
-`#[allow(dead_code)]` on fields like `call_conv`, `gensym_counter`, `return_var`, `ret_type`. Remove if truly unused, document if kept for future use.
-
-### 46. Undocumented ordering in select (tok-runtime)
-**File:** `crates/tok-runtime/src/channel.rs`
-Select tries arms in order (not random like Go). This semantic difference isn't documented and could surprise users expecting Go-like behavior.
-
-### 47. Incomplete pattern checking in compile_binop (tok-codegen)
+### 30. Incomplete pattern checking in `compile_binop` (tok-codegen)
 **File:** `crates/tok-codegen/src/compiler.rs` (line ~2881)
 Bitwise op fallback silently returns 0 instead of panicking. Should `panic!("Unhandled binop")` for defense.
 
-### 48. Negative index wrapping through unsigned cast (tok-runtime)
-**Files:** `crates/tok-runtime/src/string.rs` (lines 128-132)
-Negative index calculation `(len as i64 + i) as usize` can wrap to a huge `usize` when `|i| > len`. Subsequent bounds checks catch it, but the pattern is fragile. Should validate as `i64` before casting.
-*Note: tuple.rs was fixed in #34 (medium). string.rs still has this pattern.*
+### 31. String index overflow inconsistency (tok-runtime)
+**File:** `crates/tok-runtime/src/string.rs` (lines 128-132)
+Negative index calculation `(len as i64 + i) as usize` can wrap to huge `usize` when `|i| > len`. Subsequent bounds checks catch it, but the pattern is fragile.
+**Fix:** Validate as `i64` before casting to `usize`.
 
-### 49. `tok_math_abs_t` returns 0 for non-numeric input (tok-runtime)
+### 32. `tok_math_abs_t` returns 0 for non-numeric input (tok-runtime)
 **File:** `crates/tok-runtime/src/stdlib_math.rs` (line 99)
-Returns `TokValue::from_int(0)` for strings, arrays, etc. instead of Nil. Silently masking type errors.
+Returns `TokValue::from_int(0)` for strings, arrays, etc. instead of Nil. Silently masks type errors.
 
-### 50. `tok_http_serve_t` blocks forever with no shutdown mechanism (tok-runtime)
+### 33. `tok_http_serve_t` blocks forever with no shutdown (tok-runtime)
 **File:** `crates/tok-runtime/src/stdlib_http.rs` (lines 308-486)
-Loops forever on `listener.incoming()` with no way to stop from Tok code. Should document limitation or provide a shutdown channel.
+Loops forever on `listener.incoming()` with no way to stop from Tok code.
+**Fix:** Document limitation or provide a shutdown channel.
 
-### 51. `HashableTokValue` uses magic number `3` instead of `TAG_BOOL` (tok-runtime)
+### 34. Undocumented select ordering (tok-runtime)
+**File:** `crates/tok-runtime/src/channel.rs`
+Select tries arms in order (not random like Go). This semantic difference could surprise users expecting Go-like behavior.
+**Fix:** Document in language reference.
+
+### 35. `HashableTokValue` uses magic number `3` instead of `TAG_BOOL` (tok-runtime)
 **File:** `crates/tok-runtime/src/array.rs` (lines 29, 551)
-`3 => v.data.bool_val.hash(state)` — should use `TAG_BOOL` constant for consistency.
+`3 => v.data.bool_val.hash(state)` — should use `TAG_BOOL` constant.
 
-### 52. LLM stdlib uses manual `format!` JSON construction (tok-runtime)
+### 36. LLM stdlib uses manual `format!` JSON construction (tok-runtime)
 **File:** `crates/tok-runtime/src/stdlib_llm.rs`
 HTTP request bodies built with `format!()` string interpolation. Fragile for prompts containing quotes/backslashes. Crate already depends on `serde_json`.
 **Fix:** Use `serde_json::json!()` or `serde_json::to_string()`.
 
----
+### 37. `Channel::try_recv()` conflates "no data" with "closed" (tok-runtime)
+**File:** `crates/tok-runtime/src/channel.rs` (lines 219-250)
+Returns `Option<TokValue>` but cannot distinguish between "channel empty" and "channel closed". Proper Go-like channels should signal closure separately.
+**Fix:** Return a custom enum: `RecvResult { Ok(TokValue), Closed, Empty }`.
 
-## Completed (79 items)
+### 38. Closure signature cache not thread-safe (tok-codegen)
+**File:** `crates/tok-codegen/src/compiler.rs` (lines 762-763)
+`closure_sig_cache: HashMap<usize, SigRef>` is a plain HashMap. Not a problem now (single-threaded codegen), but would be if parallelization is added.
+**Fix:** Document single-threaded assumption; use concurrent map if needed later.
 
-### Previously completed (46 items — before 2025-06-20)
+### 39. Hardcoded loop unroll factor (tok-codegen)
+**File:** `crates/tok-codegen/src/compiler.rs` (line 5157)
+`UNROLL_FACTOR = 4` with no dynamic heuristic. Large loop bodies unrolled 4x could cause code bloat.
+**Fix:** Add body-size heuristic or make configurable.
 
-- [x] #1 COW string race condition — `Acquire` ordering on COW check + `Acquire` fence in `rc_dec` — *2025-06-14*
-- [x] #2 `arg_to_str` lifetime — extracted `stdlib_helpers.rs`, deduplicated 18 definitions — *2025-06-14*
-- [x] #3 Unsafe pointer aliasing in codegen — removed 4 raw pointer casts, NLL handles it — *2025-06-14*
-- [x] #4 Import handler duplication — extracted `ImportCtx::load_module()` — *2025-06-14*
-- [x] #5 O(n²) uniq — `HashSet<HashableTokValue>` for O(n) dedup — *2025-06-14*
-- [x] #6 Bare `unwrap()` in codegen — 89 replaced with contextual `expect()` — *2025-06-14*
-- [x] #7 Bare `unwrap()` in channel ops — `unwrap_or_else(|e| e.into_inner())` — *2025-06-14*
-- [x] #8 Unsafe transmute — `TokValue::from_tag_data()` — *2025-06-14*
-- [x] #9 Lexer duplication — extracted `collect_text`, `consume_exponent`, `lex_radix_int` — *2025-06-14*
-- [x] #10 Type inference duplication — unified into `tok-types` free functions — *2025-06-14*
-- [x] #11 Variadic flag lost in HIR — added `variadic: bool` to `HirParam` — *2025-06-14*
-- [x] #12 Unbounded recursion in HIR visitor — depth limits at 1000 — *2025-06-14*
-- [x] #13 O(n²) rename loop — `BatchRenamer` with HashMap — *2025-06-14*
-- [x] #14 Thread-unsafe PRNG — `thread_local! { Cell<u64> }` — *2025-06-14*
-- [x] #15 Unbounded recursion in `flatten_into` — `MAX_FLATTEN_DEPTH = 1000` — *2025-06-14*
-- [x] #16 Poisoned-mutex in handle.rs — `unwrap_or_else` — *2025-06-14*
-- [x] #17 `insert_func` duplicated 13x — canonical version in `stdlib_helpers.rs` — *2025-06-14*
-- [x] #18 `i64::abs()` overflow — `.saturating_abs()` — *2025-06-14*
-- [x] #19 Bare `unwrap()` on `to_str()` — `.to_string_lossy()` — *2025-06-14*
-- [x] #20 String length byte vs char — `.chars().count()` — *2025-06-14*
-- [x] #21 SPSC ring buffer in MPMC context — replaced with `Mutex<VecDeque>` bounded queue — *2025-06-19*
-- [x] #22 pmap shared env_ptr — deep-copy env per thread, added `env_count` to `TokClosure` — *2025-06-19*
-- [x] #23 `int()` trapping `fcvt_to_sint` — changed to `fcvt_to_sint_sat` — *2025-06-19*
-- [x] #24 Specialized lambda return var wrong type — use `zero_value()` helper — *2025-06-19*
-- [x] #25 IndexAssign/MemberAssign no-op on Any — added `tok_value_index_set` runtime + map ptr extraction — *2025-06-19*
-- [x] #26 f64→i64 cast UB — `safe_f64_to_i64()` helper clamps NaN/Inf/out-of-range — *2025-06-19*
-- [x] #27 `tok_value_negate` i64::MIN panic — `.wrapping_neg()` — *2025-06-19*
-- [x] #28 Integer overflow in add/sub/mul — `wrapping_add`/`wrapping_sub`/`wrapping_mul` — *2025-06-19*
-- [x] #29 Member access key string leaks — `tok_string_free` after map ops in codegen — *2025-06-19*
-- [x] #30 Tuple member allocates unused key string — moved alloc below Tuple arm — *2025-06-19*
-- [x] #31 assert! in extern C is UB — `null_check!` macro with `abort()` across 67 sites — *2025-06-19*
-- [x] #32 Lexer interpolation missing operators — added ~15 operators to sub-lexer — *2025-06-19*
-- [x] #33 str.index_of byte vs char offset — `s[..byte_pos].chars().count()` — *2025-06-19*
-- [x] #34 HTTP serve leaks request maps — `rc_dec` after handler returns — *2025-06-19*
-- [x] #35 Pattern::Guard placeholder — `eprintln!` warning for unreachable path — *2025-06-19*
-- [x] #36 While/Infinite loops jump after terminated body — `block_terminated` guard — *2025-06-19*
-- [x] #37 `sdiv`/`srem` trap on div-by-zero and `i64::MIN / -1` — safe branching in codegen — *2025-06-19*
-- [x] #38 `i64::MIN / -1` overflow in runtime div/mod — wrapping guard in `tok_value_div`/`tok_value_mod` — *2025-06-19*
-- [x] #39 `tok_pmap` elements not `rc_inc`'d before thread dispatch — added `rc_inc` per element — *2025-06-19*
-- [x] #40 HTTP serve handler result not freed — `result.rc_dec()` after extracting response — *2025-06-19*
-- [x] #41 LLM `tok_llm_ask_t` temporaries leaked — `rc_dec` msg array + empty opts — *2025-06-19*
-- [x] #42 Non-string map index key leaked — `tok_string_free` after `tok_map_set` — *2025-06-19*
-- [x] #43 Closure `env_ptr` not freed on TAG_FUNC rc_dec — `tok_env_free` before drop — *2025-06-19*
-- [x] #44 HTTP serve handler ABI mismatch — returns `(i64, i64)` not `TokValue` — *2025-06-19*
-- [x] #45 Inconsistent error handling — `DriverError` enum, documented convention per crate — *2025-06-19*
-- [x] #46 Missing rc_inc for captured heap values + Any array push crash — `tok_value_rc_inc` in closure/goroutine envs, `unwrap_any_ptr` in tok_array_push RuntimeCall — *2025-06-19*
+### 40. `expect()` in string data declaration has generic error message (tok-codegen)
+**File:** `crates/tok-codegen/src/compiler.rs` (lines 684, 689)
+`expect()` calls will crash with generic messages if the linker fails to declare/define string data.
+**Fix:** Return `Result<>` and propagate errors with context.
 
-### Medium-priority items completed (33 items — 2025-06-20)
+### 41. Unchecked `usize → i64` casts in codegen (tok-codegen)
+**File:** `crates/tok-codegen/src/compiler.rs` (lines 1920, 1998, 2149, 2164, 2172, 2264, 2556, 2560, 2770)
+Multiple `.len() as i64` casts without overflow checks. Unlikely with realistic inputs but fragile.
+**Fix:** Use `TryInto` or add `debug_assert!` for overflow detection.
 
-- [x] M#10 `compile_stmt` too long — extracted `compile_stmt` into focused helper functions — *2025-06-20*
-- [x] M#11 `compile_expr` too large — split into focused helper functions — *2025-06-20*
-- [x] M#12 `compile_call` massive match — split builtin match into category helpers — *2025-06-20*
-- [x] M#13 Type coercion scattered — documented type coercion system conventions — *2025-06-20*
-- [x] M#14 Loop duplication: unrolled vs non-unrolled — extracted `emit_loop_increment` helper — *2025-06-20*
-- [x] M#15 Capture loading repeated — extracted `load_captures_from_env` helper — *2025-06-20*
-- [x] M#16 Parser statement parsing duplication — added `LookaheadCursor` to unify lookahead patterns — *2025-06-20*
-- [x] M#17 Stdlib module duplication — added `math_f64_unary!`, `math_f64_to_int!`, `math_f64_binary!`, `str_unary!` macros — *2025-06-20*
-- [x] M#19 Hardcoded stdlib list — single source of truth via `STDLIB_MODULE_CONSTRUCTORS` and `is_stdlib_module()` — *2025-06-20*
-- [x] M#20 `compile_expr` Option<Value> unclear — added comprehensive doc comment explaining semantics — *2025-06-20*
-- [x] M#21 Missing `compile_and_unwrap_ptr` helper — added `compile_expr_as_ptr` combining compile + unwrap — *2025-06-20*
-- [x] M#22 Regex recompilation on every call — thread-local `HashMap<String, Regex>` cache (capacity 64) — *2025-06-20*
-- [x] M#23 `tok_string_index` allocates Vec — changed to `chars().nth()` — *2025-06-20*
-- [x] M#24 `tok_array_sort`/`tok_array_rev` double-clone — `rc_inc` before clone, then sort/reverse in place — *2025-06-20*
-- [x] M#25 `tok_map_del` copies entire map — clone-then-remove instead of rebuild — *2025-06-20*
-- [x] M#26 `tok_env_alloc`/`tok_env_free` panic on Layout failure — match with error handling — *2025-06-20*
-- [x] M#27 Blanket clippy allow — added doc comment explaining rationale for crate-wide scope — *2025-06-20*
-- [x] M#28 `tok_array_sum` integer overflow — `checked_add` with float fallback — *2025-06-20*
-- [x] M#29 Codegen `to_bool` truthiness divergence — delegates to runtime `tok_value_truthiness` for Str/Array/Map — *2025-06-20*
-- [x] M#30 `retype_expr` incomplete recursion — added recursion into Index, Member, If, Block, Array, Tuple, Length — *2025-06-20*
-- [x] M#31 `is_heap_type` missing Optional/Result — added `Type::Optional(_) | Type::Result(_)` — *2025-06-20*
-- [x] M#32 TCO tail-call skips Nil-typed args — push zero values to match block params — *2025-06-20*
-- [x] M#33 `chan()`/`exit()` don't unwrap Any-typed args — added `from_tokvalue_raw_data` helper for payload extraction — *2025-06-20*
-- [x] M#34 `tok_tuple_get` negative indices — wrap from end, matching array behavior — *2025-06-20*
-- [x] M#35 Unbounded recursion in JSON/TOON/template parsers — depth limit at 128 — *2025-06-20*
-- [x] M#36 `tok_string_repeat` unbounded allocation — capped at 1M characters — *2025-06-20*
-- [x] M#37 `io.input` registered twice — removed dead 0-arg registration — *2025-06-20*
-- [x] M#38 Duplicate `to_result_tuple` — moved to `stdlib_helpers.rs` — *2025-06-20*
-- [x] M#39 Duplicate PRNG implementations — unified into shared `xorshift_rand()` in `stdlib_helpers` — *2025-06-20*
-- [x] M#40 `try_member_index_assign` backtrack re-parse — replaced with chain-walking lookahead — *2025-06-20*
-- [x] M#41 `check_block_stmts` double-checks last expr — capture type directly from `check_expr` — *2025-06-20*
-- [x] M#42 `find_runtime_lib` relative paths — resolve relative to executable, not CWD — *2025-06-20*
+### 42. String allocation in `collect_text()` (tok-lexer)
+**File:** `crates/tok-lexer/src/lib.rs` (lines 627-634)
+Creates a new String for every number literal, filtering out underscores. Could filter in a single pass.
+
+### 43. Incomplete `infer_expr_type()` for Match expressions (tok-hir)
+**File:** `crates/tok-hir/src/lower.rs` (line 212)
+`Expr::Match` returns `Type::Any` without walking match arms to unify their types (unlike `check_expr` in tok-types).
+**Fix:** Implement arm type unification.
+
+### 44. `TypeEnv::update()` defines in outermost scope on miss (tok-types)
+**File:** `crates/tok-types/src/lib.rs` (lines 258-266)
+If variable not found in any scope, `update()` falls back to `define()` in outermost scope via `last_mut()`. Could lead to unexpected scoping.
+**Fix:** Clarify intent; add explicit scope target parameter.
+
+### 45. No recursion depth limit on file import resolution (tok-driver)
+**File:** `crates/tok-driver/src/import_resolver.rs` (lines 47-95)
+`load_module()` recursively compiles imported files with no depth limit (beyond cycle detection).
+**Fix:** Add recursion depth counter; error after N levels.
+
+### 46. Thread join panics in tests lose context (tok-runtime)
+**File:** `crates/tok-runtime/src/string.rs` (line 467), `crates/tok-runtime/src/channel.rs` (lines 365, 428, 459)
+`.join().unwrap()` in tests swallows the original thread panic message.
+**Fix:** Use `.join().expect("thread panicked: ...")`.
+
+### 47. Parser backtracking invariant undocumented (tok-parser)
+**File:** `crates/tok-parser/src/parser.rs` (lines 374, 410)
+`try_member_index_assign()` backtracks on failure but the invariant that `pos == saved_pos` on `Ok(None)` is not asserted.
+**Fix:** Add defensive assertion; document the invariant.
+
+### 48. Redundant `at()` discriminant checks (tok-parser)
+**File:** `crates/tok-parser/src/parser.rs` (lines 113-115)
+`at()` uses `std::mem::discriminant()` where simple pattern matching would be clearer and potentially faster.
+
+### 49. `cmd_run()` unused variable clarity (tok-driver)
+**File:** `crates/tok-driver/src/main.rs` (line 231)
+Extracts `s` from `Ok(s)` then uses `s.code()`. Slightly unclear intent.
+**Fix:** Use `status.code().unwrap_or(1)` directly for clarity.
+

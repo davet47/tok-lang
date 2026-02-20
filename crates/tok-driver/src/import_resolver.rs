@@ -140,7 +140,7 @@ fn extract_exports(hir: &HirProgram) -> Vec<(String, Type)> {
                     .iter()
                     .map(|p| tok_types::ParamType {
                         ty: p.ty.clone(),
-                        has_default: false,
+                        has_default: p.has_default,
                     })
                     .collect();
                 let func_ty = Type::Func(tok_types::FuncType {

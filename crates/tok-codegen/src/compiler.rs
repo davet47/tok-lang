@@ -2046,6 +2046,7 @@ fn compile_expr(ctx: &mut FuncCtx, expr: &HirExpr) -> Option<Value> {
                             name: format!("__p{}", i),
                             ty: ty.clone(),
                             variadic: false,
+                            has_default: false,
                         })
                         .collect();
                     let call_args: Vec<HirExpr> = tramp_params

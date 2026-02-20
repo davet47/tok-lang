@@ -1,0 +1,13 @@
+f greet(name msg="hello")="{msg} {name}"
+p(greet("world"))
+p(greet("world" "hi"))
+
+f add(a b=10)=a+b
+p(add(5))
+p(add(5 20))
+
+# Multiple defaults
+f make(x y=1 z=2)=x+y+z
+p(make(10))
+p(make(10 20))
+p(make(10 20 30))

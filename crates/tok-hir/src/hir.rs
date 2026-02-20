@@ -58,6 +58,8 @@ pub struct HirParam {
     pub ty: Type,
     /// Whether this is a variadic (`..param`) parameter.
     pub variadic: bool,
+    /// Whether this parameter has a default value.
+    pub has_default: bool,
 }
 
 /// HIR Expression -- every node carries its Type.

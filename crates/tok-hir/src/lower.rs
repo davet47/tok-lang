@@ -29,6 +29,9 @@ struct Lowerer<'a> {
     tmp_counter: u32,
     /// Local variable type scopes (for function params and local vars).
     scopes: Vec<std::collections::HashMap<String, Type>>,
+    /// Default parameter expressions for named functions (pre-collected for forward refs).
+    /// Maps function name → vec of Option<default_expr> for each param.
+    func_defaults: std::collections::HashMap<String, Vec<Option<Expr>>>,
 }
 
 impl<'a> Lowerer<'a> {
@@ -37,6 +40,7 @@ impl<'a> Lowerer<'a> {
             type_info,
             tmp_counter: 0,
             scopes: Vec::new(),
+            func_defaults: std::collections::HashMap::new(),
         }
     }
 
@@ -889,7 +893,21 @@ impl<'a> Lowerer<'a> {
             // Function call
             Expr::Call { func, args } => {
                 let hir_func = self.lower_expr(func);
-                let hir_args: Vec<HirExpr> = args.iter().map(|a| self.lower_expr(a)).collect();
+                let mut hir_args: Vec<HirExpr> = args.iter().map(|a| self.lower_expr(a)).collect();
+                // Pad missing args with default expressions for named functions
+                if let Expr::Ident(name) = func.as_ref() {
+                    let missing: Vec<Expr> = self
+                        .func_defaults
+                        .get(name.as_str())
+                        .into_iter()
+                        .flat_map(|defaults| {
+                            defaults.iter().skip(args.len()).filter_map(|d| d.clone())
+                        })
+                        .collect();
+                    for default_expr in &missing {
+                        hir_args.push(self.lower_expr(default_expr));
+                    }
+                }
                 let ret_ty = match &hir_func.ty {
                     Type::Func(ft) => *ft.ret.clone(),
                     _ => Type::Any,
@@ -920,7 +938,7 @@ impl<'a> Lowerer<'a> {
                     .iter()
                     .map(|p| tok_types::ParamType {
                         ty: p.ty.clone(),
-                        has_default: false,
+                        has_default: p.has_default,
                     })
                     .collect();
                 let ret_ty = Type::Any; // simplified
@@ -1431,6 +1449,21 @@ impl<'a> Lowerer<'a> {
                 for arg in args {
                     hir_args.push(self.lower_expr(arg));
                 }
+                // Pad missing args with defaults (pipeline provides extra leading arg)
+                if let Expr::Ident(name) = func.as_ref() {
+                    let total_args = hir_args.len();
+                    let missing: Vec<Expr> = self
+                        .func_defaults
+                        .get(name.as_str())
+                        .into_iter()
+                        .flat_map(|defaults| {
+                            defaults.iter().skip(total_args).filter_map(|d| d.clone())
+                        })
+                        .collect();
+                    for default_expr in &missing {
+                        hir_args.push(self.lower_expr(default_expr));
+                    }
+                }
                 let ret_ty = match &hir_func.ty {
                     Type::Func(ft) => *ft.ret.clone(),
                     _ => Type::Any,
@@ -1826,6 +1859,7 @@ impl<'a> Lowerer<'a> {
                     .map(|te| self.resolve_type_expr(te))
                     .unwrap_or(Type::Any),
                 variadic: p.variadic,
+                has_default: p.default.is_some(),
             })
             .collect()
     }
@@ -1897,6 +1931,21 @@ impl<'a> Lowerer<'a> {
 /// where all syntactic sugar has been desugared into primitive operations.
 pub fn lower(program: &Program, type_info: &TypeInfo) -> HirProgram {
     let mut lowerer = Lowerer::new(type_info);
+    // Pre-collect default parameter expressions for named functions.
+    // This handles forward references (call before declaration).
+    for stmt in program {
+        if let Stmt::FuncDecl {
+            name, params, ..
+        } = stmt
+        {
+            if params.iter().any(|p| p.default.is_some()) {
+                lowerer.func_defaults.insert(
+                    name.clone(),
+                    params.iter().map(|p| p.default.clone()).collect(),
+                );
+            }
+        }
+    }
     lowerer.push_scope(); // top-level scope for local variable tracking
     let result = lowerer.lower_program(program);
     lowerer.pop_scope();
@@ -2520,6 +2569,162 @@ mod tests {
                 assert!(matches!(body[0], HirStmt::Return(Some(_))));
             }
             _ => panic!("expected FuncDecl"),
+        }
+    }
+
+    #[test]
+    fn default_params_padded_at_call_site() {
+        // f add(a b=10)=a+b
+        // r=add(5)         -> should desugar to add(5, 10)
+        let prog = vec![
+            Stmt::FuncDecl {
+                name: "add".into(),
+                params: vec![
+                    Param {
+                        name: "a".into(),
+                        ty: None,
+                        default: None,
+                        variadic: false,
+                    },
+                    Param {
+                        name: "b".into(),
+                        ty: None,
+                        default: Some(Expr::Int(10)),
+                        variadic: false,
+                    },
+                ],
+                ret_type: None,
+                body: FuncBody::Expr(Box::new(Expr::BinOp {
+                    op: BinOp::Add,
+                    left: Box::new(Expr::Ident("a".into())),
+                    right: Box::new(Expr::Ident("b".into())),
+                })),
+            },
+            Stmt::Assign {
+                name: "r".into(),
+                ty: None,
+                value: Expr::Call {
+                    func: Box::new(Expr::Ident("add".into())),
+                    args: vec![Expr::Int(5)],
+                },
+            },
+        ];
+        let hir = lower_program(prog);
+        assert_eq!(hir.len(), 2);
+        // The call add(5) should have been padded to add(5, 10)
+        match &hir[1] {
+            HirStmt::Assign { value, .. } => match &value.kind {
+                HirExprKind::Call { args, .. } => {
+                    assert_eq!(args.len(), 2, "default param should pad args to 2");
+                    assert!(matches!(args[0].kind, HirExprKind::Int(5)));
+                    assert!(matches!(args[1].kind, HirExprKind::Int(10)));
+                }
+                _ => panic!("expected Call"),
+            },
+            _ => panic!("expected Assign"),
+        }
+    }
+
+    #[test]
+    fn default_params_not_padded_when_provided() {
+        // f add(a b=10)=a+b
+        // r=add(5 20)       -> should stay as add(5, 20)
+        let prog = vec![
+            Stmt::FuncDecl {
+                name: "add".into(),
+                params: vec![
+                    Param {
+                        name: "a".into(),
+                        ty: None,
+                        default: None,
+                        variadic: false,
+                    },
+                    Param {
+                        name: "b".into(),
+                        ty: None,
+                        default: Some(Expr::Int(10)),
+                        variadic: false,
+                    },
+                ],
+                ret_type: None,
+                body: FuncBody::Expr(Box::new(Expr::BinOp {
+                    op: BinOp::Add,
+                    left: Box::new(Expr::Ident("a".into())),
+                    right: Box::new(Expr::Ident("b".into())),
+                })),
+            },
+            Stmt::Assign {
+                name: "r".into(),
+                ty: None,
+                value: Expr::Call {
+                    func: Box::new(Expr::Ident("add".into())),
+                    args: vec![Expr::Int(5), Expr::Int(20)],
+                },
+            },
+        ];
+        let hir = lower_program(prog);
+        assert_eq!(hir.len(), 2);
+        match &hir[1] {
+            HirStmt::Assign { value, .. } => match &value.kind {
+                HirExprKind::Call { args, .. } => {
+                    assert_eq!(args.len(), 2, "should not add extra args when all provided");
+                    assert!(matches!(args[0].kind, HirExprKind::Int(5)));
+                    assert!(matches!(args[1].kind, HirExprKind::Int(20)));
+                }
+                _ => panic!("expected Call"),
+            },
+            _ => panic!("expected Assign"),
+        }
+    }
+
+    #[test]
+    fn default_params_forward_reference() {
+        // r=add(5)          -> call before declaration (forward reference)
+        // f add(a b=10)=a+b
+        let prog = vec![
+            Stmt::Assign {
+                name: "r".into(),
+                ty: None,
+                value: Expr::Call {
+                    func: Box::new(Expr::Ident("add".into())),
+                    args: vec![Expr::Int(5)],
+                },
+            },
+            Stmt::FuncDecl {
+                name: "add".into(),
+                params: vec![
+                    Param {
+                        name: "a".into(),
+                        ty: None,
+                        default: None,
+                        variadic: false,
+                    },
+                    Param {
+                        name: "b".into(),
+                        ty: None,
+                        default: Some(Expr::Int(10)),
+                        variadic: false,
+                    },
+                ],
+                ret_type: None,
+                body: FuncBody::Expr(Box::new(Expr::BinOp {
+                    op: BinOp::Add,
+                    left: Box::new(Expr::Ident("a".into())),
+                    right: Box::new(Expr::Ident("b".into())),
+                })),
+            },
+        ];
+        let hir = lower_program(prog);
+        // Forward ref call should still be padded thanks to pre-scan
+        match &hir[0] {
+            HirStmt::Assign { value, .. } => match &value.kind {
+                HirExprKind::Call { args, .. } => {
+                    assert_eq!(args.len(), 2, "forward ref should be padded");
+                    assert!(matches!(args[1].kind, HirExprKind::Int(10)));
+                }
+                _ => panic!("expected Call"),
+            },
+            _ => panic!("expected Assign"),
         }
     }
 
