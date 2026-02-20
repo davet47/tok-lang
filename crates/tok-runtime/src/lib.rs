@@ -17,6 +17,10 @@
 //! All heap types use `AtomicU32` for the refcount. Allocated via
 //! `Box::into_raw`, freed via `Box::from_raw` when refcount reaches 0.
 
+// Crate-wide allows: nearly every `extern "C" fn` in this crate takes raw
+// pointers and dereferences them after null_check!. Annotating each function
+// individually would add noise without improving safety. The null_check! macro
+// already aborts on null pointers before any dereference.
 #![allow(clippy::not_unsafe_ptr_arg_deref)]
 #![allow(dangerous_implicit_autorefs)]
 
