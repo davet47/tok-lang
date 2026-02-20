@@ -5043,6 +5043,30 @@ fn compile_if(
 
 /// Check if a ForRange loop body is safe to unroll.
 /// Criteria: no break/continue, no function calls, no nested loops, no returns.
+/// Emit a loop variable increment (+1 or -1), condition check, and conditional branch.
+fn emit_loop_increment(
+    ctx: &mut FuncCtx,
+    loop_var: Variable,
+    ascending: bool,
+    cc: cranelift_codegen::ir::condcodes::IntCC,
+    limit: Value,
+    continue_block: cranelift_codegen::ir::Block,
+    exit_block: cranelift_codegen::ir::Block,
+) {
+    let current = ctx.builder.use_var(loop_var);
+    let one = ctx.builder.ins().iconst(types::I64, 1);
+    let next = if ascending {
+        ctx.builder.ins().iadd(current, one)
+    } else {
+        ctx.builder.ins().isub(current, one)
+    };
+    ctx.builder.def_var(loop_var, next);
+    let cond = ctx.builder.ins().icmp(cc, next, limit);
+    ctx.builder
+        .ins()
+        .brif(cond, continue_block, &[], exit_block, &[]);
+}
+
 fn can_unroll_loop(body: &[HirStmt]) -> bool {
     for stmt in body {
         if !stmt_safe_to_unroll(stmt) {
@@ -5221,14 +5245,7 @@ fn compile_loop(ctx: &mut FuncCtx, kind: &HirLoopKind, body: &[HirStmt]) {
                 // Unrolled increment: advance by 1 more (total UNROLL_FACTOR) and check
                 ctx.builder.switch_to_block(unrolled_inc_block);
                 ctx.builder.seal_block(unrolled_inc_block);
-                let current = ctx.builder.use_var(loop_var);
-                let one = ctx.builder.ins().iconst(types::I64, 1);
-                let next = ctx.builder.ins().iadd(current, one);
-                ctx.builder.def_var(loop_var, next);
-                let cond = ctx.builder.ins().icmp(cc, next, unrolled_end);
-                ctx.builder
-                    .ins()
-                    .brif(cond, unrolled_body_block, &[], remainder_body_block, &[]);
+                emit_loop_increment(ctx, loop_var, true, cc, unrolled_end, unrolled_body_block, remainder_body_block);
 
                 ctx.builder.seal_block(unrolled_body_block);
 
@@ -5259,14 +5276,7 @@ fn compile_loop(ctx: &mut FuncCtx, kind: &HirLoopKind, body: &[HirStmt]) {
                 // Remainder increment
                 ctx.builder.switch_to_block(remainder_inc_block);
                 ctx.builder.seal_block(remainder_inc_block);
-                let rem_cur = ctx.builder.use_var(loop_var);
-                let rem_one = ctx.builder.ins().iconst(types::I64, 1);
-                let rem_next = ctx.builder.ins().iadd(rem_cur, rem_one);
-                ctx.builder.def_var(loop_var, rem_next);
-                let rem_cond = ctx.builder.ins().icmp(cc, rem_next, end_val);
-                ctx.builder
-                    .ins()
-                    .brif(rem_cond, remainder_real_block, &[], exit_block, &[]);
+                emit_loop_increment(ctx, loop_var, true, cc, end_val, remainder_real_block, exit_block);
 
                 ctx.builder.seal_block(remainder_real_block);
                 ctx.builder.switch_to_block(exit_block);
@@ -5325,26 +5335,12 @@ fn compile_loop(ctx: &mut FuncCtx, kind: &HirLoopKind, body: &[HirStmt]) {
                 // Ascending increment: i += 1, check i < end
                 ctx.builder.switch_to_block(asc_inc_block);
                 ctx.builder.seal_block(asc_inc_block);
-                let current = ctx.builder.use_var(loop_var);
-                let one = ctx.builder.ins().iconst(types::I64, 1);
-                let next = ctx.builder.ins().iadd(current, one);
-                ctx.builder.def_var(loop_var, next);
-                let asc_cond = ctx.builder.ins().icmp(cc_asc, next, end_val);
-                ctx.builder
-                    .ins()
-                    .brif(asc_cond, body_block, &[], exit_block, &[]);
+                emit_loop_increment(ctx, loop_var, true, cc_asc, end_val, body_block, exit_block);
 
                 // Descending increment: i -= 1, check i > end
                 ctx.builder.switch_to_block(desc_inc_block);
                 ctx.builder.seal_block(desc_inc_block);
-                let current = ctx.builder.use_var(loop_var);
-                let one = ctx.builder.ins().iconst(types::I64, 1);
-                let next = ctx.builder.ins().isub(current, one);
-                ctx.builder.def_var(loop_var, next);
-                let desc_cond = ctx.builder.ins().icmp(cc_desc, next, end_val);
-                ctx.builder
-                    .ins()
-                    .brif(desc_cond, body_block, &[], exit_block, &[]);
+                emit_loop_increment(ctx, loop_var, false, cc_desc, end_val, body_block, exit_block);
 
                 ctx.builder.seal_block(body_block);
                 ctx.builder.switch_to_block(exit_block);
