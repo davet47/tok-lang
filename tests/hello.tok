@@ -1,3 +1,6 @@
 pl("Hello World")
+// expect: Hello World
 pl(1+2)
+// expect: 3
 pl(3*4+5)
+// expect: 17

@@ -1,0 +1,8 @@
+a=[1 2 3]
+b=a
+pl(a)
+// expect: [1 2 3]
+pl(b)
+// expect: [1 2 3]
+pl(len(a))
+// expect: 3

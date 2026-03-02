@@ -1,0 +1,11 @@
+f id(x:a):a=x
+pl(id(42))
+// expect: 42
+pl(id(3.14))
+// expect: 3.14
+pl(id("hello"))
+// expect: hello
+pl(id(T))
+// expect: T
+pl(id(N))
+// expect: N

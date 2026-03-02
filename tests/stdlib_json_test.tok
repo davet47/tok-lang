@@ -4,38 +4,61 @@ j=@"json"
 
 // --- parse simple values ---
 pl(j.parse("42"))
+// expect: 42
 pl(j.parse("3.14"))
+// expect: 3.14
 pl(j.parse("true"))
+// expect: T
 pl(j.parse("false"))
+// expect: F
 pl(j.parse("null"))
+// expect: N
 
 // --- parse array ---
 arr=j.parse("[1, 2, 3]")
 pl(arr)
+// expect: [1 2 3]
 pl(#arr)
+// expect: 3
 
 // --- parse object (use \{ to escape brace in string) ---
 obj=j.parse("\{\"name\": \"tok\", \"version\": 1}")
 pl(obj.name)
+// expect: tok
 pl(obj.version)
+// expect: 1
 
 // --- stringify ---
 pl(j.stringify(42))
+// expect: 42
 pl(j.stringify("hello"))
+// expect: "hello"
 pl(j.stringify([1 2 3]))
+// expect: [1,2,3]
 
 // --- stringify map ---
 m={name:"tok" version:1}
 pl(j.stringify(m))
+// expect: {"name":"tok","version":1}
 
 // --- roundtrip ---
 original="\{\"a\":1,\"b\":[2,3],\"c\":true}"
 parsed=j.parse(original)
 back=j.stringify(parsed)
 pl(back)
+// expect: {"a":1,"b":[2,3],"c":true}
 
 // --- pretty (legacy name) ---
 pl(j.pretty({x:1 y:2}))
+// expect:
+// {
+//   "x": 1,
+//   "y": 2
+// }
 
 // --- jpretty (new name) ---
 pl(j.jpretty({a:1}))
+// expect:
+// {
+//   "a": 1
+// }

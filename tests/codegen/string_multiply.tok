@@ -1,0 +1,7 @@
+pl("ha"*3)
+// expect: hahaha
+pl("x"*5)
+// expect: xxxxx
+pl("ab"*0)
+// expect:
+//

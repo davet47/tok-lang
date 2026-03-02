@@ -585,6 +585,8 @@ dependencies = [
  "cranelift-object",
  "target-lexicon",
  "tok-hir",
+ "tok-lexer",
+ "tok-parser",
  "tok-runtime",
  "tok-types",
 ]

@@ -1,17 +1,22 @@
 # String basics
 s="hello"
 pl(s)
+// expect: hello
 pl(#s)
+// expect: 5
 
 # String concatenation
 a="foo"
 b="bar"
 pl(a+b)
+// expect: foobar
 
 # If/else (ternary with blocks)
 x=10
 x>5?{pl("big")}:{pl("small")}
+// expect: big
 x>20?{pl("huge")}:{pl("not huge")}
+// expect: not huge
 
 # Multi-statement function
 f fact(n:i):i{
@@ -19,4 +24,6 @@ f fact(n:i):i{
   ^n*fact(n-1)
 }
 pl(fact(5))
+// expect: 120
 pl(fact(10))
+// expect: 3628800

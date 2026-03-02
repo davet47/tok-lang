@@ -1,2 +1,3 @@
 f add(a:a b:a):a=a+b
 pl(add(3 4))
+// expect: 7

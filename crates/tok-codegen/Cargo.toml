@@ -12,3 +12,9 @@ cranelift-frontend = "0.113"
 cranelift-module = "0.113"
 cranelift-object = "0.113"
 target-lexicon = "0.12"
+
+[dev-dependencies]
+tok-lexer = { workspace = true }
+tok-parser = { workspace = true }
+tok-types = { workspace = true }
+tok-hir = { workspace = true }

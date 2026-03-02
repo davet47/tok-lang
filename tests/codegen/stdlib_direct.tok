@@ -1,0 +1,12 @@
+m=@"math"
+pl(m.sqrt(16.0))
+// expect: 4.0
+pl(m.abs(-7))
+// expect: 7
+pl(m.pi)
+// expect: 3.141592653589793
+s=@"str"
+pl(s.upper("hello"))
+// expect: HELLO
+pl(s.len("test"))
+// expect: 4

@@ -2,62 +2,92 @@
 
 // --- Arithmetic ---
 pl(2+3)
+// expect: 5
 pl(10-4)
+// expect: 6
 pl(3*7)
+// expect: 21
 pl(10/3)
+// expect: 3
 pl(10%3)
+// expect: 1
 
 // --- Comparison ---
 pl(5>3)
+// expect: T
 pl(5<3)
+// expect: F
 pl(5==5)
+// expect: T
 pl(5!=3)
+// expect: T
 
 // --- Unary ---
 pl(-42)
+// expect: -42
 pl(!T)
+// expect: F
 pl(!F)
+// expect: T
 
 // --- Ternary ---
 pl(T?"yes":"no")
+// expect: yes
 pl(F?"yes":"no")
+// expect: no
 pl(5>3?"bigger":"smaller")
+// expect: bigger
 
 // --- Variables ---
 x=10
 y=20
 pl(x+y)
+// expect: 30
 
 // --- Functions ---
 f add(a b)=a+b
 pl(add(3 4))
+// expect: 7
 
 f max(a b)=a>b?a:b
 pl(max(10 20))
+// expect: 20
 pl(max(99 1))
+// expect: 99
 
 // --- Block body function ---
 f abs(x){
   x<0?-x:x
 }
 pl(abs(-5))
+// expect: 5
 pl(abs(5))
+// expect: 5
 
 // --- Nested ternary ---
 f classify(x)=x>0?"pos":x<0?"neg":"zero"
 pl(classify(5))
+// expect: pos
 pl(classify(-3))
+// expect: neg
 pl(classify(0))
+// expect: zero
 
 // --- Recursion ---
 f fib(n)=n<2?n:fib(n-1)+fib(n-2)
 pl(fib(10))
+// expect: 55
 
 // --- String concat ---
 pl("hello "+"world")
+// expect: hello world
 
 // --- Logical operators ---
 pl(T&T)
+// expect: T
 pl(T&F)
+// expect: F
 pl(F|T)
+// expect: T
 pl(F|F)
+// expect: F

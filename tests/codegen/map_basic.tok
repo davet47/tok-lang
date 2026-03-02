@@ -1,0 +1,5 @@
+m={name:"Alice" age:30}
+pl(m.name)
+// expect: Alice
+pl(m.age)
+// expect: 30

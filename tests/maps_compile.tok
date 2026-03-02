@@ -1,17 +1,26 @@
 # Map basics
 m={name:"Alice" age:30}
 pl(m)
+// expect: {name:Alice age:30}
 pl(m.name)
+// expect: Alice
 pl(m.age)
+// expect: 30
 pl(#m)
+// expect: 2
 
 # Map bracket access
 pl(m["name"])
+// expect: Alice
 
 # Keys and vals
 pl(keys(m))
+// expect: [name age]
 pl(vals(m))
+// expect: [Alice 30]
 
 # Has
 pl(has(m "name"))
+// expect: T
 pl(has(m "foo"))
+// expect: F

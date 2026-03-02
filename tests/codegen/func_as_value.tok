@@ -1,0 +1,10 @@
+f double(x:i):i=x*2
+f triple(x:i):i=x*3
+f apply(fn x:i):i=fn(x)
+pl(apply(double 5))
+// expect: 10
+pl(apply(triple 5))
+// expect: 15
+// function used as value twice (trampoline dedup test)
+pl(apply(double 7))
+// expect: 14

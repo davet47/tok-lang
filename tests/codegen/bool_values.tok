@@ -1,0 +1,14 @@
+pl(T)
+// expect: T
+pl(F)
+// expect: F
+pl(1==1)
+// expect: T
+pl(1==2)
+// expect: F
+pl(!T)
+// expect: F
+pl(!F)
+// expect: T
+pl(!!T)
+// expect: T

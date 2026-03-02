@@ -4,46 +4,67 @@ m=@"math"
 
 // --- Constants ---
 pl(m.pi)
+// expect: 3.141592653589793
 pl(m.e)
+// expect: 2.718281828459045
 pl(m.inf)
+// expect: Inf
 
 // --- sqrt ---
 pl(m.sqrt(4.0))
+// expect: 2.0
 pl(m.sqrt(9))
+// expect: 3.0
 
 // --- Trig ---
 pl(m.sin(0.0))
+// expect: 0.0
 pl(m.cos(0.0))
+// expect: 1.0
 pl(m.tan(0.0))
+// expect: 0.0
 
 // --- floor/ceil/round ---
 pl(m.floor(3.7))
+// expect: 3
 pl(m.ceil(3.2))
+// expect: 4
 pl(m.round(3.5))
+// expect: 4
 pl(m.round(3.4))
+// expect: 3
 
 // --- abs ---
 pl(m.abs(-5))
+// expect: 5
 pl(m.abs(5))
+// expect: 5
 pl(m.abs(-3.14))
+// expect: 3.14
 
 // --- pow ---
 pl(m.pow(2.0 10.0))
+// expect: 1024.0
 
 // --- log/exp ---
 pl(m.exp(0.0))
+// expect: 1.0
 pl(m.log(1.0))
+// expect: 0.0
 
 // --- min/max ---
 pl(m.min(3 5))
+// expect: 3
 pl(m.max(3 5))
+// expect: 5
 pl(m.min(1.5 2.5))
+// expect: 1.5
 
 // --- log2/log10 ---
 pl(m.log2(8.0))
 // expect: 3.0
 pl(m.log10(1000.0))
-// expect: 3.0 (approx)
+// expect: 3.0
 
 // --- inverse trig ---
 pl(m.asin(0.0))
@@ -55,7 +76,7 @@ pl(m.atan(0.0))
 
 // --- atan2 ---
 pl(m.atan2(1.0 1.0))
-// expect: 0.7853981633974483 (pi/4)
+// expect: 0.7853981633974483
 
 // --- nan constant ---
 pl(type(m.nan))
@@ -64,3 +85,4 @@ pl(type(m.nan))
 // --- random ---
 r=m.random()
 pl(type(r))
+// expect: float

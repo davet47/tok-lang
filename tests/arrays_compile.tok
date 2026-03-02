@@ -1,15 +1,29 @@
 # Array basics
 a=[1 2 3]
 pl(a)
+// expect: [1 2 3]
 pl(#a)
+// expect: 3
 
 # Array indexing
 pl(a[0])
+// expect: 1
 pl(a[2])
+// expect: 3
 
 # While loop
 n=0
 ~(n<5){pl(n);n=n+1}
+// expect:
+// 0
+// 1
+// 2
+// 3
+// 4
 
 # Nested loops
-~(i:0..3){~(j:0..3){p(i*3+j);p(" ")};pl("")}
+~(i:0..3){~(j:0..3){j>0?{p(" ")};p(i*3+j)};pl("")}
+// expect:
+// 0 1 2
+// 3 4 5
+// 6 7 8

@@ -1,0 +1,12 @@
+x=10
+r=x>5?"big":x>2?"medium":"small"
+pl(r)
+// expect: big
+x=3
+r=x>5?"big":x>2?"medium":"small"
+pl(r)
+// expect: medium
+x=1
+r=x>5?"big":x>2?"medium":"small"
+pl(r)
+// expect: small

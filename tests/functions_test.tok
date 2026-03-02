@@ -3,21 +3,25 @@
 // --- Range loop ---
 ~(i:0..5){p(i)}
 pl("")
+// expect: 01234
 
 // --- While loop ---
 x=10
 ~(x>0){p(x);x=x-1}
 pl("")
+// expect: 10987654321
 
 // --- Standalone match (?= without subject) ---
 score=85
 grade=?={score>=90:"A";score>=80:"B";score>=70:"C";_:"F"}
 pl(grade)
+// expect: B
 
 // --- Value match (expr?=) ---
 x=2
 r=x?={1:"one";2:"two";3:"three";_:"other"}
 pl(r)
+// expect: two
 
 // --- Match with block body ---
 cmd="hello"
@@ -26,11 +30,29 @@ cmd?={
   "bye":{pl("goodbye")}
   _:{pl("unknown")}
 }
+// expect: world
 
 // --- Nested loop + match (FizzBuzz first 15) ---
 ~(i:1..16){pl(?={i%15==0:"FizzBuzz";i%3==0:"Fizz";i%5==0:"Buzz";_:i})}
+// expect: 1
+// expect: 2
+// expect: Fizz
+// expect: 4
+// expect: Buzz
+// expect: Fizz
+// expect: 7
+// expect: 8
+// expect: Fizz
+// expect: Buzz
+// expect: 11
+// expect: Fizz
+// expect: 13
+// expect: 14
+// expect: FizzBuzz
 
 // --- Previous phase tests still work ---
 f fib(n)=n<2?n:fib(n-1)+fib(n-2)
 pl(fib(10))
+// expect: 55
 pl("Hello, Tok!")
+// expect: Hello, Tok!

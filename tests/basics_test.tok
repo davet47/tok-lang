@@ -2,9 +2,16 @@
 p("no newline ")
 p("here")
 pl("")
+// expect: no newline here
 pl("Hello, Tok!")
+// expect: Hello, Tok!
 pl(42)
+// expect: 42
 pl(3.14)
+// expect: 3.14
 pl(T)
+// expect: T
 pl(F)
+// expect: F
 pl(N)
+// expect: N
