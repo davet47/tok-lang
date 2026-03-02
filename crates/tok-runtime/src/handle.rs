@@ -48,7 +48,18 @@ impl TokHandle {
     pub fn join(&self) -> TokValue {
         let mut guard = self.handle.lock().unwrap_or_else(|e| e.into_inner());
         match guard.take() {
-            Some(h) => h.join().unwrap_or_default(),
+            Some(h) => match h.join() {
+                Ok(val) => val,
+                Err(payload) => {
+                    let msg = payload
+                        .downcast_ref::<String>()
+                        .map(|s| s.as_str())
+                        .or_else(|| payload.downcast_ref::<&str>().copied())
+                        .unwrap_or("unknown panic");
+                    eprintln!("goroutine panicked: {}", msg);
+                    TokValue::nil()
+                }
+            },
             None => TokValue::nil(), // Already joined
         }
     }
