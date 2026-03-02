@@ -19,8 +19,7 @@ const RUN_SKIP: &[&str] = &[
     "builtins_new_test.tok", // clock/env/args vary by system
     // Needs import resolver (tok-driver)
     "imports_test.tok",
-    // Known codegen bugs
-    "stdlib_tmpl_test.tok", // argument count mismatch
+    // stdlib_tmpl_test.tok — FIXED: separated ident+map args for ProtoInit disambiguation
     // Pre-existing runtime crashes (codegen limitations)
     "errors_tuples_test.tok", // hangs on ""??42 (nil coalesce codegen bug)
     // concurrency_test.tok — FIXED: sel returns values, channel/handle as func args

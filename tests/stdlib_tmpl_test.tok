@@ -128,14 +128,17 @@ check("section str nonempty" out "yes")
 
 // --- compile + apply roundtrip ---
 tpl=t.compile(`{.greeting.} {.name.}!`)
-out1=t.apply(tpl {greeting: "Hello" name: "Alice"})
-out2=t.apply(tpl {greeting: "Hi" name: "Bob"})
+d1={greeting: "Hello" name: "Alice"}
+out1=t.apply(tpl d1)
+d2={greeting: "Hi" name: "Bob"}
+out2=t.apply(tpl d2)
 check("compile+apply 1" out1 "Hello Alice!")
 check("compile+apply 2" out2 "Hi Bob!")
 
 // --- compile + apply with sections ---
 tpl2=t.compile(`{.#items.}{.name.} {./items.}`)
-out3=t.apply(tpl2 {items: [{name: "X"} {name: "Y"}]})
+d3={items: [{name: "X"} {name: "Y"}]}
+out3=t.apply(tpl2 d3)
 check("compile+apply section" out3 "X Y ")
 
 // --- Inverted section with nil ---
