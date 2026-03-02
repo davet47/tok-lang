@@ -235,6 +235,26 @@ pub(crate) fn compile_function(
         // Use aliasing guard: compare each local against data_ret, skip if same.
         for (_, var, ty) in &heap_locals {
             let v = func_ctx.builder.use_var(*var);
+            let cont_block = func_ctx.builder.create_block();
+
+            // Any-typed locals may be null (0) if the variable was never assigned
+            // (e.g., early return before assignment). Skip RC dec for null pointers.
+            if matches!(ty, Type::Any) {
+                let null = func_ctx.builder.ins().iconst(types::I64, 0);
+                let is_null = func_ctx.builder.ins().icmp(
+                    cranelift_codegen::ir::condcodes::IntCC::Equal,
+                    v,
+                    null,
+                );
+                let not_null_block = func_ctx.builder.create_block();
+                func_ctx
+                    .builder
+                    .ins()
+                    .brif(is_null, cont_block, &[], not_null_block, &[]);
+                func_ctx.builder.switch_to_block(not_null_block);
+                func_ctx.builder.seal_block(not_null_block);
+            }
+
             // For Any-typed locals, the pointer is inside the TokValue stack slot;
             // for heap-typed locals, v is the pointer directly.
             let ptr = if matches!(ty, Type::Any) {
@@ -252,7 +272,6 @@ pub(crate) fn compile_function(
                 data_ret,
             );
             let dec_block = func_ctx.builder.create_block();
-            let cont_block = func_ctx.builder.create_block();
             func_ctx
                 .builder
                 .ins()
@@ -292,10 +311,32 @@ pub(crate) fn compile_function(
                 func_ctx.builder.seal_block(cont_block);
             }
         } else {
-            // Return is scalar — safe to unconditionally dec all heap locals
+            // Return is scalar — safe to dec all heap locals (with null guard for Any)
             for (_, var, ty) in &heap_locals {
                 let v = func_ctx.builder.use_var(*var);
-                emit_rc_dec(&mut func_ctx, v, ty);
+                if matches!(ty, Type::Any) {
+                    // Any-typed locals may be null if never assigned (early return)
+                    let null = func_ctx.builder.ins().iconst(types::I64, 0);
+                    let is_null = func_ctx.builder.ins().icmp(
+                        cranelift_codegen::ir::condcodes::IntCC::Equal,
+                        v,
+                        null,
+                    );
+                    let dec_block = func_ctx.builder.create_block();
+                    let cont_block = func_ctx.builder.create_block();
+                    func_ctx
+                        .builder
+                        .ins()
+                        .brif(is_null, cont_block, &[], dec_block, &[]);
+                    func_ctx.builder.switch_to_block(dec_block);
+                    func_ctx.builder.seal_block(dec_block);
+                    emit_rc_dec(&mut func_ctx, v, ty);
+                    func_ctx.builder.ins().jump(cont_block, &[]);
+                    func_ctx.builder.switch_to_block(cont_block);
+                    func_ctx.builder.seal_block(cont_block);
+                } else {
+                    emit_rc_dec(&mut func_ctx, v, ty);
+                }
             }
         }
 

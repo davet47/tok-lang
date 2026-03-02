@@ -22,12 +22,9 @@ const RUN_SKIP: &[&str] = &[
     // Known codegen bugs
     "stdlib_tmpl_test.tok", // argument count mismatch
     // Pre-existing runtime crashes (codegen limitations)
-    "arrays_lambdas_test.tok",     // runtime crash
     "strings_pipes_test.tok",      // runtime crash
-    "maps_test.tok",               // runtime crash
     "errors_tuples_test.tok",      // runtime crash
     "concurrency_test.tok",        // runtime crash
-    "head_tail_test.tok",          // runtime crash
     "stdlib_destructure_test.tok", // runtime crash
     // Not standalone programs
     "math_helpers.tok", // helper module for imports
@@ -241,7 +238,6 @@ fn run_codegen_map_basic() {
 // remove the #[ignore] to include them in the test suite.
 
 #[test]
-#[ignore] // Pre-existing: runtime crash (likely quicksort/complex lambdas)
 fn run_arrays_lambdas_test() {
     run_file(&common::tests_dir().join("arrays_lambdas_test.tok"));
 }
@@ -253,7 +249,6 @@ fn run_strings_pipes_test() {
 }
 
 #[test]
-#[ignore] // Pre-existing: runtime crash (complex map operations)
 fn run_maps_test() {
     run_file(&common::tests_dir().join("maps_test.tok"));
 }
@@ -271,7 +266,6 @@ fn run_concurrency_test() {
 }
 
 #[test]
-#[ignore] // Pre-existing: runtime crash (head/tail destructuring)
 fn run_head_tail_test() {
     run_file(&common::tests_dir().join("head_tail_test.tok"));
 }
