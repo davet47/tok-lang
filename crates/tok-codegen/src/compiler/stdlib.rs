@@ -176,3 +176,169 @@ pub(crate) fn get_stdlib_const(module: &str, field: &str) -> Option<f64> {
         _ => None,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cranelift_module::Module;
+
+    /// All (module, field) pairs registered in get_stdlib_func.
+    /// This must be kept in sync with the match arms above.
+    const ALL_STDLIB_FUNCS: &[(&str, &str)] = &[
+        // math
+        ("math", "sqrt"),
+        ("math", "sin"),
+        ("math", "cos"),
+        ("math", "tan"),
+        ("math", "asin"),
+        ("math", "acos"),
+        ("math", "atan"),
+        ("math", "log"),
+        ("math", "log2"),
+        ("math", "log10"),
+        ("math", "exp"),
+        ("math", "floor"),
+        ("math", "ceil"),
+        ("math", "round"),
+        ("math", "abs"),
+        ("math", "pow"),
+        ("math", "min"),
+        ("math", "max"),
+        ("math", "atan2"),
+        ("math", "random"),
+        // str
+        ("str", "upper"),
+        ("str", "lower"),
+        ("str", "trim"),
+        ("str", "trim_left"),
+        ("str", "trim_right"),
+        ("str", "chars"),
+        ("str", "bytes"),
+        ("str", "rev"),
+        ("str", "len"),
+        ("str", "contains"),
+        ("str", "starts_with"),
+        ("str", "ends_with"),
+        ("str", "index_of"),
+        ("str", "repeat"),
+        ("str", "split"),
+        ("str", "replace"),
+        ("str", "pad_left"),
+        ("str", "pad_right"),
+        ("str", "substr"),
+        // json
+        ("json", "jparse"),
+        ("json", "jstr"),
+        ("json", "jpretty"),
+        ("json", "parse"),
+        ("json", "stringify"),
+        ("json", "pretty"),
+        // llm
+        ("llm", "ask"),
+        ("llm", "chat"),
+        // csv
+        ("csv", "cparse"),
+        ("csv", "cstr"),
+        ("csv", "parse"),
+        ("csv", "stringify"),
+        // tmpl
+        ("tmpl", "render"),
+        ("tmpl", "apply"),
+        ("tmpl", "compile"),
+        // toon
+        ("toon", "tparse"),
+        ("toon", "tstr"),
+        ("toon", "parse"),
+        ("toon", "stringify"),
+        // os
+        ("os", "args"),
+        ("os", "cwd"),
+        ("os", "pid"),
+        ("os", "env"),
+        ("os", "exit"),
+        ("os", "exec"),
+        ("os", "set_env"),
+        // io
+        ("io", "readall"),
+        ("io", "input"),
+        // fs
+        ("fs", "fread"),
+        ("fs", "fexists"),
+        ("fs", "fls"),
+        ("fs", "fmk"),
+        ("fs", "frm"),
+        ("fs", "fwrite"),
+        ("fs", "fappend"),
+        // http
+        ("http", "hget"),
+        ("http", "hdel"),
+        ("http", "hpost"),
+        ("http", "hput"),
+        ("http", "serve"),
+        // re
+        ("re", "rmatch"),
+        ("re", "rfind"),
+        ("re", "rall"),
+        ("re", "rsub"),
+        // time
+        ("time", "now"),
+        ("time", "sleep"),
+        ("time", "fmt"),
+    ];
+
+    #[test]
+    fn all_stdlib_funcs_resolve() {
+        for &(module, field) in ALL_STDLIB_FUNCS {
+            assert!(
+                get_stdlib_func(module, field).is_some(),
+                "get_stdlib_func({module:?}, {field:?}) returned None"
+            );
+        }
+    }
+
+    #[test]
+    fn stdlib_arity_matches_runtime_decl() {
+        // Verify that each stdlib function's arity maps to the correct
+        // number of Cranelift params in the runtime declaration.
+        // Trampoline convention: (env: PTR, tag1: I64, data1: I64, ...) -> (I64, I64)
+        // So param count = 1 (env) + 2 * arity (tag+data per arg)
+        let mut compiler = crate::compiler::Compiler::new();
+        compiler.declare_all_runtime_funcs();
+
+        for &(module, field) in ALL_STDLIB_FUNCS {
+            let (trampoline, arity) = get_stdlib_func(module, field)
+                .unwrap_or_else(|| panic!("missing: {module}.{field}"));
+
+            let func_id = compiler
+                .runtime_funcs
+                .get(trampoline)
+                .unwrap_or_else(|| panic!("trampoline {trampoline} not declared in runtime_decls"));
+
+            let decl = compiler.module.declarations().get_function_decl(*func_id);
+            let expected_params = 1 + 2 * arity; // env + (tag, data) per arg
+            assert_eq!(
+                decl.signature.params.len(),
+                expected_params,
+                "{module}.{field} ({trampoline}): arity={arity}, \
+                 expected {expected_params} params, got {}",
+                decl.signature.params.len()
+            );
+        }
+    }
+
+    #[test]
+    fn all_modules_have_constructor() {
+        let modules: Vec<&str> = ALL_STDLIB_FUNCS
+            .iter()
+            .map(|(m, _)| *m)
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect();
+        for module in modules {
+            assert!(
+                stdlib_constructor(module).is_some(),
+                "module {module:?} has functions but no constructor in STDLIB_MODULE_CONSTRUCTORS"
+            );
+        }
+    }
+}
