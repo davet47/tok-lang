@@ -186,6 +186,11 @@ fn run_codegen_bool_values() {
 }
 
 #[test]
+fn run_codegen_bool_short_circuit() {
+    run_file(&common::tests_dir().join("codegen/bool_short_circuit.tok"));
+}
+
+#[test]
 fn run_codegen_any_coercion() {
     run_file(&common::tests_dir().join("codegen/any_coercion.tok"));
 }

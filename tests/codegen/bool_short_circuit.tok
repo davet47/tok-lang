@@ -1,0 +1,39 @@
+// Boolean short-circuit operators (previously segfaulted — I8/I64 mismatch)
+pl(T&&T)
+// expect: T
+pl(T&&F)
+// expect: F
+pl(F&&T)
+// expect: F
+pl(F&&F)
+// expect: F
+pl(T||T)
+// expect: T
+pl(T||F)
+// expect: T
+pl(F||T)
+// expect: T
+pl(F||F)
+// expect: F
+
+// Chained
+pl(T&&T&&T)
+// expect: T
+pl(T&&T&&F)
+// expect: F
+pl(F||F||T)
+// expect: T
+
+// In variable assignment
+x=T&&F
+pl(x)
+// expect: F
+y=F||T
+pl(y)
+// expect: T
+
+// In ternary
+pl(T&&T?"yes":"no")
+// expect: yes
+pl(F||F?"yes":"no")
+// expect: no

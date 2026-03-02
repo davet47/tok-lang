@@ -113,7 +113,7 @@ pub(crate) fn compile_binop(
         }
     }
 
-    // Bool comparisons
+    // Bool operations (operands are I8)
     if matches!(left.ty, Type::Bool) && matches!(right.ty, Type::Bool) {
         match op {
             HirBinOp::Eq => {
@@ -131,6 +131,10 @@ pub(crate) fn compile_binop(
                 );
                 return Some(result);
             }
+            // Bitwise ops on bools (&&, ||, ^^ in Tok syntax) — operands are I8
+            HirBinOp::BitAnd => return Some(ctx.builder.ins().band(lv, rv)),
+            HirBinOp::BitOr => return Some(ctx.builder.ins().bor(lv, rv)),
+            HirBinOp::BitXor => return Some(ctx.builder.ins().bxor(lv, rv)),
             _ => {}
         }
     }

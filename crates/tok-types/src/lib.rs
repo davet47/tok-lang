@@ -119,9 +119,10 @@ pub fn infer_binop_type(op: &BinOp, lt: &Type, rt: &Type) -> Type {
         // Logic — always bool
         BinOp::And | BinOp::Or => Type::Bool,
 
-        // Bitwise — int
+        // Bitwise — int (or bool for &&/||/^^ on booleans)
         BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor | BinOp::Shr => match (lt, rt) {
             (Type::Int, Type::Int) => Type::Int,
+            (Type::Bool, Type::Bool) => Type::Bool,
             _ => Type::Any,
         },
 
