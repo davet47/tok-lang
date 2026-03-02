@@ -118,9 +118,8 @@ fn compile_file_to_hir(file_path: &Path) -> Result<HirProgram, DriverError> {
             e
         ))
     })?;
-    crate::parse_source_to_hir(&source, Some(file_path)).map_err(|e| {
-        DriverError::Import(format!("{}", e))
-    })
+    crate::parse_source_to_hir(&source, Some(file_path))
+        .map_err(|e| DriverError::Import(format!("{}", e)))
 }
 
 /// Extract exported names and their types from an HIR program.

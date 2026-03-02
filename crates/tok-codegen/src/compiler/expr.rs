@@ -9,7 +9,7 @@ use tok_types::Type;
 
 use super::{
     alloc_tokvalue_on_stack, cl_type, coerce_value, compile_expr_as_ptr, compile_stmt,
-    from_tokvalue, to_tokvalue, unwrap_any_ptr, FuncCtx, PendingLambda, PTR, TAG_ARRAY,
+    from_tokvalue, to_tokvalue, unwrap_any_ptr, FuncCtx, PendingLambda, PTR, TAG_ARRAY, TAG_TUPLE,
 };
 use super::{can_inline_hof, compile_inline_filter, compile_inline_reduce};
 use super::{
@@ -326,6 +326,73 @@ pub(crate) fn compile_expr(ctx: &mut FuncCtx, expr: &HirExpr) -> Option<Value> {
                     return Some(from_tokvalue(ctx, results[0], results[1], &expr.ty));
                 } else {
                     return Some(target_val);
+                }
+            }
+
+            // Any-typed target with numeric field: runtime dispatch to tuple or map
+            if matches!(&target.ty, Type::Any | Type::Optional(_) | Type::Result(_)) {
+                if let Ok(idx) = field.parse::<i64>() {
+                    // Load the tag from the TokValue to check if it's a tuple
+                    let tag =
+                        ctx.builder
+                            .ins()
+                            .load(types::I64, MemFlags::trusted(), target_val, 0);
+                    let data =
+                        ctx.builder
+                            .ins()
+                            .load(types::I64, MemFlags::trusted(), target_val, 8);
+                    let tuple_tag = ctx.builder.ins().iconst(types::I64, TAG_TUPLE);
+                    let is_tuple = ctx.builder.ins().icmp(
+                        cranelift_codegen::ir::condcodes::IntCC::Equal,
+                        tag,
+                        tuple_tag,
+                    );
+
+                    let tuple_block = ctx.builder.create_block();
+                    let map_block = ctx.builder.create_block();
+                    let merge_block = ctx.builder.create_block();
+                    ctx.builder.append_block_param(merge_block, types::I64);
+                    ctx.builder.append_block_param(merge_block, types::I64);
+
+                    ctx.builder
+                        .ins()
+                        .brif(is_tuple, tuple_block, &[], map_block, &[]);
+
+                    // Tuple path: use tok_tuple_get
+                    ctx.builder.switch_to_block(tuple_block);
+                    ctx.builder.seal_block(tuple_block);
+                    let idx_val = ctx.builder.ins().iconst(types::I64, idx);
+                    let func_ref = ctx.get_runtime_func_ref("tok_tuple_get");
+                    let call = ctx.builder.ins().call(func_ref, &[data, idx_val]);
+                    let t_results = ctx.builder.inst_results(call);
+                    let t_tag = t_results[0];
+                    let t_data = t_results[1];
+                    ctx.builder.ins().jump(merge_block, &[t_tag, t_data]);
+
+                    // Map path: use tok_map_get with string key
+                    ctx.builder.switch_to_block(map_block);
+                    ctx.builder.seal_block(map_block);
+                    let (data_id, len) = ctx.compiler.declare_string_data(field);
+                    let gv = ctx.get_data_ref(data_id);
+                    let key_ptr = ctx.builder.ins().global_value(PTR, gv);
+                    let key_len = ctx.builder.ins().iconst(types::I64, len as i64);
+                    let str_ref = ctx.get_runtime_func_ref("tok_string_alloc");
+                    let str_call = ctx.builder.ins().call(str_ref, &[key_ptr, key_len]);
+                    let key_str = ctx.builder.inst_results(str_call)[0];
+                    let map_func = ctx.get_runtime_func_ref("tok_map_get");
+                    let m_call = ctx.builder.ins().call(map_func, &[data, key_str]);
+                    let m_results = ctx.builder.inst_results(m_call);
+                    let m_tag = m_results[0];
+                    let m_data = m_results[1];
+                    let free_ref = ctx.get_runtime_func_ref("tok_string_free");
+                    ctx.builder.ins().call(free_ref, &[key_str]);
+                    ctx.builder.ins().jump(merge_block, &[m_tag, m_data]);
+
+                    ctx.builder.switch_to_block(merge_block);
+                    ctx.builder.seal_block(merge_block);
+                    let result_tag = ctx.builder.block_params(merge_block)[0];
+                    let result_data = ctx.builder.block_params(merge_block)[1];
+                    return Some(from_tokvalue(ctx, result_tag, result_data, &expr.ty));
                 }
             }
 

@@ -22,8 +22,8 @@ const RUN_SKIP: &[&str] = &[
     // Known codegen bugs
     "stdlib_tmpl_test.tok", // argument count mismatch
     // Pre-existing runtime crashes (codegen limitations)
-    "errors_tuples_test.tok",      // runtime crash
-    "concurrency_test.tok",        // runtime crash
+    "errors_tuples_test.tok", // hangs on ""??42 (nil coalesce codegen bug)
+    "concurrency_test.tok",   // runtime crash
     "stdlib_destructure_test.tok", // runtime crash
     // Not standalone programs
     "math_helpers.tok", // helper module for imports
@@ -252,7 +252,7 @@ fn run_maps_test() {
 }
 
 #[test]
-#[ignore] // Pre-existing: runtime crash (error handling/tuples)
+#[ignore] // Pre-existing: nil coalesce hangs on empty string
 fn run_errors_tuples_test() {
     run_file(&common::tests_dir().join("errors_tuples_test.tok"));
 }

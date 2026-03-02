@@ -592,6 +592,7 @@ impl<'a> Lowerer<'a> {
                         Type::Tuple(elts) => elts.get(i).cloned().unwrap_or(Type::Any),
                         _ => Type::Any,
                     };
+                    self.define_local(name, elem_ty.clone());
                     let index_expr = HirExpr::new(
                         HirExprKind::Index {
                             target: Box::new(HirExpr::new(
@@ -628,6 +629,7 @@ impl<'a> Lowerer<'a> {
                 };
 
                 for name in names {
+                    self.define_local(name, elem_ty.clone());
                     let member_expr = HirExpr::new(
                         HirExprKind::Member {
                             target: Box::new(HirExpr::new(
@@ -664,6 +666,7 @@ impl<'a> Lowerer<'a> {
                 };
 
                 // h = _tmp[0]
+                self.define_local(head, elem_ty.clone());
                 let head_expr = HirExpr::new(
                     HirExprKind::Index {
                         target: Box::new(HirExpr::new(
@@ -682,6 +685,7 @@ impl<'a> Lowerer<'a> {
 
                 // t = tok_array_slice(_tmp, 1, #_tmp)
                 let tmp_ident = HirExpr::new(HirExprKind::Ident(tmp.clone()), val_ty.clone());
+                let tail_ty = val_ty.clone();
                 let tail_expr = HirExpr::new(
                     HirExprKind::RuntimeCall {
                         name: "tok_array_slice".to_string(),
@@ -693,6 +697,7 @@ impl<'a> Lowerer<'a> {
                     },
                     val_ty,
                 );
+                self.define_local(tail, tail_ty);
                 out.push(HirStmt::Assign {
                     name: tail.clone(),
                     ty: tail_expr.ty.clone(),
