@@ -201,9 +201,12 @@ fn cmd_build(source: &str, input_file: &str, output_path: &str) -> Result<(), Dr
     let runtime_lib = find_runtime_lib();
 
     // Link
-    let status = Command::new("cc")
-        .args([&obj_path, &runtime_lib, "-o", output_path, "-lpthread"])
-        .status();
+    let mut link_args = vec![&obj_path, &runtime_lib, "-o", output_path, "-lpthread"];
+    // Linux needs -lm for math functions (sin, cos, log, etc.)
+    if cfg!(target_os = "linux") {
+        link_args.push("-lm");
+    }
+    let status = Command::new("cc").args(&link_args).status();
 
     // Clean up .o file, warn on failure
     if let Err(e) = fs::remove_file(&obj_path) {

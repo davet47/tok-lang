@@ -44,14 +44,19 @@ pub fn compile_and_run(source: &str) -> (String, String, i32) {
 
     // Link with runtime
     let runtime_lib = find_runtime_lib();
+    let mut link_args = vec![
+        obj_path.to_str().unwrap().to_string(),
+        runtime_lib,
+        "-o".to_string(),
+        exe_path.to_str().unwrap().to_string(),
+        "-lpthread".to_string(),
+    ];
+    // Linux needs -lm for math functions (sin, cos, log, etc.)
+    if cfg!(target_os = "linux") {
+        link_args.push("-lm".to_string());
+    }
     let link_status = Command::new("cc")
-        .args([
-            obj_path.to_str().unwrap(),
-            &runtime_lib,
-            "-o",
-            exe_path.to_str().unwrap(),
-            "-lpthread",
-        ])
+        .args(&link_args)
         .output()
         .expect("failed to run linker (cc)");
 
