@@ -26,7 +26,6 @@ use cranelift_codegen::entity::EntityRef;
 use cranelift_codegen::ir::types;
 use cranelift_codegen::ir::{AbiParam, Block, InstBuilder, SigRef, Value};
 use cranelift_codegen::isa;
-use cranelift_codegen::isa::CallConv;
 use cranelift_codegen::settings::{self, Configurable};
 use cranelift_frontend::{FunctionBuilder, Variable};
 use cranelift_module::{DataDescription, FuncId, Linkage, Module};
@@ -156,9 +155,6 @@ struct KnownClosure {
 /// Top-level compiler that holds the Cranelift module and all metadata.
 pub struct Compiler {
     module: ObjectModule,
-    /// The default calling convention for this target.
-    #[allow(dead_code)]
-    call_conv: CallConv,
     /// Cranelift functions that have been declared (name → FuncId).
     declared_funcs: HashMap<String, FuncId>,
     /// Tok function signatures: param types + return type.
@@ -167,9 +163,6 @@ pub struct Compiler {
     runtime_funcs: HashMap<String, FuncId>,
     /// String literal data (index → data id, length).
     string_literals: Vec<(cranelift_module::DataId, usize)>,
-    /// Counter for unique names (gensym).
-    #[allow(dead_code)]
-    gensym_counter: u32,
     /// Counter for generating unique lambda function names.
     lambda_counter: u32,
     /// Lambdas waiting to be compiled (deferred until current function finalizes).
@@ -196,8 +189,6 @@ impl Compiler {
             .finish(flags)
             .expect("codegen: failed to build ISA");
 
-        let call_conv = isa.default_call_conv();
-
         let obj_builder =
             ObjectBuilder::new(isa, "tok_output", cranelift_module::default_libcall_names())
                 .expect("codegen: failed to create object builder");
@@ -205,22 +196,14 @@ impl Compiler {
 
         Compiler {
             module,
-            call_conv,
             declared_funcs: HashMap::new(),
             func_sigs: HashMap::new(),
             runtime_funcs: HashMap::new(),
             string_literals: Vec::new(),
-            gensym_counter: 0,
             lambda_counter: 0,
             pending_lambdas: Vec::new(),
             func_bodies: HashMap::new(),
         }
-    }
-
-    #[allow(dead_code)]
-    fn gensym(&mut self) -> String {
-        self.gensym_counter += 1;
-        format!("__tok_tmp_{}", self.gensym_counter)
     }
 
     // ─── Runtime function declaration ──────────────────────────────
@@ -316,18 +299,12 @@ pub(crate) struct FuncCtx<'a> {
     next_var: usize,
     /// The return block for early returns.
     return_block: Block,
-    /// The return variable (if the function has a non-void return).
-    #[allow(dead_code)]
-    return_var: Option<Variable>,
     /// Loop context stack: (continue_block, break_block)
     loop_stack: Vec<(Block, Block)>,
     /// Whether the current block has been terminated (by return/break/continue/jump).
     block_terminated: bool,
     /// Whether this function returns Any type (uses 2-value return: tag, data).
     is_any_return: bool,
-    /// The return type of the current function.
-    #[allow(dead_code)]
-    ret_type: Type,
     /// Closures assigned to local variables where we know the FuncId at compile time.
     known_closures: HashMap<String, KnownClosure>,
     /// Variables that hold stdlib module imports: var_name → module_name (e.g. "m" → "math").
