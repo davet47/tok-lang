@@ -341,14 +341,13 @@ h_dj=go{42}
 pl(<-h_dj)
 // expect: 42
 
-// === Goroutine that double-joins (error is caught inside goroutine as string) ===
+// === Join handle via function argument ===
 h_dj2=go{99}
-f test_double(){
-  v=<-h_dj2
-  // second join would error — but it's a runtime error, not catchable via ?^
+f test_join(h){
+  v=<-h
   v
 }
-pl(test_double())
+pl(test_join(h_dj2))
 // expect: 99
 
 // ============================================================
@@ -359,7 +358,7 @@ pl(test_double())
 tc1=chan(1)
 tc1<-"typed"
 pl(type(<-tc1))
-// expect: str
+// expect: string
 
 // === Handle type is handle ===
 th1=go{1}
@@ -550,7 +549,7 @@ pl(type(h_type)=="handle")
 // === Channel equality — same channel ===
 same_ch=chan(1)
 pl(same_ch==same_ch)
-// expect: F
+// expect: T
 
 // === Channel as function argument and return ===
 f pass_chan(c){

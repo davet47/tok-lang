@@ -476,7 +476,7 @@ mod coerce;
 use coerce::{
     alloc_tokvalue_on_stack, coerce_if_branch, coerce_value, compile_expr_as_ptr, from_tokvalue,
     from_tokvalue_raw_data, to_bool, to_tokvalue, unwrap_any_ptr, zero_value, TAG_ARRAY, TAG_FLOAT,
-    TAG_INT, TAG_STRING, TAG_TUPLE,
+    TAG_HANDLE, TAG_INT, TAG_STRING, TAG_TUPLE,
 };
 
 mod retype;

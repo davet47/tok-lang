@@ -9,7 +9,8 @@ use tok_types::Type;
 
 use super::{
     alloc_tokvalue_on_stack, cl_type, coerce_value, compile_expr_as_ptr, compile_stmt,
-    from_tokvalue, to_tokvalue, unwrap_any_ptr, FuncCtx, PendingLambda, PTR, TAG_ARRAY, TAG_TUPLE,
+    from_tokvalue, from_tokvalue_raw_data, to_tokvalue, unwrap_any_ptr, FuncCtx, PendingLambda,
+    PTR, TAG_ARRAY, TAG_TUPLE,
 };
 use super::{can_inline_hof, compile_inline_filter, compile_inline_reduce};
 use super::{
@@ -524,10 +525,17 @@ pub(crate) fn compile_expr(ctx: &mut FuncCtx, expr: &HirExpr) -> Option<Value> {
         HirExprKind::Send { chan, value } => {
             let chan_val =
                 compile_expr(ctx, chan).expect("codegen: channel expr produced no value");
+            // If the channel is Any-typed (e.g. function param), extract the raw
+            // channel pointer from the TokValue's data field.
+            let raw_chan = if matches!(&chan.ty, Type::Any) {
+                from_tokvalue_raw_data(ctx, chan_val)
+            } else {
+                chan_val
+            };
             let val = compile_expr(ctx, value).expect("codegen: value expr produced no value");
             let (tag, data) = to_tokvalue(ctx, val, &value.ty);
             let func_ref = ctx.get_runtime_func_ref("tok_channel_send");
-            ctx.builder.ins().call(func_ref, &[chan_val, tag, data]);
+            ctx.builder.ins().call(func_ref, &[raw_chan, tag, data]);
             None
         }
 

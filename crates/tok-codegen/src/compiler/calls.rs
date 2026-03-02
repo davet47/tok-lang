@@ -521,6 +521,12 @@ pub(crate) fn can_inline_user_func(ctx: &FuncCtx, name: &str) -> bool {
     if expr_contains_return(expr) {
         return false;
     }
+    // Don't inline functions whose body is a side-effect-only expression (no return value).
+    // The inlining path returns None for these, causing the call to also go through the
+    // non-inlined path, executing side effects twice.
+    if matches!(expr.kind, HirExprKind::Send { .. }) {
+        return false;
+    }
     true
 }
 

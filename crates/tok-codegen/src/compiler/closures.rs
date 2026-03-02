@@ -1,5 +1,6 @@
 // ─── Closure-related codegen ─────────────────────────────────────────
 
+use cranelift_codegen::ir::condcodes::IntCC;
 use cranelift_codegen::ir::types;
 use cranelift_codegen::ir::{AbiParam, InstBuilder, MemFlags, StackSlotData, StackSlotKind, Value};
 use cranelift_module::{Linkage, Module};
@@ -12,7 +13,7 @@ use tok_types::Type;
 use super::free_vars::{collect_free_vars, collect_free_vars_expr};
 use super::{
     alloc_tokvalue_on_stack, cl_type_or_i64, compile_body, compile_expr, from_tokvalue,
-    to_tokvalue, CapturedVar, FuncCtx, PendingLambda, PTR,
+    from_tokvalue_raw_data, to_tokvalue, CapturedVar, FuncCtx, PendingLambda, PTR, TAG_HANDLE,
 };
 
 /// Compile a lambda expression: capture analysis, env allocation, closure creation.
@@ -133,6 +134,54 @@ pub(crate) fn compile_receive_expr(
             let results = ctx.builder.inst_results(call);
             Some(from_tokvalue(ctx, results[0], results[1], result_ty))
         }
+        Type::Any => {
+            // Any-typed (e.g. function param): runtime dispatch between handle join and channel recv.
+            // Load tag from TokValue to determine if it's a handle (TAG_HANDLE) or channel.
+            let tag = ctx
+                .builder
+                .ins()
+                .load(types::I64, MemFlags::trusted(), chan, 0);
+            let raw_ptr = from_tokvalue_raw_data(ctx, chan);
+
+            let handle_tag = ctx.builder.ins().iconst(types::I64, TAG_HANDLE);
+            let is_handle = ctx.builder.ins().icmp(IntCC::Equal, tag, handle_tag);
+
+            let handle_block = ctx.builder.create_block();
+            let chan_block = ctx.builder.create_block();
+            let merge = ctx.builder.create_block();
+            ctx.builder.append_block_param(merge, types::I64);
+            ctx.builder.append_block_param(merge, types::I64);
+
+            ctx.builder
+                .ins()
+                .brif(is_handle, handle_block, &[], chan_block, &[]);
+
+            // Handle path: tok_handle_join
+            ctx.builder.switch_to_block(handle_block);
+            ctx.builder.seal_block(handle_block);
+            let join_ref = ctx.get_runtime_func_ref("tok_handle_join");
+            let join_call = ctx.builder.ins().call(join_ref, &[raw_ptr]);
+            let join_results = ctx.builder.inst_results(join_call);
+            let h_tag = join_results[0];
+            let h_data = join_results[1];
+            ctx.builder.ins().jump(merge, &[h_tag, h_data]);
+
+            // Channel path: tok_channel_recv
+            ctx.builder.switch_to_block(chan_block);
+            ctx.builder.seal_block(chan_block);
+            let recv_ref = ctx.get_runtime_func_ref("tok_channel_recv");
+            let recv_call = ctx.builder.ins().call(recv_ref, &[raw_ptr]);
+            let recv_results = ctx.builder.inst_results(recv_call);
+            let c_tag = recv_results[0];
+            let c_data = recv_results[1];
+            ctx.builder.ins().jump(merge, &[c_tag, c_data]);
+
+            ctx.builder.switch_to_block(merge);
+            ctx.builder.seal_block(merge);
+            let result_tag = ctx.builder.block_params(merge)[0];
+            let result_data = ctx.builder.block_params(merge)[1];
+            Some(from_tokvalue(ctx, result_tag, result_data, result_ty))
+        }
         _ => {
             let func_ref = ctx.get_runtime_func_ref("tok_channel_recv");
             let call = ctx.builder.ins().call(func_ref, &[chan]);
@@ -145,6 +194,9 @@ pub(crate) fn compile_receive_expr(
 /// Compile a select expression (non-blocking try of each arm).
 pub(crate) fn compile_select_expr(ctx: &mut FuncCtx, arms: &[HirSelectArm]) -> Option<Value> {
     let merge_block = ctx.builder.create_block();
+    // Select returns a value (Any) through block params: (tag, data)
+    ctx.builder.append_block_param(merge_block, types::I64);
+    ctx.builder.append_block_param(merge_block, types::I64);
 
     let mut default_body: Option<&Vec<HirStmt>> = None;
     let mut channel_arms: Vec<&HirSelectArm> = Vec::new();
@@ -181,9 +233,10 @@ pub(crate) fn compile_select_expr(ctx: &mut FuncCtx, arms: &[HirSelectArm]) -> O
                 ctx.builder.def_var(v, out_ptr);
                 ctx.vars.insert(var.clone(), (v, Type::Any));
                 ctx.block_terminated = false;
-                compile_body(ctx, body, &Type::Nil);
+                let body_val = compile_body(ctx, body, &Type::Any);
                 if !ctx.block_terminated {
-                    ctx.builder.ins().jump(merge_block, &[]);
+                    let (tag, data) = select_body_to_tokvalue(ctx, body_val, body);
+                    ctx.builder.ins().jump(merge_block, &[tag, data]);
                 }
             }
             HirSelectArm::Send { chan, value, body } => {
@@ -199,9 +252,10 @@ pub(crate) fn compile_select_expr(ctx: &mut FuncCtx, arms: &[HirSelectArm]) -> O
                 ctx.builder.switch_to_block(body_block);
                 ctx.builder.seal_block(body_block);
                 ctx.block_terminated = false;
-                compile_body(ctx, body, &Type::Nil);
+                let body_val = compile_body(ctx, body, &Type::Any);
                 if !ctx.block_terminated {
-                    ctx.builder.ins().jump(merge_block, &[]);
+                    let (tag, data) = select_body_to_tokvalue(ctx, body_val, body);
+                    ctx.builder.ins().jump(merge_block, &[tag, data]);
                 }
             }
             HirSelectArm::Default(_) => unreachable!(),
@@ -213,9 +267,10 @@ pub(crate) fn compile_select_expr(ctx: &mut FuncCtx, arms: &[HirSelectArm]) -> O
 
     if let Some(body) = default_body {
         ctx.block_terminated = false;
-        compile_body(ctx, body, &Type::Nil);
+        let body_val = compile_body(ctx, body, &Type::Any);
         if !ctx.block_terminated {
-            ctx.builder.ins().jump(merge_block, &[]);
+            let (tag, data) = select_body_to_tokvalue(ctx, body_val, body);
+            ctx.builder.ins().jump(merge_block, &[tag, data]);
         }
     } else if let Some(first_recv) = channel_arms
         .iter()
@@ -235,18 +290,46 @@ pub(crate) fn compile_select_expr(ctx: &mut FuncCtx, arms: &[HirSelectArm]) -> O
             ctx.builder.def_var(v, val_ptr);
             ctx.vars.insert(var.clone(), (v, Type::Any));
             ctx.block_terminated = false;
-            compile_body(ctx, body, &Type::Nil);
+            let body_val = compile_body(ctx, body, &Type::Any);
             if !ctx.block_terminated {
-                ctx.builder.ins().jump(merge_block, &[]);
+                let (tag, data) = select_body_to_tokvalue(ctx, body_val, body);
+                ctx.builder.ins().jump(merge_block, &[tag, data]);
             }
         }
     } else {
-        ctx.builder.ins().jump(merge_block, &[]);
+        // No default, no recv — jump with nil
+        let nil_tag = ctx.builder.ins().iconst(types::I64, 0);
+        let nil_data = ctx.builder.ins().iconst(types::I64, 0);
+        ctx.builder.ins().jump(merge_block, &[nil_tag, nil_data]);
     }
 
     ctx.builder.switch_to_block(merge_block);
     ctx.builder.seal_block(merge_block);
-    None
+    let result_tag = ctx.builder.block_params(merge_block)[0];
+    let result_data = ctx.builder.block_params(merge_block)[1];
+    Some(from_tokvalue(ctx, result_tag, result_data, &Type::Any))
+}
+
+/// Helper to convert a body's last expression value to (tag, data) for the select merge block.
+fn select_body_to_tokvalue(
+    ctx: &mut FuncCtx,
+    body_val: Option<Value>,
+    body: &[HirStmt],
+) -> (Value, Value) {
+    if let Some(val) = body_val {
+        let last_ty = body
+            .last()
+            .map(|s| match s {
+                HirStmt::Expr(e) => e.ty.clone(),
+                _ => Type::Nil,
+            })
+            .unwrap_or(Type::Nil);
+        to_tokvalue(ctx, val, &last_ty)
+    } else {
+        let nil_tag = ctx.builder.ins().iconst(types::I64, 0);
+        let nil_data = ctx.builder.ins().iconst(types::I64, 0);
+        (nil_tag, nil_data)
+    }
 }
 
 /// Collect captured variables from a set of free variable names.
