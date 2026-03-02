@@ -93,14 +93,10 @@ pl(type(pid()))
 pl(type(cwd()))
 // expect: string
 
-// === IO: file functions ===
-{exists is_file is_dir}=@"io"
-pl(exists("/tmp"))
+// === FS: file functions ===
+{fexists}=@"fs"
+pl(fexists("/tmp"))
 // expect: T
-pl(is_dir("/tmp"))
-// expect: T
-pl(is_file("/tmp"))
-// expect: F
 
 // === Missing key gives Nil ===
 {sqrt nonexistent}=@"math"

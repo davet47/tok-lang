@@ -24,7 +24,7 @@ const RUN_SKIP: &[&str] = &[
     // Pre-existing runtime crashes (codegen limitations)
     "errors_tuples_test.tok", // hangs on ""??42 (nil coalesce codegen bug)
     // concurrency_test.tok — FIXED: sel returns values, channel/handle as func args
-    "stdlib_destructure_test.tok", // runtime crash
+    // stdlib_destructure_test.tok — FIXED: corrected module names for compiled stdlib
     // Not standalone programs
     "math_helpers.tok", // helper module for imports
 ];
@@ -268,7 +268,6 @@ fn run_head_tail_test() {
 }
 
 #[test]
-#[ignore] // Pre-existing: runtime crash (destructured imports)
 fn run_stdlib_destructure_test() {
     run_file(&common::tests_dir().join("stdlib_destructure_test.tok"));
 }
