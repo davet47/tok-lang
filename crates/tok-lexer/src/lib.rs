@@ -242,11 +242,24 @@ impl<'a> Lexer<'a> {
 
     fn hash_is_comment(&self) -> bool {
         // # is a comment if:
-        // 1. At the start of a line
+        // 1. At the start of a line (with no expression-start char following)
         // 2. After a newline token (with possible whitespace)
         // 3. After no tokens at all
         // # is the length operator if it appears in expression context
+        // or if followed immediately by an identifier/string/paren (e.g., #a, #"hi", #(arr))
         if self.is_at_line_start() {
+            // Peek at the character after # — if it's an identifier start, quote,
+            // paren, or bracket, this is the length operator, not a comment.
+            if let Some(&next) = self.source.get(self.pos + 1) {
+                if next.is_ascii_alphabetic()
+                    || next == b'_'
+                    || next == b'"'
+                    || next == b'('
+                    || next == b'['
+                {
+                    return false;
+                }
+            }
             return true;
         }
         match self.last_meaningful_token() {

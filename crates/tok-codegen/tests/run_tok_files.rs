@@ -22,7 +22,6 @@ const RUN_SKIP: &[&str] = &[
     // Known codegen bugs
     "stdlib_tmpl_test.tok", // argument count mismatch
     // Pre-existing runtime crashes (codegen limitations)
-    "strings_pipes_test.tok",      // runtime crash
     "errors_tuples_test.tok",      // runtime crash
     "concurrency_test.tok",        // runtime crash
     "stdlib_destructure_test.tok", // runtime crash
@@ -243,7 +242,6 @@ fn run_arrays_lambdas_test() {
 }
 
 #[test]
-#[ignore] // Pre-existing: runtime crash (pipes/composition)
 fn run_strings_pipes_test() {
     run_file(&common::tests_dir().join("strings_pipes_test.tok"));
 }
