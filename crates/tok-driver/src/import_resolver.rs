@@ -5,10 +5,11 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::process;
 
 use tok_hir::hir::*;
 use tok_types::Type;
+
+use crate::DriverError;
 
 /// Cached info for a previously-loaded module.
 struct ModuleCache {
@@ -43,19 +44,19 @@ impl ImportCtx {
 
     /// Load a file-based module, returning its (exports, prefix).
     /// Uses caching so each file is compiled at most once.
-    /// Detects circular imports and exits with an error message.
+    /// Returns an error on circular imports or file read/parse failures.
     fn load_module(
         &mut self,
         source_dir: &Path,
         import_path: &str,
-    ) -> (Vec<(String, Type)>, String) {
+    ) -> Result<(Vec<(String, Type)>, String), DriverError> {
         let file_path = resolve_import_path(source_dir, import_path);
         let canonical = file_path
             .canonicalize()
             .unwrap_or_else(|_| file_path.clone());
 
         if let Some(cached) = self.loaded.get(&canonical) {
-            return (cached.exports.clone(), cached.prefix.clone());
+            return Ok((cached.exports.clone(), cached.prefix.clone()));
         }
 
         // Circular import detection
@@ -65,20 +66,19 @@ impl ImportCtx {
                 .iter()
                 .map(|p| p.display().to_string())
                 .collect();
-            eprintln!(
+            return Err(DriverError::Import(format!(
                 "Circular import detected: {} -> {}",
                 cycle.join(" -> "),
                 canonical.display()
-            );
-            process::exit(1);
+            )));
         }
 
         let prefix = self.next_prefix();
         self.import_stack.push(canonical.clone());
 
         let import_dir = file_path.parent().unwrap_or(Path::new(".")).to_path_buf();
-        let mut imported_hir = compile_file_to_hir(&file_path);
-        imported_hir = resolve_file_imports_inner(imported_hir, &import_dir, self);
+        let mut imported_hir = compile_file_to_hir(&file_path)?;
+        imported_hir = resolve_file_imports_inner(imported_hir, &import_dir, self)?;
         let exports = extract_exports(&imported_hir);
         prefix_hir_names(&mut imported_hir, &prefix, &exports);
         self.preamble.extend(imported_hir);
@@ -91,7 +91,7 @@ impl ImportCtx {
                 exports: exports.clone(),
             },
         );
-        (exports, prefix)
+        Ok((exports, prefix))
     }
 }
 
@@ -110,16 +110,16 @@ fn resolve_import_path(base_dir: &Path, import_path: &str) -> PathBuf {
 }
 
 /// Parse and lower a .tok file into HIR.
-/// Exits on error since import resolution is deeply recursive and
-/// cannot practically propagate errors through the HIR walker.
-fn compile_file_to_hir(file_path: &Path) -> HirProgram {
-    let source = std::fs::read_to_string(file_path).unwrap_or_else(|e| {
-        eprintln!("Error reading imported file {}: {}", file_path.display(), e);
-        process::exit(1);
-    });
-    crate::parse_source_to_hir(&source, Some(file_path)).unwrap_or_else(|e| {
-        eprintln!("{}", e);
-        process::exit(1);
+fn compile_file_to_hir(file_path: &Path) -> Result<HirProgram, DriverError> {
+    let source = std::fs::read_to_string(file_path).map_err(|e| {
+        DriverError::Import(format!(
+            "Error reading imported file {}: {}",
+            file_path.display(),
+            e
+        ))
+    })?;
+    crate::parse_source_to_hir(&source, Some(file_path)).map_err(|e| {
+        DriverError::Import(format!("{}", e))
     })
 }
 
@@ -424,11 +424,13 @@ fn prefix_hir_names(hir: &mut HirProgram, prefix: &str, exported: &[(String, Typ
 struct ImportTransformer<'a> {
     source_dir: PathBuf,
     ictx: &'a mut ImportCtx,
+    /// Captured error from import resolution (visitor trait can't return Result).
+    error: Option<DriverError>,
 }
 
 impl<'a> HirVisitor for ImportTransformer<'a> {
     fn visit_runtime_call(&mut self, expr: &mut HirExpr, name: &str, args: &[HirExpr]) -> bool {
-        if name != "tok_import" {
+        if name != "tok_import" || self.error.is_some() {
             return false;
         }
         let path = match args.first() {
@@ -442,7 +444,13 @@ impl<'a> HirVisitor for ImportTransformer<'a> {
             return false;
         }
 
-        let (exports, use_prefix) = self.ictx.load_module(&self.source_dir, &path);
+        let (exports, use_prefix) = match self.ictx.load_module(&self.source_dir, &path) {
+            Ok(result) => result,
+            Err(e) => {
+                self.error = Some(e);
+                return false;
+            }
+        };
 
         // Replace tok_import call with a Map literal
         let map_entries: Vec<(String, HirExpr)> = exports
@@ -464,7 +472,10 @@ impl<'a> HirVisitor for ImportTransformer<'a> {
 // ─── Main import resolution ──────────────────────────────────────────
 
 /// Resolve all file-based imports in the HIR, inlining imported code.
-pub fn resolve_file_imports(program: HirProgram, source_dir: &Path) -> HirProgram {
+pub fn resolve_file_imports(
+    program: HirProgram,
+    source_dir: &Path,
+) -> Result<HirProgram, DriverError> {
     let mut ictx = ImportCtx::new();
     resolve_file_imports_inner(program, source_dir, &mut ictx)
 }
@@ -473,14 +484,14 @@ fn resolve_file_imports_inner(
     mut program: HirProgram,
     source_dir: &Path,
     ictx: &mut ImportCtx,
-) -> HirProgram {
+) -> Result<HirProgram, DriverError> {
     let mut new_program = Vec::new();
 
     for mut stmt in program.drain(..) {
         match &stmt {
             // Bare file import: @"./file.tok" → merge exports into scope
             HirStmt::Import(path) if is_file_import(path) => {
-                let (exports, use_prefix) = ictx.load_module(source_dir, path);
+                let (exports, use_prefix) = ictx.load_module(source_dir, path)?;
 
                 // Create aliases: export_name = __mod0_export_name
                 for (name, ty) in &exports {
@@ -497,8 +508,12 @@ fn resolve_file_imports_inner(
                 let mut transformer = ImportTransformer {
                     source_dir: source_dir.to_path_buf(),
                     ictx,
+                    error: None,
                 };
                 walk_stmt(&mut stmt, &mut transformer, 0);
+                if let Some(e) = transformer.error {
+                    return Err(e);
+                }
                 new_program.push(stmt);
             }
         }
@@ -507,5 +522,5 @@ fn resolve_file_imports_inner(
     // Prepend preamble (imported functions/vars) before main statements
     let mut result = std::mem::take(&mut ictx.preamble);
     result.extend(new_program);
-    result
+    Ok(result)
 }

@@ -25,11 +25,12 @@ use tok_hir::hir::HirProgram;
 
 /// Unified error type for the driver pipeline.
 #[derive(Debug)]
-enum DriverError {
+pub(crate) enum DriverError {
     Lex(tok_lexer::LexError),
     Parse(tok_parser::parser::ParseError),
     Io(String),
     Link(String),
+    Import(String),
 }
 
 impl fmt::Display for DriverError {
@@ -39,6 +40,7 @@ impl fmt::Display for DriverError {
             DriverError::Parse(e) => write!(f, "Parse error: {}", e),
             DriverError::Io(msg) => write!(f, "{}", msg),
             DriverError::Link(msg) => write!(f, "{}", msg),
+            DriverError::Import(msg) => write!(f, "Import error: {}", msg),
         }
     }
 }
@@ -187,7 +189,7 @@ fn cmd_build(source: &str, input_file: &str, output_path: &str) -> Result<(), Dr
         .parent()
         .unwrap_or(Path::new("."))
         .to_path_buf();
-    let hir = import_resolver::resolve_file_imports(hir, &source_dir);
+    let hir = import_resolver::resolve_file_imports(hir, &source_dir)?;
 
     // Generate object file
     let obj_bytes = tok_codegen::compile(&hir);
