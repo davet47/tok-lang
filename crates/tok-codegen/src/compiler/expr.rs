@@ -11,12 +11,10 @@ use super::{
     alloc_tokvalue_on_stack, cl_type, coerce_value, compile_expr_as_ptr, compile_stmt,
     from_tokvalue, to_tokvalue, unwrap_any_ptr, FuncCtx, PendingLambda, PTR, TAG_ARRAY,
 };
+use super::{can_inline_hof, compile_inline_filter, compile_inline_reduce};
 use super::{
     compile_binop, compile_call, compile_go_expr, compile_if, compile_lambda_expr, compile_loop,
     compile_receive_expr, compile_select_expr, compile_unaryop,
-};
-use super::{
-    can_inline_hof, compile_inline_filter, compile_inline_reduce,
 };
 use super::{get_stdlib_const, stdlib_constructor};
 

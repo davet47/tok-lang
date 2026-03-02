@@ -41,7 +41,7 @@ use tok_types::Type;
 
 mod stdlib;
 pub use stdlib::is_stdlib_module;
-use stdlib::{stdlib_constructor, get_stdlib_func, get_stdlib_const};
+use stdlib::{get_stdlib_const, get_stdlib_func, stdlib_constructor};
 mod runtime_decls;
 
 // ─── Cranelift type helpers ────────────────────────────────────────────
@@ -475,9 +475,7 @@ mod expr;
 pub(crate) use expr::compile_expr;
 
 mod closures;
-use closures::{
-    compile_go_expr, compile_lambda_expr, compile_receive_expr, compile_select_expr,
-};
+use closures::{compile_go_expr, compile_lambda_expr, compile_receive_expr, compile_select_expr};
 
 mod binop;
 use binop::compile_binop;
@@ -490,9 +488,8 @@ use calls::compile_call;
 
 mod inline;
 use inline::{
-    can_inline_closure_call, compile_inline_closure_call, contains_self_call,
-    is_self_tail_recursive, can_inline_hof, compile_inline_filter, compile_inline_reduce,
-    compile_print_call,
+    can_inline_closure_call, can_inline_hof, compile_inline_closure_call, compile_inline_filter,
+    compile_inline_reduce, compile_print_call, contains_self_call, is_self_tail_recursive,
 };
 
 mod control;
@@ -501,11 +498,11 @@ use control::{compile_if, compile_loop};
 mod coerce;
 use coerce::{
     alloc_tokvalue_on_stack, coerce_if_branch, coerce_value, compile_expr_as_ptr, from_tokvalue,
-    from_tokvalue_raw_data, to_bool, to_tokvalue, unwrap_any_ptr, zero_value, TAG_ARRAY,
-    TAG_FLOAT, TAG_INT, TAG_STRING,
+    from_tokvalue_raw_data, to_bool, to_tokvalue, unwrap_any_ptr, zero_value, TAG_ARRAY, TAG_FLOAT,
+    TAG_INT, TAG_STRING,
 };
 
 mod retype;
-use retype::{unwrap_return_stmts, retype_body};
+use retype::{retype_body, unwrap_return_stmts};
 
 mod free_vars;

@@ -22,12 +22,12 @@ const RUN_SKIP: &[&str] = &[
     // Known codegen bugs
     "stdlib_tmpl_test.tok", // argument count mismatch
     // Pre-existing runtime crashes (codegen limitations)
-    "arrays_lambdas_test.tok",    // runtime crash
-    "strings_pipes_test.tok",     // runtime crash
-    "maps_test.tok",              // runtime crash
-    "errors_tuples_test.tok",     // runtime crash
-    "concurrency_test.tok",       // runtime crash
-    "head_tail_test.tok",         // runtime crash
+    "arrays_lambdas_test.tok",     // runtime crash
+    "strings_pipes_test.tok",      // runtime crash
+    "maps_test.tok",               // runtime crash
+    "errors_tuples_test.tok",      // runtime crash
+    "concurrency_test.tok",        // runtime crash
+    "head_tail_test.tok",          // runtime crash
     "stdlib_destructure_test.tok", // runtime crash
     // Not standalone programs
     "math_helpers.tok", // helper module for imports

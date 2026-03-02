@@ -23,12 +23,12 @@
 // Convention: Any-typed values are always PTR to a 16-byte stack slot
 // (tag @ offset 0, data @ offset 8).
 
+use super::{compile_expr, FuncCtx, PTR};
 use cranelift_codegen::ir::types;
 use cranelift_codegen::ir::{InstBuilder, MemFlags, StackSlotData, StackSlotKind, Value};
 use cranelift_frontend::FunctionBuilder;
-use tok_types::Type;
 use tok_hir::hir::*;
-use super::{FuncCtx, PTR, compile_expr};
+use tok_types::Type;
 
 /// TAG constants matching the runtime.
 pub(crate) const TAG_NIL: i64 = 0;

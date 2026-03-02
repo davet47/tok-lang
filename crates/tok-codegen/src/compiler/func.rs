@@ -5,9 +5,7 @@
 
 use cranelift_codegen::entity::EntityRef;
 use cranelift_codegen::ir::types;
-use cranelift_codegen::ir::{
-    AbiParam, Function, InstBuilder, MemFlags, UserFuncName, Value,
-};
+use cranelift_codegen::ir::{AbiParam, Function, InstBuilder, MemFlags, UserFuncName, Value};
 use cranelift_codegen::Context;
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
 use cranelift_module::{Linkage, Module};

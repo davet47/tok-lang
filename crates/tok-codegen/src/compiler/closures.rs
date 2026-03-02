@@ -9,11 +9,11 @@ use std::collections::HashSet;
 use tok_hir::hir::*;
 use tok_types::Type;
 
+use super::free_vars::{collect_free_vars, collect_free_vars_expr};
 use super::{
     alloc_tokvalue_on_stack, cl_type_or_i64, compile_body, compile_expr, from_tokvalue,
     to_tokvalue, CapturedVar, FuncCtx, PendingLambda, PTR,
 };
-use super::free_vars::{collect_free_vars, collect_free_vars_expr};
 
 /// Compile a lambda expression: capture analysis, env allocation, closure creation.
 pub(crate) fn compile_lambda_expr(
@@ -120,7 +120,11 @@ pub(crate) fn compile_go_expr(ctx: &mut FuncCtx, body_expr: &HirExpr) -> Option<
 }
 
 /// Compile a channel receive or handle join expression.
-pub(crate) fn compile_receive_expr(ctx: &mut FuncCtx, chan_expr: &HirExpr, result_ty: &Type) -> Option<Value> {
+pub(crate) fn compile_receive_expr(
+    ctx: &mut FuncCtx,
+    chan_expr: &HirExpr,
+    result_ty: &Type,
+) -> Option<Value> {
     let chan = compile_expr(ctx, chan_expr).expect("codegen: channel expr produced no value");
     match &chan_expr.ty {
         Type::Handle(_) => {
@@ -246,7 +250,10 @@ pub(crate) fn compile_select_expr(ctx: &mut FuncCtx, arms: &[HirSelectArm]) -> O
 }
 
 /// Collect captured variables from a set of free variable names.
-pub(crate) fn collect_captures(ctx: &FuncCtx, free_var_names: &HashSet<String>) -> Vec<CapturedVar> {
+pub(crate) fn collect_captures(
+    ctx: &FuncCtx,
+    free_var_names: &HashSet<String>,
+) -> Vec<CapturedVar> {
     let mut captures: Vec<CapturedVar> = Vec::new();
     for name in free_var_names {
         if let Some((_var, var_ty)) = ctx.vars.get(name) {

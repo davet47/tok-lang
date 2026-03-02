@@ -11,15 +11,19 @@ use tok_types::Type;
 
 use super::{
     alloc_tokvalue_on_stack, cl_type_or_i64, coerce_value, compile_body, compile_expr,
-    from_tokvalue, load_captures_from_env, retype_body, to_bool, to_tokvalue,
-    unwrap_return_stmts, zero_value, FuncCtx, KnownClosure, PendingLambda, TAG_ARRAY,
+    from_tokvalue, load_captures_from_env, retype_body, to_bool, to_tokvalue, unwrap_return_stmts,
+    zero_value, FuncCtx, KnownClosure, PendingLambda, TAG_ARRAY,
 };
 
 // ─── Inline closure calls ──────────────────────────────────────────────
 
 /// Check if a known closure can be inlined at its call site.
 /// Returns true if the lambda body is a single expression and all types are concrete.
-pub(crate) fn can_inline_closure_call(pending: &PendingLambda, arg_types: &[Type], var_name: &str) -> bool {
+pub(crate) fn can_inline_closure_call(
+    pending: &PendingLambda,
+    arg_types: &[Type],
+    var_name: &str,
+) -> bool {
     // All args must be concrete
     if !arg_types
         .iter()
@@ -593,7 +597,11 @@ pub(crate) fn compile_inline_reduce(
     }
 }
 
-pub(crate) fn compile_print_call(ctx: &mut FuncCtx, args: &[HirExpr], newline: bool) -> Option<Value> {
+pub(crate) fn compile_print_call(
+    ctx: &mut FuncCtx,
+    args: &[HirExpr],
+    newline: bool,
+) -> Option<Value> {
     for (i, arg) in args.iter().enumerate() {
         let val = compile_expr(ctx, arg).unwrap_or_else(|| ctx.builder.ins().iconst(types::I64, 0));
         let use_newline = newline && i == args.len() - 1;

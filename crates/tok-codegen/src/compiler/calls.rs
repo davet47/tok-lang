@@ -11,8 +11,8 @@ use tok_hir::hir::*;
 use tok_types::Type;
 
 use super::{
-    alloc_tokvalue_on_stack, cl_type_or_i64, coerce_value, compile_body, compile_expr,
-    compile_expr_as_ptr, compile_inline_closure_call, compile_print_call, can_inline_closure_call,
+    alloc_tokvalue_on_stack, can_inline_closure_call, cl_type_or_i64, coerce_value, compile_body,
+    compile_expr, compile_expr_as_ptr, compile_inline_closure_call, compile_print_call,
     contains_self_call, from_tokvalue, from_tokvalue_raw_data, get_stdlib_func, retype_body,
     to_tokvalue, unwrap_any_ptr, unwrap_return_stmts, zero_value, FuncCtx, KnownClosure,
     PendingLambda, PTR, TAG_ARRAY, TAG_FLOAT, TAG_INT, TAG_STRING,

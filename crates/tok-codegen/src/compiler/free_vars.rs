@@ -10,7 +10,10 @@ const MAX_FREE_VAR_DEPTH: usize = 1000;
 
 /// Collect all free variables referenced in a lambda body that are not in `bound` (params + locals).
 /// Returns the names of variables that need to be captured from the enclosing scope.
-pub(crate) fn collect_free_vars(body: &[HirStmt], param_names: &HashSet<String>) -> HashSet<String> {
+pub(crate) fn collect_free_vars(
+    body: &[HirStmt],
+    param_names: &HashSet<String>,
+) -> HashSet<String> {
     let mut free = HashSet::new();
     let mut locals = param_names.clone();
     for stmt in body {

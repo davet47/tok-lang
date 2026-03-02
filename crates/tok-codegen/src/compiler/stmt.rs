@@ -8,12 +8,16 @@ use tok_hir::hir::*;
 use tok_types::Type;
 
 use super::{
-    alloc_tokvalue_on_stack, cl_type_or_i64, compile_expr, emit_rc_dec, is_heap_type,
-    to_tokvalue, unwrap_any_ptr, FuncCtx, KnownClosure, PTR,
+    alloc_tokvalue_on_stack, cl_type_or_i64, compile_expr, emit_rc_dec, is_heap_type, to_tokvalue,
+    unwrap_any_ptr, FuncCtx, KnownClosure, PTR,
 };
 
 /// Compile a sequence of statements, returning the value of the last expression.
-pub(crate) fn compile_body(ctx: &mut FuncCtx, stmts: &[HirStmt], _expected_type: &Type) -> Option<Value> {
+pub(crate) fn compile_body(
+    ctx: &mut FuncCtx,
+    stmts: &[HirStmt],
+    _expected_type: &Type,
+) -> Option<Value> {
     let mut last_val = None;
     for stmt in stmts {
         last_val = compile_stmt(ctx, stmt);
@@ -65,7 +69,12 @@ fn switch_to_dead_block(ctx: &mut FuncCtx) {
 }
 
 /// Compile a variable assignment statement with coercion and RC management.
-pub(crate) fn compile_assign(ctx: &mut FuncCtx, name: &str, ty: &Type, value: &HirExpr) -> Option<Value> {
+pub(crate) fn compile_assign(
+    ctx: &mut FuncCtx,
+    name: &str,
+    ty: &Type,
+    value: &HirExpr,
+) -> Option<Value> {
     ctx.last_lambda_info = None;
     let val = compile_expr(ctx, value);
     // If the RHS was a lambda, record it for direct-call optimization

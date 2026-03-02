@@ -89,7 +89,8 @@ pub fn compile_run_and_validate_file(path: &Path) {
 
     // Check exit code
     assert_eq!(
-        exit_code, 0,
+        exit_code,
+        0,
         "non-zero exit code ({}) for {}\nstderr: {}",
         exit_code,
         path.display(),
@@ -103,7 +104,8 @@ pub fn compile_run_and_validate_file(path: &Path) {
         for (i, exp) in expected.iter().enumerate() {
             let actual = actual_lines.get(i).unwrap_or(&"<missing>");
             assert_eq!(
-                actual, exp,
+                actual,
+                exp,
                 "output mismatch in {} at line {}: expected {:?}, got {:?}\n\nFull output:\n{}",
                 path.display(),
                 i + 1,
@@ -228,9 +230,7 @@ pub fn should_skip_run(filename: &str) -> bool {
         "stdlib_tmpl_test.tok", // needs file I/O for templates
     ];
     // Skip private modules and debug files
-    filename.starts_with('_')
-        || filename.starts_with("debug")
-        || skip_list.contains(&filename)
+    filename.starts_with('_') || filename.starts_with("debug") || skip_list.contains(&filename)
 }
 
 #[cfg(test)]

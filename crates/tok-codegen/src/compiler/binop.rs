@@ -1,10 +1,10 @@
 // ─── Binary operators ─────────────────────────────────────────────────
 
 use cranelift_codegen::ir::{types, InstBuilder, Value};
-use tok_types::Type;
 use tok_hir::hir::*;
+use tok_types::Type;
 
-use super::{FuncCtx, compile_expr, to_tokvalue, from_tokvalue, to_bool};
+use super::{compile_expr, from_tokvalue, to_bool, to_tokvalue, FuncCtx};
 
 pub(crate) fn compile_binop(
     ctx: &mut FuncCtx,

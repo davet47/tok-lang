@@ -16,8 +16,8 @@ fn compile_file(path: &Path) {
 
 /// Files that are known to fail codegen (need import resolver or have known bugs).
 const COMPILE_SKIP: &[&str] = &[
-    "imports_test.tok",      // needs import resolver (tok-driver)
-    "stdlib_tmpl_test.tok",  // known codegen bug: argument count mismatch
+    "imports_test.tok",     // needs import resolver (tok-driver)
+    "stdlib_tmpl_test.tok", // known codegen bug: argument count mismatch
 ];
 
 fn compile_dir(dir: &Path) {
