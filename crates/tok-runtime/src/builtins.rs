@@ -180,6 +180,26 @@ pub extern "C" fn tok_exit(code: i64) {
     std::process::exit(code as i32);
 }
 
+/// Flush stdout and terminate the process immediately via _exit().
+/// Avoids running atexit handlers which can conflict with goroutine threads
+/// that are still running when main returns.
+#[no_mangle]
+pub extern "C" fn tok_process_exit(code: i64) {
+    use std::io::Write;
+    let _ = std::io::stdout().flush();
+    #[cfg(unix)]
+    {
+        extern "C" {
+            fn _exit(status: i32) -> !;
+        }
+        unsafe {
+            _exit(code as i32);
+        }
+    }
+    #[cfg(not(unix))]
+    std::process::exit(code as i32);
+}
+
 // ═══════════════════════════════════════════════════════════════
 // Conversion to string
 // ═══════════════════════════════════════════════════════════════

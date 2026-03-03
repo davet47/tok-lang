@@ -781,6 +781,15 @@ pub(crate) fn compile_entry(compiler: &mut Compiler) {
         .expect("codegen: failed to declare _tok_main reference");
     let tok_main_ref = compiler.module.declare_func_in_func(tok_main_id, &mut func);
 
+    // Declare tok_process_exit for clean shutdown (avoids atexit conflicts with goroutines)
+    let mut exit_sig = compiler.module.make_signature();
+    exit_sig.params.push(AbiParam::new(types::I64));
+    let exit_id = compiler
+        .module
+        .declare_function("tok_process_exit", Linkage::Import, &exit_sig)
+        .expect("codegen: failed to declare tok_process_exit");
+    let exit_ref = compiler.module.declare_func_in_func(exit_id, &mut func);
+
     let mut func_builder_ctx = FunctionBuilderContext::new();
     let mut builder = FunctionBuilder::new(&mut func, &mut func_builder_ctx);
 
@@ -792,9 +801,14 @@ pub(crate) fn compile_entry(compiler: &mut Compiler) {
     // Call _tok_main
     builder.ins().call(tok_main_ref, &[]);
 
-    // Return 0
-    let zero = builder.ins().iconst(types::I32, 0);
-    builder.ins().return_(&[zero]);
+    // Flush stdout and terminate via _exit() to avoid atexit handler
+    // conflicts with goroutine threads that may still be running.
+    let zero = builder.ins().iconst(types::I64, 0);
+    builder.ins().call(exit_ref, &[zero]);
+
+    // Unreachable but Cranelift needs a terminator
+    let zero32 = builder.ins().iconst(types::I32, 0);
+    builder.ins().return_(&[zero32]);
 
     builder.finalize();
 

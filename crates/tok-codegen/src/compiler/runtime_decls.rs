@@ -115,6 +115,9 @@ impl Compiler {
         self.declare_runtime_func("tok_go", &[PTR, PTR], &[PTR]);
         self.declare_runtime_func("tok_handle_join", &[PTR], &[PTR, types::I64]);
 
+        // Process
+        self.declare_runtime_func("tok_process_exit", &[types::I64], &[]);
+
         // Refcount
         self.declare_runtime_func("tok_rc_inc", &[PTR], &[]);
         self.declare_runtime_func("tok_rc_dec", &[PTR], &[types::I8]);

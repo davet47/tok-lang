@@ -6,6 +6,9 @@ use std::path::Path;
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+#[cfg(unix)]
+use std::os::unix::process::ExitStatusExt;
+
 /// Global counter for unique temp file names across threads.
 static COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -74,6 +77,12 @@ pub fn compile_and_run(source: &str) -> (String, String, i32) {
 
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
     let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    #[cfg(unix)]
+    let exit_code = output
+        .status
+        .code()
+        .unwrap_or_else(|| -(output.status.signal().unwrap_or(0)));
+    #[cfg(not(unix))]
     let exit_code = output.status.code().unwrap_or(-1);
 
     // Clean up temp directory
@@ -96,10 +105,11 @@ pub fn compile_run_and_validate_file(path: &Path) {
     assert_eq!(
         exit_code,
         0,
-        "non-zero exit code ({}) for {}\nstderr: {}",
+        "non-zero exit code ({}) for {}\nstderr: {}\nstdout (partial):\n{}",
         exit_code,
         path.display(),
-        stderr
+        stderr,
+        stdout,
     );
 
     // Validate output against // expect: annotations
