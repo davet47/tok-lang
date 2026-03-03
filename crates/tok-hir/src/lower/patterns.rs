@@ -2,7 +2,11 @@ use super::*;
 
 impl<'a> Lowerer<'a> {
     /// Lower match to if-else chain.
-    pub(super) fn lower_match(&mut self, subject: &Option<Box<Expr>>, arms: &[ast::MatchArm]) -> HirExpr {
+    pub(super) fn lower_match(
+        &mut self,
+        subject: &Option<Box<Expr>>,
+        arms: &[ast::MatchArm],
+    ) -> HirExpr {
         let hir_subject = subject.as_ref().map(|s| self.lower_expr(s));
         let (tmp_name, tmp_stmts) = if let Some(ref subj) = hir_subject {
             let tmp = self.gensym();

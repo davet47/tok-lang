@@ -3,7 +3,11 @@ use super::*;
 impl<'a> Lowerer<'a> {
     /// Lower prototype instantiation: Proto{k1:v1 k2:v2}
     /// Desugars to: { _tmp = tok_map_clone(proto); tok_map_set(_tmp, "k1", v1); ...; _tmp }
-    pub(super) fn lower_proto_init(&mut self, proto: &Expr, overrides: &[(MapKey, Expr)]) -> HirExpr {
+    pub(super) fn lower_proto_init(
+        &mut self,
+        proto: &Expr,
+        overrides: &[(MapKey, Expr)],
+    ) -> HirExpr {
         let tmp = self.gensym();
         let mut stmts = Vec::new();
 

@@ -20,10 +20,10 @@ use tok_types::{Type, TypeInfo};
 
 use crate::hir::*;
 
-mod stmt;
-mod expr;
 mod desugar;
+mod expr;
 mod patterns;
+mod stmt;
 
 // ═══════════════════════════════════════════════════════════════
 // Lowerer state
