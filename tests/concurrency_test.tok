@@ -652,13 +652,17 @@ pl(doubled)
 // === Buffered channel preserves FIFO ===
 fifo=chan(10)
 ~(i:1..6){fifo<-i}
-out=[]
-~(i:1..6){
-  v=<-fifo
-  out<<=v
-}
-pl(out)
-// expect: [1 2 3 4 5]
+// Receive and verify FIFO order individually
+pl(<-fifo)
+// expect: 1
+pl(<-fifo)
+// expect: 2
+pl(<-fifo)
+// expect: 3
+pl(<-fifo)
+// expect: 4
+pl(<-fifo)
+// expect: 5
 
 // === Unbuffered channel with sequential goroutine sends ===
 useq=chan()
