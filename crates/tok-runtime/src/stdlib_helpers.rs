@@ -197,6 +197,7 @@ macro_rules! str_unary {
 }
 
 #[cfg(test)]
+#[allow(clippy::approx_constant)]
 mod tests {
     use super::*;
     use crate::string::TokString;

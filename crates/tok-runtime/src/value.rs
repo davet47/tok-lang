@@ -492,89 +492,6 @@ impl PartialEq for TokValue {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Tests
-// ═══════════════════════════════════════════════════════════════
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_nil() {
-        let v = TokValue::nil();
-        assert_eq!(v.tag, TAG_NIL);
-        assert_eq!(format!("{}", v), "N");
-        assert!(!v.truthiness());
-    }
-
-    #[test]
-    fn test_int() {
-        let v = TokValue::from_int(42);
-        assert_eq!(v.tag, TAG_INT);
-        assert_eq!(format!("{}", v), "42");
-        assert!(v.truthiness());
-
-        let z = TokValue::from_int(0);
-        assert!(!z.truthiness());
-    }
-
-    #[test]
-    fn test_float() {
-        let v = TokValue::from_float(3.14);
-        assert_eq!(v.tag, TAG_FLOAT);
-        // format_float produces "3.14"
-        assert_eq!(format!("{}", v), "3.14");
-        assert!(v.truthiness());
-
-        let z = TokValue::from_float(0.0);
-        assert!(!z.truthiness());
-        assert_eq!(format!("{}", z), "0.0");
-    }
-
-    #[test]
-    fn test_bool() {
-        let t = TokValue::from_bool(true);
-        assert_eq!(format!("{}", t), "T");
-        assert!(t.truthiness());
-
-        let f = TokValue::from_bool(false);
-        assert_eq!(format!("{}", f), "F");
-        assert!(!f.truthiness());
-    }
-
-    #[test]
-    fn test_type_names() {
-        assert_eq!(TokValue::nil().type_name(), "nil");
-        assert_eq!(TokValue::from_int(0).type_name(), "int");
-        assert_eq!(TokValue::from_float(0.0).type_name(), "float");
-        assert_eq!(TokValue::from_bool(true).type_name(), "bool");
-    }
-
-    #[test]
-    fn test_equality() {
-        assert_eq!(TokValue::from_int(42), TokValue::from_int(42));
-        assert_ne!(TokValue::from_int(42), TokValue::from_int(43));
-        assert_eq!(TokValue::nil(), TokValue::nil());
-        assert_ne!(TokValue::from_int(0), TokValue::nil());
-    }
-
-    #[test]
-    fn test_format_float() {
-        assert_eq!(format_float(3.0), "3.0");
-        assert_eq!(format_float(3.14), "3.14");
-        assert_eq!(format_float(0.1), "0.1");
-        assert_eq!(format_float(100.0), "100.0");
-        assert_eq!(format_float(-1.5), "-1.5");
-        assert_eq!(format_float(0.0), "0.0");
-    }
-
-    #[test]
-    fn test_size() {
-        assert_eq!(std::mem::size_of::<TokValue>(), 16);
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════
 // Runtime helper: length for Any-typed values
 // ═══════════════════════════════════════════════════════════════
 
@@ -691,5 +608,89 @@ pub extern "C" fn tok_value_len(val: TokValue) -> i64 {
             }
             _ => 0,
         }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Tests
+// ═══════════════════════════════════════════════════════════════
+
+#[cfg(test)]
+#[allow(clippy::approx_constant)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_nil() {
+        let v = TokValue::nil();
+        assert_eq!(v.tag, TAG_NIL);
+        assert_eq!(format!("{}", v), "N");
+        assert!(!v.truthiness());
+    }
+
+    #[test]
+    fn test_int() {
+        let v = TokValue::from_int(42);
+        assert_eq!(v.tag, TAG_INT);
+        assert_eq!(format!("{}", v), "42");
+        assert!(v.truthiness());
+
+        let z = TokValue::from_int(0);
+        assert!(!z.truthiness());
+    }
+
+    #[test]
+    fn test_float() {
+        let v = TokValue::from_float(3.14);
+        assert_eq!(v.tag, TAG_FLOAT);
+        // format_float produces "3.14"
+        assert_eq!(format!("{}", v), "3.14");
+        assert!(v.truthiness());
+
+        let z = TokValue::from_float(0.0);
+        assert!(!z.truthiness());
+        assert_eq!(format!("{}", z), "0.0");
+    }
+
+    #[test]
+    fn test_bool() {
+        let t = TokValue::from_bool(true);
+        assert_eq!(format!("{}", t), "T");
+        assert!(t.truthiness());
+
+        let f = TokValue::from_bool(false);
+        assert_eq!(format!("{}", f), "F");
+        assert!(!f.truthiness());
+    }
+
+    #[test]
+    fn test_type_names() {
+        assert_eq!(TokValue::nil().type_name(), "nil");
+        assert_eq!(TokValue::from_int(0).type_name(), "int");
+        assert_eq!(TokValue::from_float(0.0).type_name(), "float");
+        assert_eq!(TokValue::from_bool(true).type_name(), "bool");
+    }
+
+    #[test]
+    fn test_equality() {
+        assert_eq!(TokValue::from_int(42), TokValue::from_int(42));
+        assert_ne!(TokValue::from_int(42), TokValue::from_int(43));
+        assert_eq!(TokValue::nil(), TokValue::nil());
+        assert_ne!(TokValue::from_int(0), TokValue::nil());
+    }
+
+    #[test]
+    fn test_format_float() {
+        assert_eq!(format_float(3.0), "3.0");
+        assert_eq!(format_float(3.14), "3.14");
+        assert_eq!(format_float(0.1), "0.1");
+        assert_eq!(format_float(100.0), "100.0");
+        assert_eq!(format_float(-1.5), "-1.5");
+        assert_eq!(format_float(0.0), "0.0");
+    }
+
+    #[test]
+    fn test_size() {
+        assert_eq!(std::mem::size_of::<TokValue>(), 16);
     }
 }

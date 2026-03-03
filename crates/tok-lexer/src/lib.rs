@@ -1206,6 +1206,7 @@ impl<'a> Lexer<'a> {
 }
 
 #[cfg(test)]
+#[allow(clippy::approx_constant)]
 mod tests {
     use super::*;
 
@@ -1581,7 +1582,7 @@ mod tests {
 
     #[test]
     fn test_escape_sequences() {
-        let tokens = lex(r#""\n\t\\\""{}"#).unwrap();
+        let _tokens = lex(r#""\n\t\\\""{}"#).unwrap();
         // Should not error — the \{ becomes a literal {
         // Actually that's "\n\t\\\"" followed by {}
         // Let's test a simpler case

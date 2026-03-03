@@ -623,6 +623,7 @@ pub fn tok_values_equal(a: &TokValue, b: &TokValue) -> bool {
 // ═══════════════════════════════════════════════════════════════
 
 #[cfg(test)]
+#[allow(clippy::approx_constant)]
 mod tests {
     use super::*;
 

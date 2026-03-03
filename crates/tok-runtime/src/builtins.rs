@@ -835,6 +835,7 @@ pub extern "C" fn tok_env(name: *mut TokString) -> TokValue {
 // ═══════════════════════════════════════════════════════════════
 
 #[cfg(test)]
+#[allow(clippy::approx_constant, clippy::manual_range_contains)]
 mod tests {
     use super::*;
 
